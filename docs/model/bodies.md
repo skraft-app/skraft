@@ -140,6 +140,10 @@ Link     { id, source: path, receiver: path, body, seat: T }
 - **State** (`Document::link_state`): seated, off (everything there, but the source elsewhere
   or the body no longer showing it in that place), or broken (a path or the body gone). A file
   may hold a broken link; a malformed one is refused.
+- **Two parts seated in one part that overlap are told** (`Document::overlap_probe`): ⚠ on both
+  rows, whose tip names the other and the part they enter, and a toast when an operation makes it.
+  Their final solids are compared, so a joint each has cut in the other is no overlap. The kernel
+  answers in the background, only for pairs whose boxes meet and that changed; nothing is moved.
 - A linked body **copied into another part** is a shape of its own, without a link. Welding
   never moves a linked body.
 - **Following** (`Document::follow_links`, after welding, in the operation's job: one step of

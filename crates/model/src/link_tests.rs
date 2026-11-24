@@ -924,6 +924,79 @@ fn all_seated(h: &History) -> bool {
     root_links(h).iter().all(|l| h.document().link_state(root, l) == LinkState::Seated)
 }
 
+/// The overlaps between the parts seated in one part, the kernel asked.
+fn overlaps(h: &History) -> LinkOverlaps {
+    let doc = h.document();
+    let probe = doc.overlap_probe(&OverlapMemo::default());
+    let outputs = if probe.job.tasks.is_empty() { Vec::new() } else { skraft_kernel::run(&probe.job).unwrap() };
+    doc.overlaps_of(&probe, &outputs).0
+}
+
+/// A leg 40 wide at x = 100, and two rails 20 × 20 entering it from each side, the second
+/// starting at `second_at`: `(first, second, leg)`, occurrences, both linked to the leg.
+fn two_rails(h: &mut History, second_at: f64) -> (Id, Id, Id) {
+    let first = add_part(h, at(120.0, 20.0, 20.0), DAffine3::IDENTITY);
+    let second = add_part(h, at(120.0, 20.0, 20.0), moved(at(second_at, 0.0, 0.0)));
+    let leg = add_part(h, at(40.0, 40.0, 100.0), moved(at(100.0, -10.0, -40.0)));
+    link(h, first, leg);
+    link(h, second, leg);
+    (first, second, leg)
+}
+
+#[test]
+fn two_parts_overlapping_in_one_part_are_told() {
+    let mut h = History::new(Document::new());
+    let (first, second, leg) = two_rails(&mut h, 110.0);
+    let root = h.document().root();
+    let found = overlaps(&h);
+    let pair = *found.pairs().iter().next().unwrap();
+    assert_eq!(found.pairs().len(), 1);
+    assert_eq!(pair.receiver, part_of(&h, leg));
+    let (a, b) = (LinkSource { assembly: root, occurrence: first }, LinkSource { assembly: root, occurrence: second });
+    assert_eq!(found.of(a).collect::<Vec<_>>(), [(b, pair.receiver)]);
+    assert_eq!(found.of(b).collect::<Vec<_>>(), [(a, pair.receiver)]);
+    assert!(found.holds(root));
+
+    // Pulled back, still seated: its mortise follows, the overlap is gone.
+    h.apply(Operation::Transform { context: root, entities: vec![second], transform: moved(at(10.0, 0.0, 0.0)) }).unwrap();
+    assert_eq!(states(&h), vec![LinkState::Seated, LinkState::Seated]);
+    assert!(overlaps(&h).pairs().is_empty());
+}
+
+#[test]
+fn parts_touching_in_one_part_do_not_overlap() {
+    let mut h = History::new(Document::new());
+    two_rails(&mut h, 120.0);
+    assert!(overlaps(&h).pairs().is_empty());
+}
+
+#[test]
+fn a_joint_each_part_has_cut_in_the_other_is_no_overlap() {
+    let mut h = History::new(Document::new());
+    let (first, second, _) = two_rails(&mut h, 110.0);
+    assert_eq!(overlaps(&h).pairs().len(), 1);
+    link(&mut h, first, second);
+    assert!(overlaps(&h).pairs().is_empty(), "the second is cut by the first");
+}
+
+#[test]
+fn what_the_kernel_answered_is_not_asked_again() {
+    let mut h = History::new(Document::new());
+    let (_, second, _) = two_rails(&mut h, 110.0);
+    let doc = h.document().clone();
+    let probe = doc.overlap_probe(&OverlapMemo::default());
+    assert_eq!(probe.job.tasks.len(), 1);
+    let outputs = skraft_kernel::run(&probe.job).unwrap();
+    let (found, memo) = doc.overlaps_of(&probe, &outputs);
+    let again = doc.overlap_probe(&memo);
+    assert!(again.job.tasks.is_empty());
+    assert_eq!(doc.overlaps_of(&again, &[]).0, found);
+
+    let root = doc.root();
+    h.apply(Operation::Transform { context: root, entities: vec![second], transform: moved(at(1.0, 0.0, 0.0)) }).unwrap();
+    assert_eq!(h.document().overlap_probe(&memo).job.tasks.len(), 1, "moved: asked again");
+}
+
 /// What « Imprimer » would do for `selected`, the kernel asked.
 fn imprint_plan(h: &History, selected: &[Id]) -> ImprintPlan {
     let doc = h.document();

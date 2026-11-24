@@ -3,8 +3,10 @@
 //! off their seats and the machinings that lost their link, with what can be done about them.
 
 use skraft_i18n::{t, tp};
-use skraft_model::kernel::{JobResult, Output};
-use skraft_model::{Id, ImprintPlan, ImprintProbe, LinkMap, LinkSource, LinkStatus, Operation, Outcome};
+use skraft_model::kernel::{Error as KernelError, JobResult, Output};
+use skraft_model::{
+    Id, ImprintPlan, ImprintProbe, LinkMap, LinkOverlap, LinkOverlaps, LinkSource, LinkStatus, Operation, Outcome, OverlapProbe,
+};
 
 use super::{Editor, JobId, Notice, NoticeAction, NoticeKind};
 
@@ -38,6 +40,14 @@ pub(super) struct ImprintAsk {
     revision: u64,
 }
 
+/// The overlaps between parts asked of the kernel, for the document as it stands. One the
+/// document left behind is not cancelled, which would restart the web worker: its answer is
+/// dropped.
+pub(super) struct OverlapAsk {
+    pub(super) job: JobId,
+    probe: OverlapProbe,
+}
+
 impl Editor {
     /// What the links need the user to see, as of the current document.
     pub fn link_status(&self) -> &LinkStatus {
@@ -47,6 +57,69 @@ impl Editor {
     /// Who shapes whom through the links, as of the current document.
     pub fn link_map(&self) -> &LinkMap {
         &self.link_map
+    }
+
+    /// The parts seated in one part that overlap, as the kernel last answered.
+    pub fn link_overlaps(&self) -> &LinkOverlaps {
+        &self.link_overlaps
+    }
+
+    /// Asks the kernel about the document's overlaps, unless it is already answering that or
+    /// knows it all.
+    pub(super) fn check_overlaps(&mut self) {
+        let probe = self.history.document().overlap_probe(&self.overlap_memo);
+        if self.overlap_ask.as_ref().is_some_and(|a| a.probe.asks_the_same(&probe)) {
+            return;
+        }
+        self.overlap_ask = None;
+        if probe.job.tasks.is_empty() {
+            self.settle_overlaps(&probe, &[]);
+            return;
+        }
+        let job = self.job_id();
+        self.kernel.submit(job, probe.job.clone());
+        self.overlap_ask = Some(OverlapAsk { job, probe });
+    }
+
+    /// The kernel's answer to [`Editor::check_overlaps`]. A check that fails leaves the last
+    /// answer shown and says so once.
+    pub(super) fn overlaps_answered(&mut self, result: JobResult) {
+        let Some(ask) = self.overlap_ask.take() else { return };
+        match result {
+            Ok(outputs) => self.settle_overlaps(&ask.probe, &outputs),
+            Err(KernelError::Cancelled) => {}
+            Err(e) => {
+                self.overlap_tell = false;
+                self.journal.fail(None, ask.probe.job.clone(), e.to_string());
+                if !std::mem::replace(&mut self.overlap_failed, true) {
+                    self.notify(NoticeKind::Warning, t!("notice.link_overlap_unchecked"), Some(e.to_string()));
+                }
+            }
+        }
+    }
+
+    /// Takes in the overlaps; those an operation just made get a toast. A file opened with some
+    /// shows them in the navigator only.
+    fn settle_overlaps(&mut self, probe: &OverlapProbe, outputs: &[Output]) {
+        let (overlaps, memo) = self.history.document().overlaps_of(probe, outputs);
+        let new: Vec<LinkOverlap> = overlaps.pairs().difference(self.link_overlaps.pairs()).copied().collect();
+        self.link_overlaps = overlaps;
+        self.overlap_memo = memo;
+        self.overlap_failed = false;
+        if !std::mem::take(&mut self.overlap_tell) || new.is_empty() {
+            return;
+        }
+        let doc = self.history.document();
+        let title = match new.as_slice() {
+            [o] => t!(
+                "notice.link_overlap",
+                first = doc.link_source_name(o.first),
+                second = doc.link_source_name(o.second),
+                receiver = doc.component(o.receiver).map_or("", |c| c.name.as_str())
+            ),
+            _ => t!("notice.link_overlaps", count = new.len()),
+        };
+        self.notify(NoticeKind::Warning, title, None);
     }
 
     /// After an operation (`before`, the status it was applied on): the sources it left off,

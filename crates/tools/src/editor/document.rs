@@ -163,6 +163,7 @@ impl Editor {
             After::LetGo => self.clear_selection(),
             _ => {}
         }
+        self.overlap_tell = true;
         self.after_change();
         // An assembly it emptied goes with it (docs/model/data-model.md#components-parts-and-assemblies).
         self.drop_empty_assemblies(true);
@@ -266,6 +267,8 @@ impl Editor {
                 self.imported(&name, result);
             } else if self.imprint_ask.as_ref().is_some_and(|a| a.job == id) {
                 self.imprint_answered(result);
+            } else if self.overlap_ask.as_ref().is_some_and(|a| a.job == id) {
+                self.overlaps_answered(result);
             } else if let Some(probe) = self.probes.remove(&id) {
                 self.probe_report.push(match (probe, &result) {
                     (Probe::Crash, Err(e)) => t!("status.debug.crashed", error = e),
@@ -506,7 +509,11 @@ impl Editor {
 
     /// Are meshes asked of the kernel still on their way (or meshes missing, not asked yet)?
     pub fn meshing(&self) -> bool {
-        !self.meshing.is_empty() || self.scene.has_missing() || self.node_raw_job.is_some() || self.imprint_ask.is_some()
+        !self.meshing.is_empty()
+            || self.scene.has_missing()
+            || self.node_raw_job.is_some()
+            || self.imprint_ask.is_some()
+            || self.overlap_ask.is_some()
     }
 
     /// Asks the kernel for the meshes the scene lacks, one job per solid. During a load, a
@@ -626,6 +633,7 @@ impl Editor {
     pub(super) fn after_change(&mut self) {
         self.link_status = self.history.document().link_status();
         self.link_map = self.history.document().link_map();
+        self.check_overlaps();
         let doc = self.history.document();
         while !self.context.is_empty() && doc.context_of(&self.context).is_err() {
             self.context.pop();

@@ -7856,6 +7856,45 @@ fn the_move_tool_carries_a_linked_body_in_one_step() {
     assert!(close(mortise(&e).0, before), "one undo takes the rail and its mortise");
 }
 
+#[test]
+fn two_parts_overlapping_in_one_part_get_a_toast_once_checked() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let part = |e: &mut Editor, size: DVec3, at: DVec3| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        let placement = glam::DAffine3::from_translation(at);
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement, material: None }).unwrap().unwrap().created[0]
+    };
+    let settle = |e: &mut Editor| {
+        while e.meshing() {
+            e.poll();
+        }
+    };
+    let rail = DVec3::new(120.0, 20.0, 20.0);
+    let first = part(&mut e, rail, DVec3::ZERO);
+    let second = part(&mut e, rail, DVec3::new(110.0, 0.0, 0.0));
+    let leg = part(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let pair = |source| skraft_model::ImprintPair { source: vec![source], receiver: vec![leg] };
+    let pairs = vec![pair(first), pair(second)];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
+    assert!(e.meshing(), "asked in the background");
+    assert!(!e.busy(), "without holding the interface");
+    settle(&mut e);
+    assert_eq!(e.link_overlaps().pairs().len(), 1);
+    assert!(e.take_notices().iter().any(|n| n.title.contains("chevauchent")));
+
+    // Read from a file: shown, with no toast.
+    let read = Document::from_json(&e.document().to_json().unwrap()).unwrap();
+    let mut opened = top_editor(read);
+    settle(&mut opened);
+    assert_eq!(opened.link_overlaps().pairs().len(), 1);
+    assert!(!opened.take_notices().iter().any(|n| n.title.contains("chevauchent")));
+
+    e.undo();
+    settle(&mut e);
+    assert!(e.link_overlaps().pairs().is_empty());
+}
+
 /// Two legs of one part, a rail with its tenon in each, each linked to its leg's one mortise:
 /// `(rails, legs)`.
 fn linked_pair(e: &mut Editor) -> ([Id; 2], [Id; 2]) {

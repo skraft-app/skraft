@@ -979,6 +979,7 @@ panel:
     link_lost: "Cet usinage a perdu son lien : il reste tel quel. Clic droit pour rompre le lien"
     link_lost_in_part: "Un usinage de cette pièce a perdu son lien"
     link_inside_assembly: "Une pièce de cet assemblage a un lien à revoir"
+    link_overlap: "Chevauche %{parts} dans %{receivers}"
     linked: "Usinage lié à %{source} : il suit sa forme et sa place. Pour le changer, modifiez %{source} ou rompez le lien (clic droit)"
     imprints_in: "Imprime sa forme dans : %{parts}"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
@@ -1061,6 +1062,9 @@ notice:
   link_conflict_detail: "Ses liens lui demandent deux positions différentes. Séparer donne à chaque pièce le sien."
   links_lost: "%{count} usinage a perdu son lien"
   links_lost_plural: "%{count} usinages ont perdu leur lien"
+  link_overlap: "%{first} et %{second} se chevauchent dans %{receiver}"
+  link_overlaps: "%{count} chevauchements entre des pièces liées"
+  link_overlap_unchecked: "Le chevauchement des pièces liées n'a pas pu être vérifié"
   link_remove: "Retirer"
   link_keep: "Garder"
   imprinted: "%{count} lien créé"

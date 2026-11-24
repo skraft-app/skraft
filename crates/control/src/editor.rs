@@ -81,6 +81,11 @@ fn links(e: &Editor) -> Value {
     json!({
         "off": status.off.iter().map(|s| json!({ "assembly": s.assembly.0, "occurrence": s.occurrence.0 })).collect::<Vec<_>>(),
         "broken": status.broken.iter().map(|(part, body)| json!({ "part": part.0, "body": body.0 })).collect::<Vec<_>>(),
+        "overlaps": e.link_overlaps().pairs().iter().map(|o| json!({
+            "first": { "assembly": o.first.assembly.0, "occurrence": o.first.occurrence.0 },
+            "second": { "assembly": o.second.assembly.0, "occurrence": o.second.occurrence.0 },
+            "receiver": o.receiver.0,
+        })).collect::<Vec<_>>(),
     })
 }
 

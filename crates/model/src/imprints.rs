@@ -122,7 +122,7 @@ pub(crate) fn reaches(solid: &Solid, pose: &DAffine3, lo: DVec3, hi: DVec3) -> b
 }
 
 /// The box of `lo..hi` placed by `t`.
-fn placed_box(t: &DAffine3, (lo, hi): (DVec3, DVec3)) -> (DVec3, DVec3) {
+pub(crate) fn placed_box(t: &DAffine3, (lo, hi): (DVec3, DVec3)) -> (DVec3, DVec3) {
     (0..8).fold((DVec3::INFINITY, DVec3::NEG_INFINITY), |(a, b), i| {
         let c =
             DVec3::new(if i & 1 == 0 { lo.x } else { hi.x }, if i & 2 == 0 { lo.y } else { hi.y }, if i & 4 == 0 { lo.z } else { hi.z });
@@ -131,7 +131,7 @@ fn placed_box(t: &DAffine3, (lo, hi): (DVec3, DVec3)) -> (DVec3, DVec3) {
     })
 }
 
-fn boxes_meet(a: &(DVec3, DVec3), b: &(DVec3, DVec3)) -> bool {
+pub(crate) fn boxes_meet(a: &(DVec3, DVec3), b: &(DVec3, DVec3)) -> bool {
     (0..3).all(|k| a.0[k] < b.1[k] && a.1[k] > b.0[k])
 }
 

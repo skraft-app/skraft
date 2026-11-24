@@ -116,6 +116,11 @@ SolidCore's **`offset_faces`** on a free shape. A clearance refused is shown (�
 A source and receiver sharing material are flagged ⚠, nothing moved. The check runs in the
 background after a move, on the links it touched: it must not hold the interface.
 
+Amended on 2026-11-23: since a source cuts its whole solid, it can no longer collide with its own
+receiver. What stays told is **two parts seated in one part that share material**, read on their
+final solids so that a joint each has cut in the other is no overlap: ⚠ on both rows, and a toast
+when an operation makes it. Nothing is moved or refused.
+
 ### Creating and breaking
 
 - **« Imprimer »**: from the part carrying the imprints, applied to the parts it enters, after a
@@ -223,4 +228,4 @@ receiver, moving the receiver, finding the shoulder face automatically.
      (built 2026-11-23);
   4. « Imprimer », the clearance, the source's shape followed (built 2026-11-23, amended above;
      a clearance around a fully rounded end is refused);
-  5. a collision check, to decide again: a source can no longer collide with its own receiver.
+  5. the alert between two parts seated in one part (built 2026-11-23).

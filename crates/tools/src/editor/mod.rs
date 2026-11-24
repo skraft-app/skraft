@@ -94,6 +94,14 @@ pub struct Editor {
     /// « Imprimer » waiting for the kernel's answer, and its plan once answered.
     imprint_ask: Option<links::ImprintAsk>,
     imprint_ready: Option<skraft_model::ImprintPlan>,
+    /// The parts seated in one part that overlap, as the kernel last answered.
+    link_overlaps: skraft_model::LinkOverlaps,
+    overlap_memo: skraft_model::OverlapMemo,
+    overlap_ask: Option<links::OverlapAsk>,
+    /// An operation is waiting for the check: what it makes overlap gets a toast.
+    overlap_tell: bool,
+    /// The last check failed, and said so.
+    overlap_failed: bool,
     history: History,
     kernel: Box<dyn KernelService>,
     next_job: JobId,
@@ -275,6 +283,11 @@ impl Editor {
             link_offer: None,
             imprint_ask: None,
             imprint_ready: None,
+            link_overlaps: Default::default(),
+            overlap_memo: Default::default(),
+            overlap_ask: None,
+            overlap_tell: false,
+            overlap_failed: false,
             history: History::new(doc),
             kernel,
             next_job: 1,

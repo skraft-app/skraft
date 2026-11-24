@@ -207,7 +207,7 @@ impl Document {
     }
 
     /// The source of `link`, held by `holder`: the last occurrence of its path, where it lies.
-    fn link_source(&self, holder: Id, link: &Link) -> Option<LinkSource> {
+    pub(crate) fn link_source(&self, holder: Id, link: &Link) -> Option<LinkSource> {
         let (last, above) = link.source.split_last()?;
         let (assembly, _) = self.assembly_through(holder, above)?;
         self.assembly(assembly).ok()?.occurrence(*last)?;
@@ -247,23 +247,28 @@ impl Document {
         }
         status.broken = lost.into_iter().filter(|k| !alive.contains(k) && self.part(k.0).is_ok_and(|q| q.body(k.1).is_some())).collect();
         status.holding = status.off.iter().map(|s| s.assembly).chain(status.broken.iter().map(|b| b.0)).collect();
-        // Up to the model: each pass reaches one assembly higher.
+        self.spread_holding(&mut status.holding);
+        status
+    }
+
+    /// `holding` with the assemblies above its components, up to the model: each pass reaches one
+    /// assembly higher.
+    pub(crate) fn spread_holding(&self, holding: &mut FastSet<Id>) {
         for _ in 0..crate::MAX_DEPTH {
             let above: Vec<Id> = self
                 .components
                 .iter()
                 .filter(|(id, c)| {
-                    !status.holding.contains(*id)
-                        && matches!(&c.kind, ComponentKind::Assembly(a) if a.occurrences().iter().any(|o| status.holding.contains(&o.component)))
+                    !holding.contains(*id)
+                        && matches!(&c.kind, ComponentKind::Assembly(a) if a.occurrences().iter().any(|o| holding.contains(&o.component)))
                 })
                 .map(|(id, _)| *id)
                 .collect();
             if above.is_empty() {
                 break;
             }
-            status.holding.extend(above);
+            holding.extend(above);
         }
-        status
     }
 
     /// Who shapes whom: the links whose two parts and linked body are there.

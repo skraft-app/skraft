@@ -1095,7 +1095,22 @@ pub fn outliner(
             // linked body broken or a source off below it.
             let here = doc.context_of(&row.path).unwrap_or(doc.root());
             let link_off = editor.link_status().is_off(here, o.id);
-            let link_below = editor.link_status().holds(o.component);
+            let link_below = editor.link_status().holds(o.component) || editor.link_overlaps().holds(o.component);
+            // What it runs into inside a part they both enter.
+            let overlap_tip = {
+                let source = skraft_model::LinkSource { assembly: here, occurrence: o.id };
+                let list: Vec<_> = editor.link_overlaps().of(source).collect();
+                (!list.is_empty()).then(|| {
+                    let mut parts: Vec<String> = list.iter().map(|(s, _)| doc.link_source_name(*s)).collect();
+                    let mut receivers: Vec<String> =
+                        list.iter().filter_map(|(_, r)| doc.component(*r).ok().map(|c| c.name.clone())).collect();
+                    parts.sort();
+                    parts.dedup();
+                    receivers.sort();
+                    receivers.dedup();
+                    t!("panel.outliner.link_overlap", parts = parts.join(", "), receivers = receivers.join(", "))
+                })
+            };
             // The parts it shapes, told on its row.
             let shapes = editor
                 .link_map()
@@ -1139,7 +1154,7 @@ pub fn outliner(
                     }
                     let renamed = ui
                         .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            if broken || inner || link_off || link_below {
+                            if broken || inner || link_off || link_below || overlap_tip.is_some() {
                                 ui.add(warning(ui));
                             }
                             if shapes.is_some() {
@@ -1169,6 +1184,7 @@ pub fn outliner(
                 1 => None,
                 _ => Some(t!("panel.outliner.pieces", count = pieces)),
             };
+            let tip = tip.or(if link_off { None } else { overlap_tip });
             let tip = tip.or_else(|| match (link_off, link_below, part.is_some()) {
                 (true, ..) => Some(t!("panel.outliner.link_off")),
                 (_, true, true) => Some(t!("panel.outliner.link_lost_in_part")),
