@@ -26,28 +26,15 @@ enum Row<'d> {
     Document,
     Presentation {
         p: &'d Presentation,
-        fold: Fold2,
+        fold: Fold,
     },
     Sheet {
         s: &'d Sheet,
-        fold: Option<Fold2>,
+        fold: Option<Fold>,
     },
     Element(ElementRow<'d>),
     /// « Nouvelle présentation ».
     Add,
-}
-
-/// A row's fold, comparable in tests.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Fold2 {
-    key: egui::Id,
-    open: bool,
-}
-
-impl From<Fold2> for Fold {
-    fn from(f: Fold2) -> Fold {
-        Fold { key: f.key, open: f.open }
-    }
 }
 
 /// An element in the tree.
@@ -63,7 +50,7 @@ struct ElementRow<'d> {
     count: usize,
     /// An instance above it is hidden.
     hidden_above: bool,
-    fold: Option<Fold2>,
+    fold: Option<Fold>,
 }
 
 fn key(kind: &str, id: Id) -> egui::Id {
@@ -75,8 +62,8 @@ fn instance_key(sheet: Id, path: &[Id], id: Id) -> egui::Id {
     egui::Id::unique(("sheet_tree", "instance", sheet.0, path, id.0))
 }
 
-fn fold_of(open: &FastSet<egui::Id>, key: egui::Id) -> Fold2 {
-    Fold2 { key, open: open.contains(&key) }
+fn fold_of(open: &FastSet<egui::Id>, key: egui::Id) -> Fold {
+    Fold { key, open: open.contains(&key) }
 }
 
 /// What is dragged in the navigator: elements right on sheet `sheet`.
@@ -246,7 +233,7 @@ fn small_button(ui: &mut egui::Ui, icon: ImageSource<'static>, tint: egui::Color
 /// What a line shows.
 struct Line<'a> {
     depth: usize,
-    fold: Option<Fold2>,
+    fold: Option<Fold>,
     icon: ImageSource<'static>,
     name: &'a str,
     strong: bool,
@@ -273,7 +260,7 @@ fn line<R>(
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(ui.spacing().indent * l.depth as f32);
         match l.fold {
-            Some(f) => widgets::fold_toggle(ui, salt, f.into(), folds),
+            Some(f) => widgets::fold_toggle(ui, salt, f, folds),
             None => ui.add_space(ui.spacing().indent),
         }
         ui.spacing_mut().item_spacing.x = spacing;
@@ -465,7 +452,7 @@ fn presentation_row(
     d: &Drawing,
     st: &mut SheetState,
     p: &Presentation,
-    fold: Fold2,
+    fold: Fold,
     active: Option<Id>,
     salt: egui::Id,
     actions: &mut Vec<Action>,
@@ -531,7 +518,7 @@ fn sheet_row(
     d: &Drawing,
     st: &mut SheetState,
     s: &Sheet,
-    fold: Option<Fold2>,
+    fold: Option<Fold>,
     shown: Option<Id>,
     salt: egui::Id,
     actions: &mut Vec<Action>,

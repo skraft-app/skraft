@@ -7,7 +7,7 @@ use crate::icons;
 use crate::style::CARD_MARGIN;
 
 /// A row's fold: its key in its document's [`OutlinerState`](crate::panels::OutlinerState), open or not.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Fold {
     pub(crate) key: egui::Id,
     pub(crate) open: bool,
