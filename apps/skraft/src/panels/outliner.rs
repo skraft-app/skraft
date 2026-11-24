@@ -243,8 +243,8 @@ struct TreeCx<'a> {
     editing: Option<Id>,
 }
 
-/// What an occurrence's line gives back: its eye clicked, the name typed, where its own name
-/// ends.
+/// What a row's line gives back: its toggle clicked (an occurrence's eye, a body's sign), the
+/// name typed, where its own name ends.
 type LineOutcome = (bool, Option<Option<String>>, Option<f32>);
 
 /// How an occurrence's row shows, and its name's edit.
@@ -441,8 +441,7 @@ fn occurrence_menu(
                         .collect(),
                     false => vec![path.clone()],
                 };
-                let part_open = editor.open_part_path().is_some_and(|x| x.part_path() == path.part_path());
-                let scope = if part_open { editor.part_scope() } else { Scope::All };
+                let scope = scope_in(editor, path);
                 let ops = targets.into_iter().map(|target| Operation::FlattenPart { target, scope }).collect();
                 actions.push(Action::Apply(Operation::Batch(ops)));
             }
@@ -992,10 +991,16 @@ impl BodiesDrag {
 
     /// The move to `to`, with the scope of their part when it is open.
     pub(super) fn op(&self, editor: &Editor, to: BodiesTo, copy: bool) -> Operation {
-        let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == self.from.part_path());
-        let scope = if part_open { editor.part_scope() } else { Scope::All };
+        let scope = scope_in(editor, &self.from);
         Operation::MoveBodies { from: self.from.clone(), bodies: self.bodies.clone(), to, copy, scope }
     }
+}
+
+/// The scope a change made from a row acts with: the one its part is open with (here or in one
+/// of its groups), else all.
+fn scope_in(editor: &Editor, path: &EntityPath) -> Scope {
+    let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
+    if part_open { editor.part_scope() } else { Scope::All }
 }
 
 /// The operation a drop makes, told whether the copy modifier is held.
@@ -1112,16 +1117,30 @@ fn dragged_over(response: &egui::Response) -> (Option<std::sync::Arc<BodiesDrag>
     (response.dnd_hover_payload::<BodiesDrag>(), response.dnd_hover_payload::<PartsDrag>())
 }
 
-fn body_row(
-    ui: &mut egui::Ui,
-    editor: &Editor,
-    row: OutlinerRow,
-    height: f32,
-    folds: (egui::Id, &mut FastSet<egui::Id>),
-    actions: &mut Vec<Action>,
-    over: &mut Option<Id>,
-) {
-    let Some(b) = &row.body else { return };
+/// How a body's row shows, and its name's edit.
+struct BodyLook<'d> {
+    path: EntityPath,
+    def: &'d skraft_model::BodyDef,
+    /// The level open is the one it lies in.
+    open: bool,
+    /// Its bodies shown, there: it can be selected, lit, hovered.
+    shown: bool,
+    selected: bool,
+    lit: bool,
+    tint: egui::Color32,
+    weak: egui::Color32,
+    failed: bool,
+    /// A group holding a body failed, at any depth.
+    failed_inside: bool,
+    /// ⚠ before its name.
+    warned: bool,
+    rename: egui::Id,
+    rename_own: egui::Id,
+    /// Its name edited: the body's own (true) or its definition's.
+    renaming: Option<bool>,
+}
+
+fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &OutlinerRow<'d>, b: &BodyRow<'d>) -> BodyLook<'d> {
     let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
     let open = editor.open_part_path().as_ref() == Some(&path);
     let shown = open && editor.showing_machinings();
@@ -1163,7 +1182,21 @@ fn body_row(
         Some(id) if id == rename_own => Some(true),
         _ => None,
     };
-    let (response, (toggled, renamed, split)) = tree_row(ui, height, selected, lit, true, |ui| {
+    BodyLook { path, def, open, shown, selected, lit, tint, weak, failed, failed_inside: inner, warned, rename, rename_own, renaming }
+}
+
+/// Draws a body's line: its fold, icon, sign toggle, name (or its field) and node size.
+fn body_line(
+    ui: &mut egui::Ui,
+    editor: &Editor,
+    row: &OutlinerRow<'_>,
+    b: &BodyRow<'_>,
+    look: &BodyLook<'_>,
+    height: f32,
+    folds: (egui::Id, &mut FastSet<egui::Id>),
+) -> (egui::Response, LineOutcome) {
+    let BodyLook { def, selected, lit, tint, weak, failed, warned, rename, rename_own, renaming, .. } = *look;
+    tree_row(ui, height, selected, lit, true, |ui| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
         // Under the part's icon: its level, plus one, plus the groups above.
@@ -1213,8 +1246,13 @@ fn body_row(
             (toggled, renamed.0, renamed.1)
         })
         .inner
-    });
-    let response = if let Some(r) = b.part.refusal_of(b.body.id) {
+    })
+}
+
+/// A body's row's tip: why its node is refused, or what its ⚠ warns of.
+fn body_tip(response: egui::Response, b: &BodyRow<'_>, look: &BodyLook<'_>) -> egui::Response {
+    let (inner, warned, def) = (look.failed_inside, look.warned, look.def);
+    if let Some(r) = b.part.refusal_of(b.body.id) {
         response.tip(skraft_model::blend_refusal(r))
     } else if warned {
         let tip = match (inner, def.solid.is_empty()) {
@@ -1225,24 +1263,23 @@ fn body_row(
         response.tip(tip)
     } else {
         response
-    };
-    if shown && ui.rect_contains_pointer(response.rect) {
-        *over = Some(b.body.id);
     }
-    // Dragged (decision 0044): the selected siblings with it when it is selected; dropped on, a
-    // group's middle takes them in, its edges and a leaf put them beside it, in its level.
-    crate::handles::publish(|| format!("outliner_body:{}", b.body.id.0), response.rect);
-    let response = response.interact(egui::Sense::click_and_drag());
-    let with: Vec<Id> = match selected {
-        true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
-        false => vec![b.body.id],
-    };
-    if response.drag_started() {
-        let shown = if b.body.name.is_empty() { b.label() } else { b.body.name.to_string() };
-        set_drag_ghost(ui.ctx(), b.icon(), shown, with.len());
-    }
-    response.dnd_set_drag_payload(BodiesDrag { from: path.clone(), bodies: with.clone() });
-    let (bodies_over, parts_over) = dragged_over(&response);
+}
+
+/// Something of the navigator dragged over a body's row (decision 0044): marked where it
+/// would go, moved there when dropped. A group's middle takes it in, its edges and a leaf put
+/// it beside them, in their level.
+fn drop_on_body(
+    ui: &egui::Ui,
+    editor: &Editor,
+    row: &OutlinerRow<'_>,
+    b: &BodyRow<'_>,
+    look: &BodyLook<'_>,
+    response: &egui::Response,
+    actions: &mut Vec<Action>,
+) {
+    let (path, def) = (&look.path, look.def);
+    let (bodies_over, parts_over) = dragged_over(response);
     if bodies_over.is_some() || parts_over.is_some() {
         let doc = editor.document();
         let part = path.part_path();
@@ -1264,15 +1301,15 @@ fn body_row(
             _ => None,
         };
         let indent = ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32;
-        drop_on_row(ui, &response, indent, target, actions);
+        drop_on_row(ui, response, indent, target, actions);
     }
-    let alone = selected && editor.selection().len() == 1;
-    let on_own = match (split, response.interact_pointer_pos()) {
-        (Some(split), Some(at)) if response.double_clicked() => at.x < split,
-        (split, _) => split.is_some(),
-    };
-    let key = if on_own { rename_own } else { rename };
-    // Its menu, with « Sortir du groupe » (« Sortir de la pièce », at its root).
+}
+
+/// A body's row's menu, with « Sortir du groupe » (« Sortir de la pièce », at its root), acting
+/// on the bodies `with`.
+fn body_menu(editor: &Editor, b: &BodyRow<'_>, look: &BodyLook<'_>, response: &egui::Response, with: &[Id], actions: &mut Vec<Action>) {
+    let path = &look.path;
+    let (def, open, rename, rename_own) = (look.def, look.open, look.rename, look.rename_own);
     let select = (!(open && editor.selection().contains(&b.body.id))).then(|| Action::SelectBody(path.clone(), b.body.id, false));
     let own = (!b.body.name.is_empty()).then_some(rename_own);
     let is_group = def.is_group();
@@ -1285,19 +1322,56 @@ fn body_row(
         let button = ui.button(label);
         crate::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
         if button.clicked() {
-            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
-            let scope = if part_open { editor.part_scope() } else { Scope::All };
-            actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.clone(), to, copy: false, scope }));
+            let scope = scope_in(editor, path);
+            actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.to_vec(), to, copy: false, scope }));
         }
     };
     let flatten = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
         if is_group && flatten_button(ui) {
-            let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
-            let scope = if part_open { editor.part_scope() } else { Scope::All };
-            actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.clone(), scope }));
+            let scope = scope_in(editor, path);
+            actions.push(Action::Apply(Operation::FlattenBodies { target: path.clone(), bodies: with.to_vec(), scope }));
         }
     };
-    row_menu(&response, is_group, (rename, own), select, actions, move_out, flatten);
+    row_menu(response, is_group, (rename, own), select, actions, move_out, flatten);
+}
+
+fn body_row(
+    ui: &mut egui::Ui,
+    editor: &Editor,
+    row: OutlinerRow,
+    height: f32,
+    folds: (egui::Id, &mut FastSet<egui::Id>),
+    actions: &mut Vec<Action>,
+    over: &mut Option<Id>,
+) {
+    let Some(b) = &row.body else { return };
+    let look = body_look(ui, editor, &row, b);
+    let (response, (toggled, renamed, split)) = body_line(ui, editor, &row, b, &look, height, folds);
+    let response = body_tip(response, b, &look);
+    let BodyLook { shown, selected, rename, rename_own, renaming, .. } = look;
+    if shown && ui.rect_contains_pointer(response.rect) {
+        *over = Some(b.body.id);
+    }
+    // Dragged (decision 0044): the selected siblings with it when it is selected.
+    crate::handles::publish(|| format!("outliner_body:{}", b.body.id.0), response.rect);
+    let response = response.interact(egui::Sense::click_and_drag());
+    let with: Vec<Id> = match selected {
+        true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
+        false => vec![b.body.id],
+    };
+    if response.drag_started() {
+        let shown = if b.body.name.is_empty() { b.label() } else { b.body.name.to_string() };
+        set_drag_ghost(ui.ctx(), b.icon(), shown, with.len());
+    }
+    response.dnd_set_drag_payload(BodiesDrag { from: look.path.clone(), bodies: with.clone() });
+    drop_on_body(ui, editor, &row, b, &look, &response, actions);
+    let alone = selected && editor.selection().len() == 1;
+    let on_own = match (split, response.interact_pointer_pos()) {
+        (Some(split), Some(at)) if response.double_clicked() => at.x < split,
+        (split, _) => split.is_some(),
+    };
+    let key = if on_own { rename_own } else { rename };
+    body_menu(editor, b, &look, &response, &with, actions);
     let part = row.occurrence.component;
     match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
         (Some(true), Some(Some(name))) => actions.push(Action::Apply(Operation::RenameBody { part, body: b.body.id, name })),
@@ -1312,16 +1386,10 @@ fn body_row(
             Sign::Intersect => Sign::Positive,
         };
         // Selected (in its part or group, opened): the selected siblings with it.
-        let bodies = match selected {
-            true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
-            false => vec![b.body.id],
-        };
-        // Its part open (here or in one of its groups): the scope it is open with.
-        let part_open = editor.open_part_path().is_some_and(|o| o.part_path() == path.part_path());
-        let scope = if part_open { editor.part_scope() } else { Scope::All };
-        actions.push(Action::Apply(Operation::SetSign { target: path, bodies, sign, scope }));
+        let scope = scope_in(editor, &look.path);
+        actions.push(Action::Apply(Operation::SetSign { target: look.path, bodies: with, sign, scope }));
     } else if response.clicked() {
-        actions.push(Action::SelectBody(path, b.body.id, ui.input(|i| i.modifiers.shift)));
+        actions.push(Action::SelectBody(look.path, b.body.id, ui.input(|i| i.modifiers.shift)));
     }
 }
 
