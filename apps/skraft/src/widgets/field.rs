@@ -16,6 +16,24 @@ pub(crate) fn cut_label(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, wi
     });
 }
 
+/// How a framed field looks, whatever it does with what is typed ([`framed_field`],
+/// [`live_field`]).
+pub(crate) struct FieldLook<'a> {
+    /// Shown faint while it is empty (a value it would inherit).
+    pub(crate) hint: Option<&'a str>,
+    pub(crate) tip: Option<&'a str>,
+    /// The whole width, its add-on's included.
+    pub(crate) width: f32,
+    /// A number's to the right, a name's to the left.
+    pub(crate) align: egui::Align2,
+    /// Outlined with the selection's colour (a tool option's value set).
+    pub(crate) lit: bool,
+    /// A letter in a colour, in a box on the left (an axis' `X`).
+    pub(crate) addon: Option<(&'a str, egui::Color32)>,
+    /// Its name among the named handles (docs/control-protocol.md), if published.
+    pub(crate) handle: Option<String>,
+}
+
 /// How a [`framed_field`] looks and applies.
 pub(crate) struct Field<'a> {
     /// Shown faint while it is empty (a value it would inherit).
@@ -53,19 +71,12 @@ pub(crate) fn field_stroke(visuals: &egui::Visuals, focused: bool, lit: bool, ho
     }
 }
 
-/// The one text field of the interface (the tool options', Entity Info's, the materials'):
-/// always framed, the fields' ground, an outline telling its state — the border's colour at
-/// rest, the hovered ink's when hovered, the selection's when lit, twice as thick when focused.
-/// Focused, all of it is selected to be typed over: the `exact` text, as shown
-/// as `shown` (`~ 12` edited as `12,346`), Enter on it unchanged applying nothing; Esc puts the
-/// value back. The text typed, when applied.
-pub(crate) fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Field) -> Option<String> {
-    let field_id = id.with("field");
-    // While focused, the text typed (kept across frames); else the value.
+/// The one text field of the interface, as it is drawn: always framed, the fields' ground, an
+/// outline telling its state — the border's colour at rest, the hovered ink's when hovered, the
+/// selection's when lit, twice as thick when focused. `text` in the egui field `field_id`.
+fn draw_field(ui: &mut egui::Ui, field_id: egui::Id, text: &mut String, f: FieldLook) -> egui::Response {
     // The outline from the state of the last frame (the field's is only known once drawn).
     let focused = ui.memory(|m| m.has_focus(field_id));
-    // While focused, the text typed (kept across frames); else the value.
-    let mut text: String = focused.then(|| ui.data(|d| d.get_temp(id))).flatten().unwrap_or_else(|| shown.to_owned());
     let hovered = ui.ctx().read_response(field_id).is_some_and(|r| r.hovered());
     let visuals = ui.visuals();
     // Faded with its card while it is translucent (the option bar's, docs/ui/interface.md#look),
@@ -104,7 +115,7 @@ pub(crate) fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: 
                 p.text(rect.center(), egui::Align2::CENTER_CENTER, letter, font, color);
             }
             let width = f.width - addon + if addon > 0.0 { border.width } else { 0.0 };
-            let field = egui::TextEdit::singleline(&mut text)
+            let field = egui::TextEdit::singleline(text)
                 .id(field_id)
                 .frame(frame)
                 .desired_width(width)
@@ -124,16 +135,34 @@ pub(crate) fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: 
     if let Some(name) = f.handle {
         crate::handles::publish(|| name, r.rect);
     }
+    r
+}
 
-    // Just focused (clicked, tabbed into): the real value, all of it selected, to be typed over.
-    if r.gained_focus()
-        && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id)
-    {
-        text = exact.to_owned();
+/// All of the field `r`'s text selected, to be typed over.
+fn select_all(ui: &egui::Ui, r: &egui::Response, text: &str) {
+    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id) {
         ui.ctx().request_repaint();
         let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
         state.cursor.set_char_range(Some(all));
         state.store(ui.ctx(), r.id);
+    }
+}
+
+/// The field of a value applied once typed (the tool options', Entity Info's, the materials'):
+/// [`draw_field`]'s look. Focused, all of it is selected to be typed over: the `exact` text, as
+/// shown as `shown` (`~ 12` edited as `12,346`), Enter on it unchanged applying nothing; Esc puts
+/// the value back. The text typed, when applied.
+pub(crate) fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: &str, f: Field) -> Option<String> {
+    let field_id = id.with("field");
+    let focused = ui.memory(|m| m.has_focus(field_id));
+    // While focused, the text typed (kept across frames); else the value.
+    let mut text: String = focused.then(|| ui.data(|d| d.get_temp(id))).flatten().unwrap_or_else(|| shown.to_owned());
+    let look = FieldLook { hint: f.hint, tip: f.tip, width: f.width, align: f.align, lit: f.lit, addon: f.addon, handle: f.handle };
+    let r = draw_field(ui, field_id, &mut text, look);
+    // Just focused (clicked, tabbed into): the real value, all of it selected, to be typed over.
+    if r.gained_focus() {
+        text = exact.to_owned();
+        select_all(ui, &r, &text);
     }
     if r.lost_focus() {
         ui.data_mut(|d| d.remove::<String>(id));
@@ -148,6 +177,17 @@ pub(crate) fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: 
         ui.data_mut(|d| d.insert_temp(id, text));
     }
     None
+}
+
+/// The field of a text checked as it is typed (a modal box's name, its lengths): [`draw_field`]'s
+/// look, `text` changed at each keystroke, in the egui field `id`. Focused, all of it is selected
+/// to be typed over. Enter and Esc are the box's.
+pub(crate) fn live_field(ui: &mut egui::Ui, id: egui::Id, text: &mut String, look: FieldLook) -> egui::Response {
+    let r = draw_field(ui, id, text, look);
+    if r.gained_focus() {
+        select_all(ui, &r, text);
+    }
+    r
 }
 
 /// A row's name (a body's, a component's) edited in place in its navigator row (docs/model/bodies.md#body-names), under the key
