@@ -682,13 +682,13 @@ the command search keep it.
 
 Handles ([Control protocol](../control-protocol.md)): `sheet` (the stage), `sheet_paper:<id>`
 (a sheet's paper on the board), `sheet_view:<id>` (a view's frame on the active sheet),
-`sheet_element:<id>` (another element's box there); in the navigator, `sheet_tree:add_sheet:<id>` (a
-presentation's « + ») and its menu's `sheet_add:blank`, `sheet_add:<n>` (the n-th template), `sheet_add:<n>:<k>` (its
-k-th sheet), `sheet_tree:add` and its menu's `sheet_presentation:new`,
-`sheet_presentation:template:<n>`; the navigator's
-`sheet_tree:document`, `:presentation:<id>`, `:sheet:<id>`, `:element:<id>`, `:add`, and on an
+`sheet_element:<id>` (another element's box there); in the navigator, `navigator:add_sheet:<id>` (a
+presentation's « + ») and its menu's `navigator:menu:blank_sheet`, `navigator:menu:sheet_template:<n>`
+(the n-th template), `navigator:menu:sheet_template:<n>:<k>` (its k-th sheet), `navigator:add` and its
+menu's `navigator:menu:new_presentation`, `navigator:menu:presentation_template:<n>`; the navigator's
+`navigator:document`, `:presentation:<id>`, `:sheet:<id>`, `:element:<id>`, and on an
 element's row `:eye:<id>`, `:lock:<id>`, `:up:<id>`, `:down:<id>` (the last three under the
-pointer), in an open menu `:menu:<command>`, `:menu:copy`; in the compositions card `compositions:<id>`, `:search`, `:grid`,
+pointer), in an open menu `:menu:<command>`, `:menu:copy`, `:menu:save_template`; in the compositions card `compositions:<id>`, `:search`, `:grid`,
 `:list`, `:purge`, and in an open menu `:menu:place`, `:menu:delete`; in the entity info
 `drawing_border`, `drawing_value:<id>:<n>`, `drawing_field_value:<name>`, `drawing_new_field`;
 `drawing_insert_field`

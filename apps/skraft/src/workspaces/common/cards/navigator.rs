@@ -140,7 +140,7 @@ pub fn navigator(
     let top = ui.cursor().top();
     ui.add_space((line + crate::kit::search::GAP - ui.cursor().top()).max(0.0));
     let salt = ui.make_persistent_id("navigator_search");
-    crate::kit::search::field(ui, salt, "outliner", &mut state.search, |_, _| {});
+    crate::kit::search::field(ui, salt, "navigator", &mut state.search, |_, _| {});
     let left = (body - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(left).min_scrolled_height(left);
     let height = ui.spacing().interact_size.y;
@@ -367,7 +367,9 @@ fn occurrence_line(
     let eye = |ui: &mut egui::Ui, _| {
         let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.navigator.show")) } else { (icons::EYE, t!("panel.navigator.hide")) };
         let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-        let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
+        let eye = ui.add(egui::Button::image(img).frame(false));
+        crate::kit::handles::publish(|| format!("navigator:eye:{}", o.id.0), eye.rect);
+        let eye = eye.tip(tip).clicked();
         // Its own material, if any: a dot of its colour left of the eye, a column of its own so
         // the names stay aligned.
         if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
@@ -535,7 +537,7 @@ fn occurrence_row(
     if ui.rect_contains_pointer(response.rect) {
         *over = Some(path.clone());
     }
-    crate::kit::handles::publish(|| format!("outliner:{}", o.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("navigator:occurrence:{}", o.id.0), response.rect);
     // Bodies dragged onto their part's row: to its root (decision 0044).
     // Dragged (decision 0044): the selected occurrences of its assembly with it when it
     // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
@@ -1291,7 +1293,9 @@ fn body_line(
         };
         let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
         let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
-        ui.add(egui::Button::image(img).frame(false).sense(sense)).tip(tip).clicked()
+        let sign = ui.add(egui::Button::image(img).frame(false).sense(sense));
+        crate::kit::handles::publish(|| format!("navigator:sign:{}", b.body.id.0), sign.rect);
+        sign.tip(tip).clicked()
     };
     let label = |ui: &mut egui::Ui| {
         if warned {
@@ -1411,7 +1415,7 @@ fn body_menu(
                 None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
             };
             let button = ui.button(label);
-            crate::kit::handles::publish(|| "outliner_menu:move_out".into(), button.rect);
+            crate::kit::handles::publish(|| "navigator:menu:move_out".into(), button.rect);
             if button.clicked() {
                 let scope = scope_in(editor, path);
                 actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.to_vec(), to, copy: false, scope }));
@@ -1450,7 +1454,7 @@ fn body_row(
         *over = Some(b.body.id);
     }
     // Dragged (decision 0044): the selected siblings with it when it is selected.
-    crate::kit::handles::publish(|| format!("outliner_body:{}", b.body.id.0), response.rect);
+    crate::kit::handles::publish(|| format!("navigator:body:{}", b.body.id.0), response.rect);
     let response = response.interact(egui::Sense::click_and_drag());
     let with: Vec<Id> = match selected {
         true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
@@ -1493,7 +1497,7 @@ fn body_row(
 /// A navigator menu's entry applying `op`, under the handle `navigator_menu:<handle>`.
 fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, actions: &mut Vec<Action>) {
     let button = ui.button(label);
-    crate::kit::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+    crate::kit::handles::publish(|| format!("navigator:menu:{handle}"), button.rect);
     if button.clicked() {
         actions.push(Action::Apply(op));
     }
@@ -1502,7 +1506,7 @@ fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, action
 /// The menu's « Aplatir » (docs/model/bodies.md#flattening): clicked?
 fn flatten_button(ui: &mut egui::Ui) -> bool {
     let button = ui.button(t!("common.flatten"));
-    crate::kit::handles::publish(|| "outliner_menu:flatten".into(), button.rect);
+    crate::kit::handles::publish(|| "navigator:menu:flatten".into(), button.rect);
     button.clicked()
 }
 
@@ -1530,7 +1534,7 @@ fn row_menu(
         };
         for (label, key, handle) in names {
             let button = ui.button(label);
-            crate::kit::handles::publish(|| format!("outliner_menu:{handle}"), button.rect);
+            crate::kit::handles::publish(|| format!("navigator:menu:{handle}"), button.rect);
             if button.clicked() {
                 ui.data_mut(|d| d.insert_temp(egui::Id::unique(RENAMING), key));
             }
@@ -1540,14 +1544,14 @@ fn row_menu(
         flatten(ui, actions);
         if explodable {
             let button = ui.button(t!("menu.edit.explode"));
-            crate::kit::handles::publish(|| "outliner_menu:explode".into(), button.rect);
+            crate::kit::handles::publish(|| "navigator:menu:explode".into(), button.rect);
             if button.clicked() {
                 actions.extend(select.take());
                 actions.push(Action::Command("edit.explode"));
             }
         }
         let button = ui.button(t!("menu.edit.erase"));
-        crate::kit::handles::publish(|| "outliner_menu:delete".into(), button.rect);
+        crate::kit::handles::publish(|| "navigator:menu:delete".into(), button.rect);
         if button.clicked() {
             actions.extend(select.take());
             actions.push(Action::Command("edit.erase"));

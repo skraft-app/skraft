@@ -177,7 +177,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
   bar line, the card's tabs) and from the list under it. In the navigator, over the whole
   width; in the
   « Composants » card, left of the grid / list toggle. Handles `components:search`,
-  `outliner:search`.
+  `navigator:search`.
 - **Name**: a substring of the name, case and diacritics ignored (« etag » finds
   « Étagère#2 »): both folded to lower case, the diacritics of Latin letters dropped by a table
   (`search::fold`, no Unicode normalisation crate), the ligatures spelt out (« œ » → « oe »),

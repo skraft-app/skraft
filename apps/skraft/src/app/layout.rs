@@ -348,7 +348,7 @@ impl SkraftApp {
                                     st,
                                     &name,
                                     actions,
-                                    area.id_salt("sheet_tree"),
+                                    area.id_salt("drawing_navigator"),
                                 )
                             });
                         }

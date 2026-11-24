@@ -125,16 +125,17 @@ of egui events into `ToolInput`s. Being egui points (`f32`), a box clicked this 
 **Named handles** (`apps/skraft/src/kit/handles.rs`, after SolidCraft's `ui-registry`): widgets
 publish their rect per frame under a stable name, with whether they are enabled,
 double-buffered, kept only while the channel is on (nothing made otherwise), so a script clicks
-a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<group>`, `ribbon_workspace` (the workspace cell), `ribbon_workspace:<id>` (a row of its menu, open), `parts_list`, `parts_list_header:<column>`, `parts_list_row:<part>[:<material>]`, `stage_split` ([Parts list](ui/parts-list.md)), `sheet`, `sheet_paper:<id>`, `sheet_view:<id>`, `sheet_element:<id>`, `compositions:<id>`, `sheet_add`, `sheet_add:blank`, `sheet_add:<n>`, `drawing_insert_field`, `drawing_field:<field>` ([Drawing](ui/drawing.md)),
+a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<group>`, `ribbon_workspace` (the workspace cell), `ribbon_workspace:<id>` (a row of its menu, open), `parts_list`, `parts_list_header:<column>`, `parts_list_row:<part>[:<material>]`, `stage_split` ([Parts list](ui/parts-list.md)), `sheet`, `sheet_paper:<id>`, `sheet_view:<id>`, `sheet_element:<id>`, `compositions:<id>`, `navigator:add_sheet:<id>`, `navigator:menu:blank_sheet`, `navigator:menu:sheet_template:<n>`, `drawing_insert_field`, `drawing_field:<field>` ([Drawing](ui/drawing.md)),
 `titlebar:<command>`, `titlebar:file`, `titlebar:views`, `menu:<command>` (menu items),
 `option:<key>` (a toggle or a length field), `option:<key>:<value>` (a choice's segment;
 `part_scope`, `body_sign`, `machinings`, `profile`), `tab:<i>`, `tab_close:<i>`, `tab_new`,
-`quick:<command>`, `quick:more`, `view_bar:<handle>`, `tree:<k>` (the tree drop-up's rows),
+`quick:<command>`, `quick:more`, `view_bar:<handle>`, `drop_up:<k>` (the tree drop-up's rows),
 `naming.field`, `naming.ok`, `naming.cancel`, `save_prompt.ok`, `.cancel` (the closing document's
 prompt), `toast.<i>`, `toast.<i>.action`,
 `validation:cancel`, `validation:ok` (the steps bar's buttons), `vcb`,
-`viewport`, `outliner:<occurrence>` and `outliner_body:<body>` (the navigator's rows, those
-laid out), `outliner_menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open), `imprint.around`, `.deep`, `.ok`, `.cancel` (« Imprimer »'s confirmation), `info:imprint_around`, `_deep` (a linked body's entity info). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
+`viewport`, the navigator's (either tree, [Drawing](ui/drawing.md) lists the drawing's):
+`navigator:occurrence:<id>` and `navigator:body:<id>` (its rows, those laid out),
+`navigator:eye:<id>`, `navigator:sign:<id>`, `navigator:search`, `navigator:menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open), `imprint.around`, `.deep`, `.ok`, `.cancel` (« Imprimer »'s confirmation), `info:imprint_around`, `_deep` (a linked body's entity info). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
 whole window (egui's `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's
 texts as they changed, the last 200, with their time.
 
