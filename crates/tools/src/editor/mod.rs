@@ -723,6 +723,11 @@ impl Editor {
         self.tool.takes_counts()
     }
 
+    /// Does the measurements box take a count of copies now (`x5` as well as `*5`)?
+    pub fn takes_count(&self) -> bool {
+        self.tool.vcb().is_some_and(|v| v.kind == vcb::VcbKind::Count || v.counts > 0)
+    }
+
     pub fn set_viewport_size(&mut self, size: DVec2) {
         self.size = size.max(DVec2::ONE);
     }
@@ -913,7 +918,7 @@ impl Editor {
     /// The active tool's first length option, if `text` is meant for it: a text ending in `x`
     /// (OpenCutList's offset), unless the measurements box takes a count of copies now.
     fn length_typed<'t>(&self, text: &'t str) -> Option<(&'static str, &'t str)> {
-        if self.tool.vcb().is_some_and(|v| v.kind == vcb::VcbKind::Count || v.counts > 0) {
+        if self.takes_count() {
             return None;
         }
         // A suffix the tool gives one of its length options (the prism tool's `5r`, its fillet).

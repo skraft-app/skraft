@@ -89,10 +89,13 @@ impl SkraftApp {
                     d.editor.input(ToolInput::Key { key, mods: Default::default() });
                     return None;
                 }
-                // `*5` and `/5` (arrays), `@` (the current value), `(`, and points `[x;y;z]`,
-                // `<dx;dy;dz>` start a value too.
+                // `*5`, `x5` (when a count is taken) and `/5` (arrays), `@` (the current value),
+                // `(`, and points `[x;y;z]`, `<dx;dy;dz>` start a value too.
+                let count = d.workspace.stage != Stage::Sheet && d.editor.takes_count();
                 let starts_value = t.starts_with(|c: char| {
-                    c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
+                    c.is_ascii_digit()
+                        || matches!(c, '-' | '+' | '.' | ',' | '*' | '/' | '@' | '(' | '[' | '<' | ';')
+                        || (count && matches!(c, 'x' | 'X'))
                 });
                 let takes = if d.workspace.stage == Stage::Sheet { d.sheet.vcb().is_some() } else { d.editor.takes_typing() };
                 if takes && (!d.vcb.is_empty() || starts_value) {
@@ -145,6 +148,10 @@ impl SkraftApp {
         let tool_key = |k: Key| ToolInput::Key { key: k, mods: m };
         let plain = !(modifiers.command || modifiers.alt || modifiers.ctrl);
         let e = &mut d.editor;
+        // X starts a count (`x5`) when the tool takes one: typed, not a shortcut.
+        if key == K::X && plain && e.takes_count() {
+            return None;
+        }
         match key {
             K::Enter if typing => {
                 let text = std::mem::take(&mut d.vcb);

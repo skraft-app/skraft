@@ -215,7 +215,7 @@ thickness).
 
 SketchUp's, in Move and Rotate: a short tap of the copy modifier (Option on macOS, Ctrl
 elsewhere), alone, toggles copying, before or during the gesture; the cursor carries a "+" and
-copying drops once done. Right after a copy, typing `5x` (or `*5`) makes it an array of 5 with
+copying drops once done. Right after a copy, typing `5x` (or `x5`, `*5`) makes it an array of 5 with
 the same step, `/5` spreads 5 copies over the same way; one can retype to correct. The array
 is an operation (`Operation::Array`: `count` copies, the k-th transformed k times by `step`),
 which replaces the copy in the history (`Command::Replace`): a single undo step. Translation
