@@ -21,14 +21,16 @@ pub enum PanelId {
     /// panel, in layouts already saved.
     #[serde(alias = "outliner", alias = "layers")]
     Navigator,
-    /// The document's parts and assemblies (docs/ui/components-library.md).
-    Components,
-    /// The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
-    Compositions,
+    /// The library: the workspace's definitions, the document's parts and assemblies
+    /// (docs/ui/components-library.md) or, on a sheet, the drawing's compositions
+    /// (docs/ui/drawing.md#the-compositions-card). `components`, `compositions`: its two former
+    /// cards, in layouts already saved.
+    #[serde(alias = "components", alias = "compositions")]
+    Library,
 }
 
 impl PanelId {
-    pub const ALL: [PanelId; 5] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Navigator, PanelId::Components, PanelId::Compositions];
+    pub const ALL: [PanelId; 4] = [PanelId::EntityInfo, PanelId::Materials, PanelId::Navigator, PanelId::Library];
 
     /// Its command (`view.*`), which shows or closes it.
     pub fn command(self) -> &'static str {
@@ -36,8 +38,7 @@ impl PanelId {
             PanelId::EntityInfo => "view.entity_info",
             PanelId::Materials => "view.materials",
             PanelId::Navigator => "view.navigator",
-            PanelId::Components => "view.components",
-            PanelId::Compositions => "view.compositions",
+            PanelId::Library => "view.library",
         }
     }
 
@@ -55,14 +56,14 @@ impl PanelId {
         match self {
             PanelId::EntityInfo => 280.0,
             PanelId::Navigator => 300.0,
-            PanelId::Materials | PanelId::Components | PanelId::Compositions => 240.0,
+            PanelId::Materials | PanelId::Library => 240.0,
         }
     }
 
-    /// Shown in a first layout, or once added to one written by an older build: the
-    /// components library waits to be asked for, the compositions are the drawing's.
+    /// Shown in a first layout, or once added to one written by an older build: the library
+    /// waits to be asked for (the drawing shows it at first, [`crate::workspaces::Workspace::panels`]).
     fn shown_by_default(self) -> bool {
-        !matches!(self, PanelId::Components | PanelId::Compositions)
+        self != PanelId::Library
     }
 
     /// Its card as a first layout has it.
@@ -387,10 +388,7 @@ mod tests {
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials]);
         l.move_card(PanelId::Navigator, Dock::Right, Some(PanelId::Materials));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Navigator, PanelId::Materials]);
-        assert_eq!(
-            l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(),
-            [PanelId::EntityInfo, PanelId::Components, PanelId::Compositions]
-        );
+        assert_eq!(l.left.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::EntityInfo, PanelId::Library]);
         // Within its column, above another one.
         l.move_card(PanelId::Materials, Dock::Right, Some(PanelId::Navigator));
         assert_eq!(l.right.cards.iter().map(|c| c.id).collect::<Vec<_>>(), [PanelId::Materials, PanelId::Navigator]);
@@ -405,9 +403,9 @@ mod tests {
         l.normalize();
         assert_eq!(l.right.cards.len(), 0);
         let ids: Vec<_> = l.left.cards.iter().map(|c| c.id).collect();
-        assert_eq!(ids, [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Components, PanelId::Compositions]);
-        // The components library added closed, as in a first layout.
-        assert!(!l.is_shown(PanelId::Components) && !Layout::default().is_shown(PanelId::Components));
+        assert_eq!(ids, [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Library]);
+        // The library added closed, as in a first layout.
+        assert!(!l.is_shown(PanelId::Library) && !Layout::default().is_shown(PanelId::Library));
         assert!(l.is_shown(PanelId::EntityInfo));
         // A workspace's own first panels: the navigator added shown in « Mise en plan ».
         let mut l = Layout { left: Column { width: 270.0, cards: vec![card(PanelId::EntityInfo, 1.0)] }, right: Column::default() };
@@ -425,5 +423,16 @@ mod tests {
         l.normalize();
         assert_eq!(l.left.cards.iter().filter(|c| c.id == PanelId::Navigator).count(), 1);
         assert!(l.is_shown(PanelId::Navigator));
+    }
+
+    #[test]
+    fn a_layout_saved_with_the_two_former_libraries_shows_one() {
+        let saved = r#"{"left":{"width":270.0,"cards":[
+            {"id":"components","height":240.0,"shown":false,"folded":false},
+            {"id":"compositions","height":240.0,"shown":true,"folded":false}]},"right":{"width":270.0,"cards":[]}}"#;
+        let mut l: Layout = serde_json::from_str(saved).unwrap();
+        l.normalize();
+        assert_eq!(l.left.cards.iter().filter(|c| c.id == PanelId::Library).count(), 1);
+        assert!(l.is_shown(PanelId::Library), "shown, as one of them was");
     }
 }

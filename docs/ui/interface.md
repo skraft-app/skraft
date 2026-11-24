@@ -19,7 +19,7 @@ tabs have pages of their own.
   fit there ([Workspaces and ribbon](ribbon.md#layout)), the context card and the tool option bar
   under the ribbon ([Context card](#context-card)), the view bar along the left or right edge,
   centered on the view's height ([View bar](view-bar.md));
-  **Entity info**, **Materials**, **Navigator** and **Components**
+  **Entity info**, **Materials**, **Navigator** and **Library**
   ([Components library](components-library.md), closed at first) are four cards docked in two columns, one
   per edge of the view (`dock.rs`), over the view's whole height — under the ribbon when it is
   above them. A card's header (a title bar in the
@@ -27,10 +27,10 @@ tabs have pages of their own.
   (click) or moves it (drag: it follows the pointer and drops into the column of the nearer
   edge, where a bar shows the insertion point); the commands `view.entity_info`,
   `view.materials`, `view.navigator` (on a sheet, the drawing's tree:
-  docs/ui/drawing.md#navigator), `view.components` and, in a workspace of sheets,
-  `view.compositions` (command palette, shortcuts) close or show each one
+  docs/ui/drawing.md#navigator), `view.library` (on a sheet, the compositions:
+  docs/ui/drawing.md#the-compositions-card) (command palette, shortcuts) close or show each one
   (`PanelId::command`). A card keeps the height given by dragging its bottom edge, except the
-  last unfolded list of its column (Materials, Navigator, Components or Compositions; never Entity info, which would only
+  last unfolded list of its column (Materials, Navigator or Library; never Entity info, which would only
   grow empty: `PanelId::fills`), which fills the height left; the inner edge sets the column's
   width (`dock::COLUMN_WIDTH` 270 pt by default, `COLUMN_MIN_WIDTH` 200 at least; double click:
   default). Order, columns, sizes, folded and closed cards are kept in the preferences
@@ -48,7 +48,7 @@ tabs have pages of their own.
 
 ## Navigator
 
-- **A search field** at its top, over the whole width, shared with the « Composants » card: the
+- **A search field** at its top, over the whole width, shared with the library: the
   tree filtered to the rows matching a name, and the rows above them
   ([Components library: search](components-library.md#search)).
 - **A row dragged** carries a translucent copy of itself under the pointer, in the model's tree as
@@ -217,7 +217,7 @@ Elsewhere:
 - **The shared slots**: the « Navigateur » and « Infos sur l'entité » cards take their content
   from the workspace shown (`workspaces::common::cards`, `workspaces::drawing::cards`).
 - **`ribbon::tab_strip`**: a band of tabs (the ribbon's, the Preferences', the journal's, the
-  « Composants » card's).
+  library's components').
 - **`search::field`** and **`search::listed`**: a search line, and what it lets through as
   last listed; **`workspaces::common::cards::catalog`**: the cards listing definitions as
   tiles or rows ([Catalog cards](catalog.md)).

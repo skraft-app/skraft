@@ -143,8 +143,7 @@ menu:
     entity_info: "$t(panel.entity_info.title) Panel"
     materials: "$t(common.materials) Panel"
     navigator: "$t(panel.navigator.title) Panel"
-    components: "$t(panel.components.title) Panel"
-    compositions: "$t(panel.compositions.title) Panel"
+    library: "$t(panel.library.title) Panel"
     render_stats: "Render Statistics"
     top: "Top"
     front: "Front"
@@ -785,9 +784,12 @@ panel:
     selected_plural: "%{count} selected"
     # A component chosen in the Components card: how many times it is in the model.
     in_model: "In model"
-  # The document's parts and assemblies (docs/ui/components-library.md).
+  # The library card: the workspace's definitions, the components or, on a sheet, the
+  # compositions (docs/ui/components-library.md).
+  library:
+    title: "Library"
+  # The document's parts and assemblies in the library (docs/ui/components-library.md).
   components:
-    title: "Components"
     in_model: "In Model"
     # Placed nowhere: kept until purged (docs/ui/components-library.md).
     unused: "Unused"
@@ -814,9 +816,8 @@ panel:
     # The card view: a grid of thumbnails, or a list.
     as_grid: "Thumbnails"
     as_list: "List"
-  # The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
+  # The drawing's compositions in the library, on a sheet (docs/ui/drawing.md#the-compositions-card).
   compositions:
-    title: "Compositions"
     on_sheets: "On the Sheets"
     unused: "Unused"
     unused_tip: "On no sheet: kept until purged"

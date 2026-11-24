@@ -167,8 +167,7 @@ menu:
     entity_info: "Panneau $t(panel.entity_info.title)"
     materials: "Panneau $t(common.materials)"
     navigator: "Panneau $t(panel.navigator.title)"
-    components: "Panneau $t(panel.components.title)"
-    compositions: "Panneau $t(panel.compositions.title)"
+    library: "Panneau $t(panel.library.title)"
     render_stats: "Statistiques de rendu"
     top: "Dessus"
     front: "Face"
@@ -862,9 +861,12 @@ panel:
     selected_plural: "%{count} sélectionnés"
     # A component chosen in the « Composants » card: how many times it is in the model.
     in_model: "Dans le modèle"
-  # The document's parts and assemblies (docs/ui/components-library.md).
+  # The library card: the workspace's definitions, the components or, on a sheet, the
+  # compositions (docs/ui/components-library.md).
+  library:
+    title: "Bibliothèque"
+  # The document's parts and assemblies in the library (docs/ui/components-library.md).
   components:
-    title: "Composants"
     in_model: "Dans le modèle"
     # Placed nowhere: kept until purged (docs/ui/components-library.md).
     unused: "Inutilisés"
@@ -891,9 +893,8 @@ panel:
     # The card view: a grid of thumbnails, or a list.
     as_grid: "Vignettes"
     as_list: "Liste"
-  # The drawing's compositions (docs/ui/drawing.md#the-compositions-card).
+  # The drawing's compositions in the library, on a sheet (docs/ui/drawing.md#the-compositions-card).
   compositions:
-    title: "Compositions"
     on_sheets: "Sur les feuilles"
     unused: "Inutilisées"
     unused_tip: "Sur aucune feuille : gardée jusqu'à la purge"

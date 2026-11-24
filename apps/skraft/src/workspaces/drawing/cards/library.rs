@@ -1,5 +1,5 @@
-//! The « Compositions » card (docs/ui/drawing.md#the-compositions-card): the drawing's
-//! definitions, as the « Composants » card shows the model's: tiles or rows, how many times each
+//! The library on a sheet, the compositions (docs/ui/drawing.md#the-compositions-card): the drawing's
+//! definitions, as the library shows the model's: tiles or rows, how many times each
 //! is on the sheets, the unused ones apart; a click picks its instances in the level open, a drag
 //! onto the sheet places one more at the pointer, its menu places, renames or deletes it.
 
@@ -101,7 +101,7 @@ pub fn compositions(
     let library = &mut st.library;
     let rows = crate::kit::search::listed(&mut library.rows, editor.history().revision(), &library.search, || rows_of(d, &matcher)).clone();
     let salt = ui.make_persistent_id("compositions_search");
-    crate::kit::search::field(ui, salt, "compositions", &mut st.library.search, |ui, side| {
+    crate::kit::search::field(ui, salt, "library", &mut st.library.search, |ui, side| {
         catalog::view_toggle(ui, side, as_list, Card::Compositions, actions)
     });
     ui.add_space(crate::kit::search::GAP - ui.spacing().item_spacing.y);
@@ -155,7 +155,7 @@ impl Shelf for Compositions<'_> {
 
     fn header(&mut self, ui: &mut egui::Ui, height: f32, unused: bool, actions: &mut Vec<Action>) {
         let title = if unused { t!("panel.compositions.unused") } else { t!("panel.compositions.on_sheets") };
-        let purge = unused.then(|| (true, t!("panel.compositions.purge_tip"), "compositions:purge"));
+        let purge = unused.then(|| (true, t!("panel.compositions.purge_tip"), "library:purge"));
         if catalog::header(ui, height, title, purge) {
             actions.push(Action::Apply(Operation::PurgeCompositions));
         }
@@ -174,7 +174,7 @@ fn item(
     rename: Renaming,
     actions: &mut Vec<Action>,
 ) {
-    crate::kit::handles::publish(|| format!("compositions:{}", id.0), response.rect);
+    crate::kit::handles::publish(|| format!("library:{}", id.0), response.rect);
     let name = d.composition(id).map_or_else(String::new, |c| c.name.clone());
     let tip = match count {
         Some(n) => tp!("panel.compositions.count_tip", n as usize),
@@ -201,7 +201,7 @@ fn item(
     }
     egui::Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
         let place = ui.add_enabled(can_place, egui::Button::new(t!("drawing.tree.place")));
-        crate::kit::handles::publish(|| "compositions:menu:place".into(), place.rect);
+        crate::kit::handles::publish(|| "library:menu:place".into(), place.rect);
         if place.clicked() {
             st.place_composition = Some(id);
         }
@@ -210,7 +210,7 @@ fn item(
             Renaming::start(ui, key);
         }
         let delete = ui.button(t!("panel.components.delete"));
-        crate::kit::handles::publish(|| "compositions:menu:delete".into(), delete.rect);
+        crate::kit::handles::publish(|| "library:menu:delete".into(), delete.rect);
         if delete.tip(t!("panel.compositions.delete_tip")).clicked() {
             actions.push(Action::Apply(Operation::DeleteComposition { composition: id }));
         }

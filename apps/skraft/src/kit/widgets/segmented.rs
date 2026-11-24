@@ -36,7 +36,7 @@ pub(crate) fn segmented(ui: &mut egui::Ui, id: egui::Id, segments: &[Segment], h
 }
 
 /// A [`segmented`] control `size.0` points high, its icons `size.1` wide (an icon's segment a
-/// square): the option bar's elsewhere (the « Composants » card's grid / list toggle).
+/// square): the option bar's elsewhere (the library's grid / list toggle).
 pub fn segmented_sized(
     ui: &mut egui::Ui,
     id: egui::Id,

@@ -5,8 +5,8 @@ code: [apps/skraft/src/workspaces/common/cards/catalog.rs, apps/skraft/src/works
 
 # Catalog cards
 
-The cards listing a document's definitions, « Composants », « Compositions » and « Matières »,
-share one presentation (`catalog::show`); each says what its items are through a `Shelf`: name,
+The cards listing a document's definitions, the library (the components, or on a sheet the
+compositions) and « Matières », share one presentation (`catalog::show`); each says what its items are through a `Shelf`: name,
 colours, picture, interaction, section headers.
 **Why:** the first two had grown as copies of each other, and materials needed the same.
 

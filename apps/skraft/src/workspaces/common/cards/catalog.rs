@@ -1,5 +1,5 @@
-//! What the cards listing a document's definitions share (docs/ui/catalog.md): the « Composants »,
-//! « Compositions » and « Matières » cards show their items as tiles or rows, in two sections,
+//! What the cards listing a document's definitions share (docs/ui/catalog.md): the library
+//! (components, compositions) and « Matières » show their items as tiles or rows, in two sections,
 //! renamed in place. Each card says what its items are through a [`Shelf`].
 
 use skraft_i18n::t;
@@ -29,8 +29,8 @@ impl Card {
     /// Its handles' prefix (docs/control-protocol.md).
     fn handle(self) -> &'static str {
         match self {
-            Card::Components => "components",
-            Card::Compositions => "compositions",
+            // One card, the library, whichever it shows.
+            Card::Components | Card::Compositions => "library",
             Card::Materials => "materials",
         }
     }

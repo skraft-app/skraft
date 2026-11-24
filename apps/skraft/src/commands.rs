@@ -101,7 +101,7 @@ pub const COMMANDS: &[Command] = &[
     // The parts selected cut what they enter, linked (decision 0055).
     c("edit.imprint", || t!("menu.edit.imprint"), M::Edit, None),
     c("edit.delete_guides", || t!("menu.edit.delete_guides"), M::Edit, None),
-    // The « Composants » card's « Purger » (docs/ui/components-library.md#managing).
+    // The library's « Purger » (docs/ui/components-library.md#managing).
     c("components.purge", || t!("menu.edit.purge_unused"), M::Edit, None),
     // The drawing's (docs/ui/drawing.md).
     g("drawing.new_sheet", || t!("menu.drawing.new_sheet"), M::Edit, None),
@@ -155,8 +155,7 @@ pub const COMMANDS: &[Command] = &[
     g("view.entity_info", || t!("menu.view.entity_info"), M::View, None),
     c("view.materials", || t!("menu.view.materials"), M::View, None),
     c("view.navigator", || t!("menu.view.navigator"), M::View, None),
-    c("view.components", || t!("menu.view.components"), M::View, None),
-    c("view.compositions", || t!("menu.view.compositions"), M::View, None),
+    c("view.library", || t!("menu.view.library"), M::View, None),
     c("view.render_stats", || t!("menu.view.render_stats"), M::View, None),
     g("view.top", || t!("menu.view.top"), M::View, Some("Cmd+1")),
     c("view.front", || t!("menu.view.front"), M::View, Some("Cmd+2")),

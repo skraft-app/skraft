@@ -202,7 +202,7 @@ impl ViewPicker {
             }
             ui.separator();
             let (mut toggled, mut folded) = (None, None);
-            // The « Composants » card's size: one thumbnail each, drawn once.
+            // The library's size: one thumbnail each, drawn once.
             let px = ((crate::system::thumbnails::TILE * ctx.pixels_per_point()).round() as u32).clamp(16, 512);
             let dark = ui.visuals().dark_mode;
             egui::ScrollArea::vertical()

@@ -134,7 +134,7 @@ pub fn navigator(
 ) {
     let doc = editor.document();
     // The search field over the whole width, by name only (docs/ui/components-library.md#search),
-    // as far from the title bar as the « Composants » card's from its tabs; the tree in the
+    // as far from the title bar as the library's from its tabs; the tree in the
     // height left under it, its first row as far again (the item spacing and the scroll
     // area's top margin below).
     let top = ui.cursor().top();

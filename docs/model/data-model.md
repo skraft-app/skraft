@@ -57,7 +57,7 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   « Caisson#2 » the first number free ([Automatic names](bodies.md#automatic-names)).
 - **Unused definitions stay**: a part or an assembly left without occurrence (erased,
   exploded, replaced, a boolean's tool) stays in the document, named or not, shown in the
-  « Composants » card's « Inutilisés » ([Components library](../ui/components-library.md)) and
+  library's « Inutilisés » components ([Components library](../ui/components-library.md)) and
   placed again from there, until « Purger les inutilisés » (`Operation::PurgeUnused`) drops
   every component not in the model (the solid tools' broom deletes a consumed tool part at
   once, [Solid tools](../tools/solid-tools.md)). But an empty assembly placed nowhere, which holds

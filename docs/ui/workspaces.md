@@ -28,7 +28,7 @@ cours) » after it when under way) and, under it, smaller and weak, what it is f
   ([Workspaces and ribbon](ribbon.md));
 - its **stage**, what takes the central area ([Stage](#stage));
 - its **own commands** besides its ribbon's (`commands`: a card's, as « Purger » of the
-  « Composants » card);
+  library's components);
 - its **side panels' layout**, a preference per workspace, and the panels it shows at first
   ([Panels](#panels));
 - whether it is **under way** (`under_way`): listed in debug builds only.

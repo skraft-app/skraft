@@ -201,6 +201,8 @@ impl SkraftApp {
         actions: &mut Vec<Action>,
     ) -> Option<CardEvent> {
         let workspace = self.workspace().id;
+        // The library shows the components' tabs, but on a sheet.
+        let tabbed = id == PanelId::Library && self.workspace().stage != Stage::Sheet;
         let folded = self.prefs.layout(workspace).card(id).is_some_and(|c| c.folded);
         let floating = edges.side.is_none();
         let mut event = None;
@@ -218,9 +220,9 @@ impl SkraftApp {
                     ui.set_max_size(inner);
                     let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                     let head = ui.interact(head_rect, egui::Id::unique(("panel_head", id)), egui::Sense::click_and_drag());
-                    // No line above the « Composants » card's tabs, whose band of the same colour
-                    // goes on from the title's.
-                    let band = title_bar(ui, rect, head_rect, &panel_title(id), folded, id != PanelId::Components);
+                    // No line above the components' tabs, whose band of the same colour goes on
+                    // from the title's.
+                    let band = title_bar(ui, rect, head_rect, &panel_title(id), folded, !tabbed);
                     let stroke = ui.visuals().window_stroke;
                     let color = ui.visuals().strong_text_color();
                     // The fold chevron at the right end: down when open, right when folded.
@@ -300,7 +302,23 @@ impl SkraftApp {
                                 )
                             });
                         }
-                        PanelId::Components => {
+                        // On a sheet, the drawing's compositions (docs/ui/drawing.md#the-compositions-card).
+                        PanelId::Library if doc.workspace.stage == Stage::Sheet => {
+                            let (doc_id, list) = (doc.id, self.prefs.compositions_list);
+                            let (editor, st) = (&doc.editor, &mut doc.sheet);
+                            ui.push_id(doc_id, |ui| {
+                                crate::workspaces::drawing::cards::library::compositions(
+                                    ui,
+                                    editor,
+                                    st,
+                                    list,
+                                    body,
+                                    actions,
+                                    area.id_salt("compositions"),
+                                )
+                            });
+                        }
+                        PanelId::Library => {
                             let doc_id = doc.id;
                             let (editor, state) = (&doc.editor, &mut doc.library);
                             let look = crate::workspaces::common::cards::library::Look {
@@ -319,21 +337,6 @@ impl SkraftApp {
                                     look,
                                     actions,
                                     area.id_salt("components"),
-                                )
-                            });
-                        }
-                        PanelId::Compositions => {
-                            let (doc_id, list) = (doc.id, self.prefs.compositions_list);
-                            let (editor, st) = (&doc.editor, &mut doc.sheet);
-                            ui.push_id(doc_id, |ui| {
-                                crate::workspaces::drawing::cards::library::compositions(
-                                    ui,
-                                    editor,
-                                    st,
-                                    list,
-                                    body,
-                                    actions,
-                                    area.id_salt("compositions"),
                                 )
                             });
                         }
@@ -812,7 +815,6 @@ pub(super) fn panel_title(id: PanelId) -> String {
         PanelId::EntityInfo => t!("panel.entity_info.title"),
         PanelId::Materials => t!("panel.materials.title"),
         PanelId::Navigator => t!("panel.navigator.title"),
-        PanelId::Components => t!("panel.components.title"),
-        PanelId::Compositions => t!("panel.compositions.title"),
+        PanelId::Library => t!("panel.library.title"),
     }
 }
