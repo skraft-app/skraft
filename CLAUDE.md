@@ -35,6 +35,10 @@ kernel in a web worker), `apps/import` (a `.skp` or STEP file to a `.skraft` fil
   tools by what they make (« Boîte », « Prisme »), their « Dessiner » group giving the verb.
 - **A tool ported from OpenCutList copies its interaction** (states, picking, previews, keys),
   not only its algorithm.
+- **Interface elements are built once**: before drawing a button, field, row, card, modal
+  box or 2D overlay, look in the shared modules
+  ([docs/ui/interface.md#widgets](docs/ui/interface.md#widgets)); what two screens draw alike
+  moves there, never a local copy.
 - **Performance is part of the design**: measure (bench, timing tests) and optimise where it
   helps.
 - **Versions**: `0.0.x` are test builds, x going up by one at each build sent to testers,

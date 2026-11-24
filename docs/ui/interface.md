@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/widgets.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/widgets.rs, apps/skraft/src/widgets/, apps/skraft/src/style.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface
@@ -152,8 +152,11 @@ relayout.
 
 ## Widgets
 
-What several screens draw alike lives in `apps/skraft/src/widgets.rs`, not in one of them; a
-screen takes its buttons, fields and rows from there.
+An element of the interface is built once, where every screen finds it: a screen takes its
+buttons, fields, rows, cards and boxes from the modules below, and what two screens draw alike
+moves there rather than being copied. Before drawing something new, look here first.
+
+In `apps/skraft/src/widgets.rs`:
 
 - **`IconButton`**, the one icon button: a size, an icon and a `Look`. `Plain` has no frame (a
   navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when
@@ -166,8 +169,25 @@ screen takes its buttons, fields and rows from there.
   its row), `cut_label`.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
 - **`tree_row`**, `fold_toggle` and the drag ghost, the rows of the navigators and the lists.
+- **`warning`**, the ⚠ before an error to correct.
 
-*Why:* each screen had grown its own copy, and the copies drifted apart.
+Elsewhere:
+
+- **`style.rs`**: the cards' frames and margins (`card_frame`, `option_card`, `hover_card`,
+  `CARD_MARGIN`), the gap around the floating cards (`FLOAT_GAP`), the bars' sizes
+  (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
+  sections and grids, the hover texts (`Tip`).
+- **`app::modal`**: a modal box (its frame, its buttons' padding, its title).
+- **`ribbon::tab_strip`**: a band of tabs (the ribbon's, the Preferences', the journal's, the
+  « Composants » card's).
+- **`search::field`** and **`search::listed`**: a search line, and what it lets through as
+  last listed; **`catalog`**: the cards listing definitions as tiles or rows
+  ([Catalog cards](catalog.md)).
+- **`overlay.rs`**: what is drawn over the 3D view and the sheet, dashes, the selection
+  rectangle, grips ([Screen overlays](../render/drawer.md#screen-overlays)).
+
+*Why:* each screen had grown its own copy, and the copies drifted apart (the code cleanliness
+review of 2026-11-23 found five icon buttons, three menu rows, two selection rectangles).
 
 ## Toasts
 
