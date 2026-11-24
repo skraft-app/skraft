@@ -97,15 +97,11 @@ impl SkraftApp {
                 if ui.button(t!("save_prompt.dont_save")).clicked() {
                     chosen = Some(Answer::DontSave);
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let save = ui.add(egui::Button::new(t!("save_prompt.save")).fill(ui.visuals().selection.bg_fill));
-                    if save.clicked() {
-                        chosen = Some(Answer::Save);
-                    }
-                    if ui.button(t!("save_prompt.cancel")).clicked() {
-                        chosen = Some(Answer::Cancel);
-                    }
-                });
+                match crate::widgets::confirm_buttons(ui, "save_prompt", t!("save_prompt.save"), true, t!("save_prompt.cancel")) {
+                    Some(crate::widgets::Confirm::Ok) => chosen = Some(Answer::Save),
+                    Some(crate::widgets::Confirm::Cancel) => chosen = Some(Answer::Cancel),
+                    None => {}
+                }
             });
         });
         if ui_key(ctx, egui::Key::Enter) {

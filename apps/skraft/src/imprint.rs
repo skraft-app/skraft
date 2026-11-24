@@ -7,6 +7,7 @@ use skraft_model::measure;
 use skraft_model::{Document, ImprintPlan, Units};
 
 use crate::docs::DocId;
+use crate::widgets::{Confirm, confirm_buttons};
 
 /// The depth a mortise takes past its tenon, by default (mm).
 const DEEP: f64 = 2.0;
@@ -81,22 +82,14 @@ impl Dialog {
                 });
             }
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let fill = ui.visuals().selection.bg_fill;
-                    let ok = ui.add_enabled(values.is_some(), egui::Button::new(t!("imprint.ok")).fill(fill));
-                    crate::handles::publish_enabled(|| "imprint.ok".into(), ok.rect, values.is_some());
-                    if ok.clicked()
-                        && let Some((around, deep)) = values
-                    {
+            ui.horizontal(|ui| match confirm_buttons(ui, "imprint", t!("imprint.ok"), values.is_some(), t!("naming.cancel")) {
+                Some(Confirm::Ok) => {
+                    if let Some((around, deep)) = values {
                         answer = Answer::Imprint(around, deep);
                     }
-                    let cancel = ui.button(t!("naming.cancel"));
-                    crate::handles::publish(|| "imprint.cancel".into(), cancel.rect);
-                    if cancel.clicked() {
-                        answer = Answer::Cancel;
-                    }
-                });
+                }
+                Some(Confirm::Cancel) => answer = Answer::Cancel,
+                None => {}
             });
         });
         if matches!(answer, Answer::Open)

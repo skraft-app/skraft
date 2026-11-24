@@ -130,7 +130,8 @@ a name, not a pixel: `ribbon:<command>`, `ribbon_group:<group>`, `ribbon_label:<
 `option:<key>` (a toggle or a length field), `option:<key>:<value>` (a choice's segment;
 `part_scope`, `body_sign`, `machinings`, `profile`), `tab:<i>`, `tab_close:<i>`, `tab_new`,
 `quick:<command>`, `quick:more`, `view_bar:<handle>`, `tree:<k>` (the tree drop-up's rows),
-`naming.field`, `naming.ok`, `naming.cancel`, `toast.<i>`, `toast.<i>.action`,
+`naming.field`, `naming.ok`, `naming.cancel`, `save_prompt.ok`, `.cancel` (the closing document's
+prompt), `toast.<i>`, `toast.<i>.action`,
 `validation:cancel`, `validation:ok` (the steps bar's buttons), `vcb`,
 `viewport`, `outliner:<occurrence>` and `outliner_body:<body>` (the navigator's rows, those
 laid out), `outliner_menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open), `imprint.around`, `.deep`, `.ok`, `.cancel` (« Imprimer »'s confirmation), `info:imprint_around`, `_deep` (a linked body's entity info). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the

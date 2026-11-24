@@ -15,6 +15,7 @@ use skraft_tools::camera::{Camera, Projection};
 
 use crate::sheet::{Placed, SCALES, SheetState, ViewSlot, Wanted, nearest_scale, scale_label, window_matrix};
 use crate::view_picker::first_path;
+use crate::widgets::{Confirm, confirm_buttons};
 
 /// The picture's slot: no view has this id, so the view's own picture stays as it is.
 const SLOT: ViewSlot = (Id(u64::MAX), None);
@@ -772,14 +773,11 @@ pub fn ui(
                     } else {
                         ui.label(scale_label(f.scale));
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let ok = ui.add(egui::Button::new(t!("drawing.framer.ok")).fill(ui.visuals().selection.bg_fill));
-                        crate::handles::publish(|| "view_framer.ok".into(), ok.rect);
-                        done |= ok.clicked();
-                        let c = ui.button(t!("naming.cancel"));
-                        crate::handles::publish(|| "view_framer.cancel".into(), c.rect);
-                        cancel |= c.clicked();
-                    });
+                    match confirm_buttons(ui, "view_framer", t!("drawing.framer.ok"), true, t!("naming.cancel")) {
+                        Some(Confirm::Ok) => done = true,
+                        Some(Confirm::Cancel) => cancel = true,
+                        None => {}
+                    }
                 });
             });
         });
