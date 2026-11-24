@@ -9,7 +9,7 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::catalog::{LIST_ROW, LIST_THUMB};
-use crate::widgets::{Confirm, confirm_buttons, tree_row};
+use crate::widgets::{Confirm, Tick, confirm_buttons, tick, tree_row};
 
 /// The list's height and the dialog's width (points); a level's indent.
 const LIST_HEIGHT: f32 = 340.0;
@@ -42,15 +42,6 @@ struct Row {
     component: Id,
     depth: usize,
     folder: bool,
-}
-
-/// How a row is ticked.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Tick {
-    No,
-    Yes,
-    /// Through a row above it.
-    Covered,
 }
 
 /// The dialog's state (never saved).
@@ -200,12 +191,13 @@ impl ViewPicker {
             .clone();
             let searching = !self.search.trim().is_empty();
             // The whole model, above the tree.
-            let (whole, ()) = tree_row(ui, LIST_ROW, self.checked.is_empty(), false, false, |ui| {
-                paint_tick(ui, if self.checked.is_empty() { Tick::Yes } else { Tick::No });
+            let (whole, ticked) = tree_row(ui, LIST_ROW, self.checked.is_empty(), false, false, |ui| {
+                let ticked = tick(ui, if self.checked.is_empty() { Tick::Yes } else { Tick::No }).clicked();
                 ui.add(egui::Label::new(t!("drawing.subject.model")).selectable(false));
+                ticked
             });
             crate::handles::publish(|| "view_picker.model".into(), whole.rect);
-            if whole.clicked() {
+            if whole.clicked() || ticked {
                 self.whole_model();
             }
             ui.separator();
@@ -221,29 +213,29 @@ impl ViewPicker {
                 .show_rows(ui, LIST_ROW, rows.len(), |ui, range| {
                     ui.set_min_width(ui.available_width());
                     for row in &rows[range] {
-                        let tick = self.tick(&row.path);
+                        let ticks = self.tick(&row.path);
                         let key = chain(&row.path);
                         let open = self.unfolded.contains(&key);
-                        let (response, fold) = tree_row(ui, LIST_ROW, tick == Tick::Yes, tick == Tick::Covered, false, |ui| {
+                        let (response, (fold, ticked)) = tree_row(ui, LIST_ROW, ticks == Tick::Yes, ticks == Tick::Covered, false, |ui| {
                             ui.add_space(row.depth as f32 * INDENT);
                             let (square, chevron) = ui.allocate_exact_size(egui::Vec2::splat(14.0), egui::Sense::click());
                             if row.folder && !searching {
                                 let angle = if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 };
                                 crate::icons::chevron(ui, square.center(), 12.0, ui.visuals().weak_text_color(), angle);
                             }
-                            paint_tick(ui, tick);
+                            let ticked = tick(ui, ticks).clicked();
                             let (thumb, _) = ui.allocate_exact_size(egui::Vec2::splat(LIST_THUMB), egui::Sense::hover());
                             if let Some(texture) = thumbnails.get(doc_id, e, row.component, dark, px) {
                                 let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
                                 ui.painter().image(texture, thumb, uv, egui::Color32::WHITE);
                             }
                             ui.add(egui::Label::new(&row.name).selectable(false).truncate());
-                            row.folder && !searching && chevron.clicked()
+                            (row.folder && !searching && chevron.clicked(), ticked)
                         });
                         crate::handles::publish(|| format!("view_picker.row:{}", row.path.entity.0), response.rect);
                         if fold {
                             folded = Some(key);
-                        } else if response.clicked() {
+                        } else if response.clicked() || ticked {
                             toggled = Some(row.path.clone());
                         }
                     }
@@ -278,19 +270,6 @@ impl ViewPicker {
             answer = Answer::Cancel;
         }
         answer
-    }
-}
-
-/// A row's tick box.
-fn paint_tick(ui: &mut egui::Ui, tick: Tick) {
-    let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(14.0), egui::Sense::hover());
-    let v = ui.visuals();
-    let ink = if tick == Tick::Covered { v.weak_text_color() } else { v.text_color() };
-    let bx = rect.shrink(1.0);
-    ui.painter().rect_stroke(bx, 2.0, egui::Stroke::new(1.0, ink), egui::StrokeKind::Inside);
-    if tick != Tick::No {
-        let at = |x: f32, y: f32| bx.min + egui::vec2(bx.width() * x, bx.height() * y);
-        ui.painter().add(egui::Shape::line(vec![at(0.22, 0.52), at(0.43, 0.72), at(0.78, 0.28)], egui::Stroke::new(1.6, ink)));
     }
 }
 

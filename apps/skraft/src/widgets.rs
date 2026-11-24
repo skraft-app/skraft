@@ -13,7 +13,9 @@ pub(crate) use button::{Confirm, IconButton, Look, OPTION_HEIGHT, VEIL_RADIUS, b
 pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, live_field, rename_field};
 pub(crate) use menu::{PinRow, command_item, is_toggle, pin_row};
 pub(crate) use segmented::{Segment, segmented, segmented_sized};
-pub(crate) use tree::{Fold, RENAMING, band_color, fold_toggle, hidden_color, paint_drag_ghost, set_drag_ghost, start_rename, tree_row};
+pub(crate) use tree::{
+    Fold, RENAMING, Tick, TreeLine, band_color, hidden_color, paint_drag_ghost, set_drag_ghost, start_rename, tick, tree_line, tree_row,
+};
 
 /// The warning sign before an error to correct (a part in several pieces, a shortcut's
 /// conflict), in the error colour, as high as the text.

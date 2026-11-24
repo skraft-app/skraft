@@ -26,28 +26,15 @@ enum Row<'d> {
     Document,
     Presentation {
         p: &'d Presentation,
-        fold: Fold2,
+        fold: Fold,
     },
     Sheet {
         s: &'d Sheet,
-        fold: Option<Fold2>,
+        fold: Option<Fold>,
     },
     Element(ElementRow<'d>),
     /// « Nouvelle présentation ».
     Add,
-}
-
-/// A row's fold, comparable in tests.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Fold2 {
-    key: egui::Id,
-    open: bool,
-}
-
-impl From<Fold2> for Fold {
-    fn from(f: Fold2) -> Fold {
-        Fold { key: f.key, open: f.open }
-    }
 }
 
 /// An element in the tree.
@@ -63,7 +50,7 @@ struct ElementRow<'d> {
     count: usize,
     /// An instance above it is hidden.
     hidden_above: bool,
-    fold: Option<Fold2>,
+    fold: Option<Fold>,
 }
 
 fn key(kind: &str, id: Id) -> egui::Id {
@@ -75,8 +62,8 @@ fn instance_key(sheet: Id, path: &[Id], id: Id) -> egui::Id {
     egui::Id::unique(("sheet_tree", "instance", sheet.0, path, id.0))
 }
 
-fn fold_of(open: &FastSet<egui::Id>, key: egui::Id) -> Fold2 {
-    Fold2 { key, open: open.contains(&key) }
+fn fold_of(open: &FastSet<egui::Id>, key: egui::Id) -> Fold {
+    Fold { key, open: open.contains(&key) }
 }
 
 /// What is dragged in the navigator: elements right on sheet `sheet`.
@@ -246,7 +233,7 @@ fn small_button(ui: &mut egui::Ui, icon: ImageSource<'static>, tint: egui::Color
 /// What a line shows.
 struct Line<'a> {
     depth: usize,
-    fold: Option<Fold2>,
+    fold: Option<Fold>,
     icon: ImageSource<'static>,
     name: &'a str,
     strong: bool,
@@ -268,38 +255,28 @@ fn line<R>(
     right: impl FnOnce(&mut egui::Ui, bool) -> R,
 ) -> (egui::Response, Option<Option<String>>, R) {
     let renaming = l.rename.is_some_and(|k| ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(widgets::RENAMING))) == Some(k));
-    let (response, (renamed, extra)) = widgets::tree_row(ui, height, l.selected, false, false, |ui| {
+    let icon = egui::Image::new(l.icon).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(l.tint);
+    let line = widgets::TreeLine { height, selected: l.selected, lit: false, band: false, depth: l.depth, fold: l.fold, icon };
+    // Its buttons close together.
+    let buttons = |ui: &mut egui::Ui, over: bool| {
         let spacing = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(ui.spacing().indent * l.depth as f32);
-        match l.fold {
-            Some(f) => widgets::fold_toggle(ui, salt, f.into(), folds),
-            None => ui.add_space(ui.spacing().indent),
-        }
+        let extra = right(ui, over);
         ui.spacing_mut().item_spacing.x = spacing;
-        ui.add(egui::Image::new(l.icon).fit_to_exact_size(egui::vec2(ICON, ICON)).tint(l.tint));
-        let over = ui.rect_contains_pointer(ui.max_rect());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            let extra = right(ui, over);
-            ui.spacing_mut().item_spacing.x = spacing;
-            let renamed = ui
-                .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if renaming {
-                        return widgets::rename_field(ui, l.rename.expect("renaming"), l.name);
-                    }
-                    let mut text = egui::RichText::new(l.name).color(l.tint);
-                    if l.strong {
-                        text = text.strong();
-                    }
-                    ui.add(egui::Label::new(text).truncate().selectable(false));
-                    None
-                })
-                .inner;
-            (renamed, extra)
-        })
-        .inner
-    });
+        extra
+    };
+    let label = |ui: &mut egui::Ui| {
+        if renaming {
+            return widgets::rename_field(ui, l.rename.expect("renaming"), l.name);
+        }
+        let mut text = egui::RichText::new(l.name).color(l.tint);
+        if l.strong {
+            text = text.strong();
+        }
+        ui.add(egui::Label::new(text).truncate().selectable(false));
+        None
+    };
+    let (response, (extra, renamed)) = widgets::tree_line(ui, line, (salt, folds), buttons, label);
     let renamed = match l.rename {
         Some(k) => widgets::start_rename(ui, &response, renaming, l.alone, k, renamed),
         None => None,
@@ -465,7 +442,7 @@ fn presentation_row(
     d: &Drawing,
     st: &mut SheetState,
     p: &Presentation,
-    fold: Fold2,
+    fold: Fold,
     active: Option<Id>,
     salt: egui::Id,
     actions: &mut Vec<Action>,
@@ -531,7 +508,7 @@ fn sheet_row(
     d: &Drawing,
     st: &mut SheetState,
     s: &Sheet,
-    fold: Option<Fold2>,
+    fold: Option<Fold>,
     shown: Option<Id>,
     salt: egui::Id,
     actions: &mut Vec<Action>,

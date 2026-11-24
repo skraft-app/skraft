@@ -355,55 +355,42 @@ fn occurrence_line(
     let TreeCx { doc, height, salt, weak, .. } = cx;
     let OccurrenceLook { selected, tint, greyed, broken, inner, link_off, link_below, rename, rename_occurrence, renaming, .. } = *look;
     let o = row.occurrence;
-    tree_row(ui, height, selected, false, false, |ui| {
-        // The toggle button (or, for a part, its room) one indent per level, so all
-        // the icons of a level line up.
-        let spacing = ui.spacing().item_spacing.x;
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(ui.spacing().indent * row.path.len() as f32);
-        match row.fold {
-            Some(fold) => fold_toggle(ui, salt, fold, folds),
-            None => ui.add_space(ui.spacing().indent),
+    let icon = egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint);
+    let line = TreeLine { height, selected, lit: false, band: false, depth: row.path.len(), fold: row.fold, icon };
+    // The eye first, at the right end (open while shown, struck through once hidden), then the
+    // name in the room left, truncated with "…" so a long name never pushes the eye out.
+    let eye = |ui: &mut egui::Ui, _| {
+        let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
+        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
+        let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
+        // Its own material, if any: a dot of its colour left of the eye, a column of its own so
+        // the names stay aligned.
+        if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
+            material_dot(ui, m, greyed);
         }
-        ui.spacing_mut().item_spacing.x = spacing;
-        ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-        // The eye first, at the right end (open while shown, struck through once
-        // hidden), then the name in the room left, truncated with "…" so a long name
-        // never pushes the eye out.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
-            let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-            let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
-            // Its own material, if any: a dot of its colour left of the eye, a column of
-            // its own so the names stay aligned.
-            if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
-                material_dot(ui, m, greyed);
-            }
-            let renamed = ui
-                .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if broken || inner || link_off || link_below || links.overlap_tip.is_some() {
-                        ui.add(warning(ui));
-                    }
-                    if links.shapes.is_some() {
-                        ui.add(linked_mark(ui));
-                    }
-                    let color = if broken { ui.visuals().error_fg_color } else { tint };
-                    // The name edited alone in its field, the whole row's width.
-                    match renaming {
-                        Some(true) => return (rename_field(ui, rename_occurrence, &o.name), None),
-                        Some(false) => return (rename_field(ui, rename, name), None),
-                        None => {}
-                    }
-                    let auto = doc.component(o.component).is_ok_and(|c| !c.named);
-                    let back = ui.visuals().window_fill;
-                    let (_, split) = instance_label(ui, &o.name, name, auto, color, selected, back);
-                    (None, split)
-                })
-                .inner;
-            (eye, renamed.0, renamed.1)
-        })
-        .inner
-    })
+        eye
+    };
+    let label = |ui: &mut egui::Ui| {
+        if broken || inner || link_off || link_below || links.overlap_tip.is_some() {
+            ui.add(warning(ui));
+        }
+        if links.shapes.is_some() {
+            ui.add(linked_mark(ui));
+        }
+        let color = if broken { ui.visuals().error_fg_color } else { tint };
+        // The name edited alone in its field, the whole row's width.
+        match renaming {
+            Some(true) => return (rename_field(ui, rename_occurrence, &o.name), None),
+            Some(false) => return (rename_field(ui, rename, name), None),
+            None => {}
+        }
+        let auto = doc.component(o.component).is_ok_and(|c| !c.named);
+        let back = ui.visuals().window_fill;
+        let (_, split) = instance_label(ui, &o.name, name, auto, color, selected, back);
+        (None, split)
+    };
+    let (response, (eye, (renamed, split))) = tree_line(ui, line, (salt, folds), eye, label);
+    (response, (eye, renamed, split))
 }
 
 /// What is dragged over an occurrence's row (decision 0044): a part takes bodies or parts in, at
@@ -1285,62 +1272,52 @@ fn body_line(
     folds: (egui::Id, &mut FastSet<egui::Id>),
 ) -> (egui::Response, LineOutcome) {
     let BodyLook { def, selected, lit, tint, weak, failed, warned, linked, rename, rename_own, renaming, .. } = *look;
-    tree_row(ui, height, selected, lit, true, |ui| {
-        let spacing = ui.spacing().item_spacing.x;
-        ui.spacing_mut().item_spacing.x = 0.0;
-        // Under the part's icon: its level, plus one, plus the groups above.
-        ui.add_space(ui.spacing().indent * (row.path.len() + 1 + b.group.len()) as f32);
-        match row.fold {
-            Some(fold) => fold_toggle(ui, folds.0, fold, folds.1),
-            None => ui.add_space(ui.spacing().indent),
+    let icon = egui::Image::new(b.icon()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint);
+    // Under the part's icon: its level, plus one, plus the groups above.
+    let depth = row.path.len() + 1 + b.group.len();
+    let line = TreeLine { height, selected, lit, band: true, depth, fold: row.fold, icon };
+    // The sign toggle first, at the right end where a part's row has its eye, then the name in
+    // the room left.
+    let sign = |ui: &mut egui::Ui, _| {
+        let (icon, tip) = match b.body.sign {
+            Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
+            Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
+            Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
+        };
+        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
+        let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
+        ui.add(egui::Button::image(img).frame(false).sense(sense)).tip(tip).clicked()
+    };
+    let label = |ui: &mut egui::Ui| {
+        if warned {
+            ui.add(warning(ui));
         }
-        ui.spacing_mut().item_spacing.x = spacing;
-        ui.add(egui::Image::new(b.icon()).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-        // The sign toggle first, at the right end where a part's row has its eye, then the
-        // name in the room left.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (icon, tip) = match b.body.sign {
-                Sign::Positive => (icons::UNION, t!("panel.outliner.sign_positive")),
-                Sign::Negative => (icons::SUBTRACT, t!("panel.outliner.sign_negative")),
-                Sign::Intersect => (icons::INTERSECT, t!("panel.outliner.sign_intersect")),
+        // Tied to its source, as the source's row is to it.
+        if look.source.is_some() {
+            ui.add(linked_mark(ui));
+        }
+        match renaming {
+            Some(true) => return (rename_field(ui, rename_own, &b.body.name), None),
+            Some(false) => return (rename_field(ui, rename, &b.label()), None),
+            None => {}
+        }
+        let color = if failed { ui.visuals().error_fg_color } else { tint };
+        let back = band_color(ui.visuals());
+        let (_, split) = instance_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
+        // A body node's size after its name (docs/tools/rounds.md).
+        if let Some(op) = def.op().and_then(|o| o.blend()) {
+            let size = editor.document().settings().units.format(op.size);
+            let text = match op.kind {
+                skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
+                skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
             };
-            let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-            let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
-            let toggled = ui.add(egui::Button::image(img).frame(false).sense(sense)).tip(tip).clicked();
-            let renamed = ui
-                .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if warned {
-                        ui.add(warning(ui));
-                    }
-                    // Tied to its source, as the source's row is to it.
-                    if look.source.is_some() {
-                        ui.add(linked_mark(ui));
-                    }
-                    match renaming {
-                        Some(true) => return (rename_field(ui, rename_own, &b.body.name), None),
-                        Some(false) => return (rename_field(ui, rename, &b.label()), None),
-                        None => {}
-                    }
-                    let color = if failed { ui.visuals().error_fg_color } else { tint };
-                    let back = band_color(ui.visuals());
-                    let (_, split) = instance_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
-                    // A body node's size after its name (docs/tools/rounds.md).
-                    if let Some(op) = def.op().and_then(|o| o.blend()) {
-                        let size = editor.document().settings().units.format(op.size);
-                        let text = match op.kind {
-                            skraft_model::kernel::names::Blend::Round => t!("panel.outliner.round_size", size = size),
-                            skraft_model::kernel::names::Blend::Chamfer => t!("panel.outliner.chamfer_size", size = size),
-                        };
-                        ui.add_space(6.0);
-                        ui.label(egui::RichText::new(text).color(weak));
-                    }
-                    (None, split)
-                })
-                .inner;
-            (toggled, renamed.0, renamed.1)
-        })
-        .inner
-    })
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new(text).color(weak));
+        }
+        (None, split)
+    };
+    let (response, (toggled, (renamed, split))) = tree_line(ui, line, folds, sign, label);
+    (response, (toggled, renamed, split))
 }
 
 /// A body's row's tip: why its node is refused, or what its ⚠ warns of.

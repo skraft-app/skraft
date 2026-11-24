@@ -14,8 +14,8 @@ use crate::commands::Menu;
 use crate::icons;
 use crate::style::Tip;
 use crate::widgets::{
-    Field, Fold, OPTION_HEIGHT, RENAMING, Segment, band_color, cut_label, field_stroke, fold_toggle, framed_field, hidden_color,
-    linked_mark, option_button, paint_drag_ghost, rename_field, segmented, set_drag_ghost, start_rename, tree_row, warning,
+    Field, Fold, OPTION_HEIGHT, RENAMING, Segment, TreeLine, band_color, cut_label, field_stroke, framed_field, hidden_color, linked_mark,
+    option_button, paint_drag_ghost, rename_field, segmented, set_drag_ghost, start_rename, tree_line, tree_row, warning,
 };
 
 mod props;

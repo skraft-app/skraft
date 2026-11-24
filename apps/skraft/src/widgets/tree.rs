@@ -7,7 +7,7 @@ use crate::icons;
 use crate::style::CARD_MARGIN;
 
 /// A row's fold: its key in its document's [`OutlinerState`](crate::panels::OutlinerState), open or not.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Fold {
     pub(crate) key: egui::Id,
     pub(crate) open: bool,
@@ -89,6 +89,68 @@ pub(crate) fn tree_row<R>(
     let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
     let inner = add(&mut row);
     (response, inner)
+}
+
+/// What a tree's line shows before its own widgets: its [`tree_row`]'s height and marks, its
+/// depth, its fold, its icon.
+pub(crate) struct TreeLine<'a> {
+    pub(crate) height: f32,
+    pub(crate) selected: bool,
+    pub(crate) lit: bool,
+    pub(crate) band: bool,
+    /// The indents before its fold.
+    pub(crate) depth: usize,
+    /// Its fold toggle; none: the room of one, so that the icons of a level line up.
+    pub(crate) fold: Option<Fold>,
+    pub(crate) icon: egui::Image<'a>,
+}
+
+/// A tree's line in its [`tree_row`]: its indents, its fold toggle (under `salt` in `folds`), its
+/// icon, then what `trailing` lays at the right end, right to left (given whether the pointer is
+/// over the line), and `label` in the room left, left to right. The row's response, and what
+/// both gave.
+pub(crate) fn tree_line<T, L>(
+    ui: &mut egui::Ui,
+    line: TreeLine<'_>,
+    (salt, folds): (egui::Id, &mut FastSet<egui::Id>),
+    trailing: impl FnOnce(&mut egui::Ui, bool) -> T,
+    label: impl FnOnce(&mut egui::Ui) -> L,
+) -> (egui::Response, (T, L)) {
+    let TreeLine { height, selected, lit, band, depth, fold, icon } = line;
+    tree_row(ui, height, selected, lit, band, |ui| {
+        let spacing = ui.spacing().item_spacing.x;
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(ui.spacing().indent * depth as f32);
+        match fold {
+            Some(fold) => fold_toggle(ui, salt, fold, folds),
+            None => ui.add_space(ui.spacing().indent),
+        }
+        ui.spacing_mut().item_spacing.x = spacing;
+        ui.add(icon);
+        let over = ui.rect_contains_pointer(ui.max_rect());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let trailing = trailing(ui, over);
+            let label = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), label).inner;
+            (trailing, label)
+        })
+        .inner
+    })
+}
+
+/// A check box's state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tick {
+    No,
+    Yes,
+    /// Through something above it (a row above, ticked): egui's indeterminate mark.
+    Covered,
+}
+
+/// The app's check box, egui's, without text, showing `tick`: its response (a click on it acts
+/// as one on its row).
+pub(crate) fn tick(ui: &mut egui::Ui, tick: Tick) -> egui::Response {
+    let mut on = tick == Tick::Yes;
+    ui.add(egui::Checkbox::without_text(&mut on).indeterminate(tick == Tick::Covered))
 }
 
 /// What follows the pointer while a navigator's row is dragged (docs/ui/interface.md#navigator):
