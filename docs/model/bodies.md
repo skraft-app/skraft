@@ -129,8 +129,9 @@ Link     { id, source: path, receiver: path, body, seat: T }
   « Rompre le lien », which makes it a plain body.
 - **Named after its source** (`Document::settle_link_names`, after each operation and on reading a
   file): renaming the part renames it; a body that lost its source keeps the last name.
-- **Told in the navigator** (`Document::link_map`): the icon of « Imprimer » on its row, whose tip
-  names the source and says how to change it; a chain on the source's row, whose tip names the
+- **Told in the navigator** (`Document::link_map`): the icon of « Imprimer » and a chain on its
+  row, whose tip names the source and says how to change it (no chain once its link is broken); a
+  chain on the source's row, whose tip names the
   parts it shapes. The
   entity info gives « Lié à » in place of its name.
 - **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly

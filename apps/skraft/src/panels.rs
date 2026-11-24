@@ -2026,6 +2026,10 @@ fn body_row(
                     if warned {
                         ui.add(warning(ui));
                     }
+                    // Tied to its source, as the source's row is to it.
+                    if source.is_some() {
+                        ui.add(linked_mark(ui));
+                    }
                     match renaming {
                         Some(true) => return (rename_field(ui, rename_own, &b.body.name), None),
                         Some(false) => return (rename_field(ui, rename, &b.label()), None),
