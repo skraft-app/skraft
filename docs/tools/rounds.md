@@ -74,7 +74,11 @@ preview is held until the kernel gives the part its new shape (`Editor::held`, a
   size (shown in the bar and the measurements box, following the entity info's; typed
   there, it changes the node's, not the tool's saved one) — then closes the node, selected,
   the selection tool back. ✓ shows only once its edges or its size changed; Esc takes its edges
-  back as they are.
+  back as they are. **Its last edge let go**, Enter undoes the node (`Operation::DissolveNode`):
+  every copy of it in the part, at any level, gives way to its children, in one undo step. A
+  copy that cannot be exploded (« Éclater »'s refusals) refuses it whole, the node left open.
+  **Why:** the node's edges are shared by its copies, so all of them lose it together. Edges
+  not known (the children's result to come, names no longer matching) never read as let go.
 - **A node open, under another tool than its own** (the selection's, after a double click):
   its edges are lit on its children all the same, the context card names it with its size and
   « Modifier » (its tool started on it: its edges, its size), and the status bar says so first

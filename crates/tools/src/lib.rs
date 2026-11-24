@@ -14,6 +14,7 @@ pub mod navigation;
 pub mod scene;
 pub mod search;
 pub mod section_cut;
+pub mod segment;
 pub mod tools;
 pub mod vcb;
 

@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/images.rs, web/image-worker.js, crates/render/src/lib.rs, crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/tools/src/editor/loading.rs, apps/skraft/src/app.rs, crates/tools/src/bench.rs, web/index.html, scripts/build-web.sh]
+code: [apps/skraft/src/images.rs, web/image-worker.js, crates/render/src/lib.rs, crates/kernel/src/engine.rs, crates/kernel/src/job.rs, crates/tools/src/editor/loading.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, crates/tools/src/bench.rs, web/index.html, scripts/build-web.sh]
 ---
 
 # Loading a model

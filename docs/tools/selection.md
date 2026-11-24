@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/panels.rs, apps/skraft/src/tree.rs, apps/skraft/src/instance_name.rs]
+code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/tree.rs, apps/skraft/src/instance_name.rs]
 ---
 
 # Select first, and a selection scope
@@ -143,6 +143,13 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   ([Naming what was just made](quick-tools.md#naming-what-was-just-made)); in several, refused,
   the status saying so (`status.group_one_assembly`). The command is enabled by a selection
   at any depth (`Editor::anything_selected`), as « Effacer ».
+- **« Rendre unique »**: each element selected gets a definition of its own, whatever the
+  « Portée »: the assemblies along its path are made unique first, so that only this instance
+  changes (`MakeUnique` taken by `At { unique: true }`, one step). The toast names the element
+  selected, not the assemblies made unique on the way.
+- **« Éclater »**: the assemblies selected (the tree drop-up) put in their parent, the deepest
+  first, in one step (`Explode` taken by `At`), what they held then selected by its paths. In
+  an assembly placed several times, the « Portée » says whether all its copies change.
 - **Paint**: under « Parts », the part under the cursor — the parts selected when it is one of
   them — painted at its parent (`PaintOccurrences` taken by `At`); painting occurrences (either
   scope), a drag draws a rectangle whose take is painted when released, one step (the context's

@@ -1,6 +1,6 @@
 ---
 status: under way
-code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet_board.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs]
+code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/view_lines.rs, apps/skraft/src/sheet.rs, apps/skraft/src/sheet/, apps/skraft/src/sheet_board.rs, apps/skraft/src/sheet_tree.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/viewport.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/templates.rs, apps/skraft/src/pdf.rs, apps/skraft/src/workspace.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
 ---
 
 # Drawing
@@ -229,7 +229,8 @@ One sheet is **active**, the one edited (`SheetState::current`): the selection, 
 handles, snapping, the entity info and paste act on it.
 
 - **It is drawn with its aids**: an accent outline, its views' frames and names, its grid, what
-  goes past its paper.
+  goes past its paper. Their colours are the palette's: the mode's accent on the board, the
+  light one on the paper, white in either mode (`Aids`).
 - **The others are drawn as printed**: what the PDF shows, clipped to their paper, without view
   frames, view names or grid. Nothing on them is picked.
 - **A click on another sheet makes it active**, the camera still, nothing picked (a composition
@@ -260,7 +261,7 @@ the sheet is off screen.
 - **Selecting** (the sheet's Select tool, as the 3D view's, docs/tools/interaction.md#selection),
   on the active sheet: a click on an element picks it (the last drawn under the pointer),
   elsewhere none; Shift+click adds or removes it; a drag off the elements draws a **selection
-  rectangle** — left to right (solid) the elements it holds whole, right to left (dashed)
+  rectangle** (the 3D view's, `overlay::marquee`) — left to right (solid) the elements it holds whole, right to left (dashed)
   those it touches, Shift adding or removing them; Esc clears the selection
   (`SheetState::selected`, not saved). A view's frame picked is solid, another element's box
   outlined. « Effacer » (`edit.erase`: the ribbon's Selection group, the Edit menu, Delete or
@@ -618,7 +619,9 @@ writes **the active sheet's presentation** as a PDF (`pdf::drawing_pdf`, with `k
 save it (a download on the web), named after the document, and after the presentation when the
 document has several (« Table - Client.pdf »). A field without a value would be printed as it is
 written: a warning names them (`pdf::missing_fields`). It is done at the next frame, where
-the GPU is at hand (`App::pdf_asked`). Once written, its toast offers « Ouvrir »: the system's
+the GPU is at hand (`App::pdf_asked`), or once the document's textures are ready, so that a
+picture never prints a material's plain colour in their place: past 0.3 s a window shows how far
+they are, « Annuler » (or Esc) giving up the export, as does leaving the document. Once written, its toast offers « Ouvrir »: the system's
 application for PDFs opens it (`Act::Open`: `open`, `explorer`, `xdg-open`; desktop only).
 
 - **A page per sheet** of the presentation, at its paper's size (points: 72 a

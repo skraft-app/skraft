@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/view_bar.rs, apps/skraft/src/pins.rs, apps/skraft/src/app.rs, apps/skraft/src/icons.rs, crates/tools/src/editor/mod.rs]
+code: [apps/skraft/src/view_bar.rs, apps/skraft/src/pins.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/icons.rs, crates/tools/src/editor/mod.rs]
 ---
 
 # View bar

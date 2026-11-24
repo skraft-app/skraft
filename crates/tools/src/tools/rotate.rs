@@ -20,9 +20,7 @@ use glam::{DAffine3, DQuat, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::{EntityPath, GuidePath, Id};
 
-use super::{
-    BLUE, Command, Cx, GREEN, INK, Key, LastCopy, Motion, OptionValue, Preview, RED, Tool, ToolInput, ToolKind, ToolOption, guide_color,
-};
+use super::{Command, Cx, INK, Key, LastCopy, Motion, OptionValue, Preview, Tool, ToolInput, ToolKind, ToolOption, guide_color};
 use crate::draw::{Drawer, Drawing, Pen};
 
 /// The protractor's graduations, which the cursor snaps to inside it (radians).
@@ -77,11 +75,6 @@ enum State {
     },
 }
 
-/// The axes' axis `k` (the open part's, else the context's), in the world.
-fn context_axis(cx: &Cx<'_>, k: usize) -> DVec3 {
-    cx.axis(k)
-}
-
 /// The rotation of `angle` about the line through `center` along `axis` (world).
 pub fn rotation_about(center: DVec3, axis: DVec3, angle: f64) -> DAffine3 {
     DAffine3::from_translation(center)
@@ -100,10 +93,10 @@ impl RotateTool {
         }
         let inf = inf?;
         let axis = match (cx.axis_lock, self.grips.center(), &inf.hit) {
-            (Some(k), ..) => context_axis(cx, k),
+            (Some(k), ..) => cx.axis(k),
             (None, Some((_, normal)), _) => normal,
             (None, None, Some(h)) => h.normal,
-            (None, None, None) => context_axis(cx, 2),
+            (None, None, None) => cx.axis(2),
         };
         Some((inf.point, axis, Some(inf)))
     }
@@ -150,7 +143,7 @@ impl RotateTool {
         [0, 1, 2]
             .into_iter()
             .find_map(|k| {
-                let a = context_axis(cx, k);
+                let a = cx.axis(k);
                 (a - axis * a.dot(axis)).try_normalize().filter(|_| a.dot(axis).abs() < 0.9999)
             })
             .unwrap_or_else(|| axis.any_orthonormal_vector())
@@ -261,13 +254,13 @@ impl RotateTool {
     }
 
     fn color(&self, cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
-        axis_color(cx, axis)
+        protractor_ink(cx, axis)
     }
 }
 
-/// The colour of the context's axis `axis` runs along, else the ink.
-pub(super) fn axis_color(cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
-    [(0, RED), (1, GREEN), (2, BLUE)].into_iter().find(|(k, _)| context_axis(cx, *k).dot(axis).abs() > 0.9999).map_or(INK, |(_, c)| c)
+/// A protractor's colour: that of the axis `axis` turns about, else the ink.
+pub(super) fn protractor_ink(cx: &Cx<'_>, axis: DVec3) -> [f32; 4] {
+    cx.ink_along(axis, 1e-4).unwrap_or(INK)
 }
 
 /// The protractor's radius at `center`, in the world.

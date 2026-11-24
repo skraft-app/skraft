@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/dock.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/widgets.rs, apps/skraft/src/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface
@@ -52,7 +52,7 @@ tabs have pages of their own.
   tree filtered to the rows matching a name, and the rows above them
   ([Components library: search](components-library.md#search)).
 - **A row dragged** carries a translucent copy of itself under the pointer, in the model's tree as
-  in the drawing's (`panels::paint_drag_ghost`): its icon, its name, « +n » for what goes with it.
+  in the drawing's (`widgets::paint_drag_ghost`): its icon, its name, « +n » for what goes with it.
 - **A right-click on a navigator row opens its menu**: « Renommer » (the field a double-click
   opens; on a row with an instance name, « Renommer l'exemplaire » and « Renommer la définition »); on a body, « Sortir du groupe » (« Sortir de la pièce » at the part's root), « Rompre le lien » on a linked one; on a part off its linked machining, « Replacer », « Amener l'usinage ici », « Séparer » ([Links](../model/bodies.md#links)); then « Aplatir » on a group or a part with a tree, « Éclater » on an assembly or a group, « Effacer ». Separators set these groups apart.
   Opening it changes nothing; its row stays highlighted while it is open. Its commands act on the whole selection when the row is in it,
@@ -63,7 +63,7 @@ tabs have pages of their own.
   included, a click anywhere on it but on its buttons (fold, eye, sign) choosing it; a part's
   bodies lie on a band of their own (`band_color`: the card's colour a shade towards the text;
   white in the light theme), the tree of assemblies and parts on the card's, the band and the
-  hover reaching the card's border across its margin (`panels::CARD_MARGIN`). The tree follows
+  hover reaching the card's border across its margin (`style::CARD_MARGIN`). The tree follows
   the path being edited down to its end: a part's bodies under it (a single one too), a group's
   under it, and under a body with a profile (an extrusion, a revolution) its « Profil »
   (`icons::PROFILE`), a click editing it (`Action::EditProfile`, `Editor::edit_body_profile`:
@@ -149,6 +149,25 @@ checked: all), its key (read only) — and a delete button (the values stay). «
 propriété » adds `user.property_<n>`, a text. Rows are laid at widths fixed from the card's
 room (`Rows`), not in a `Grid`: a label wider than planned would widen the card at every
 relayout.
+
+## Widgets
+
+What several screens draw alike lives in `apps/skraft/src/widgets.rs`, not in one of them; a
+screen takes its buttons, fields and rows from there.
+
+- **`IconButton`**, the one icon button: a size, an icon and a `Look`. `Plain` has no frame (a
+  navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when
+  hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
+  floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
+  is dimmed rather than disabled.
+- **`pin_row`**, a command's row and its pin, in the menus choosing what a bar shows (the
+  ribbon's groups, the ▾ of the view bar and of the quick tools).
+- **`framed_field`** (the one text field), `rename_field` and `start_rename` (a name edited in
+  its row), `cut_label`.
+- **`option_button`** and **`segmented`**, the option bar's toggles and choices.
+- **`tree_row`**, `fold_toggle` and the drag ghost, the rows of the navigators and the lists.
+
+*Why:* each screen had grown its own copy, and the copies drifted apart.
 
 ## Toasts
 
@@ -297,7 +316,7 @@ scope](../tools/selection.md#selection-scope), the tools that pick parts, no par
 **« Portée »**, which copies a change reaches (the open part's scope, [Opening a
 part](../model/opening-a-part.md), or the parts selected at any depth through a shared
 assembly). The two cards are centered together under the ribbon, between the dock's columns
-(`App` lays them out, `panels::context_options` and `panels::tool_options` fill them, in `panels::option_card`: 3 pt
+(`App` lays them out, `panels::context_options` and `panels::tool_options` fill them, in `style::option_card`: 3 pt
 above and below the buttons, as the view bar, 6 on the sides), each translucent at rest and
 nearly opaque under the pointer or while a field of it is typed in, as the view bar
 (`style::hover_card`). The open
@@ -339,7 +358,7 @@ The bar's buttons are drawn like the ribbon's (no frame until hovered, the selec
 outline when on), an icon's button square. A choice is a **segmented control**: its values side
 by side, drawn like the ribbon's buttons (no track, no outline around the group), the chosen
 one's mark — a selected ribbon button's fill and outline — sliding to the value chosen, easing
-out in 0.18 s (`panels::segmented`). Each choice comes after its name (no colon, grey like a
+out in 0.18 s (`widgets::segmented`). Each choice comes after its name (no colon, grey like a
 caption), the groups apart by separators; the lone toggles come last, together in an
 **"Options"** group, without separators between them. The fills and outlines — the marks, a
 button hovered, the length fields' ground and outline — fade with their card while it is

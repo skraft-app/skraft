@@ -19,9 +19,10 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::commands::Menu;
 use crate::icons;
-use crate::panels::{self, Action, CommandView};
-use crate::style::Tip;
+use crate::panels::{Action, CommandView};
+use crate::style::{BAR_BUTTON, BAR_ICON, Tip};
 use crate::tabs::{self, Tab};
+use crate::widgets::{IconButton, Look, VEIL_RADIUS, backed, command_item, is_toggle, unframed, veil};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
@@ -196,36 +197,7 @@ fn id_icon(id: &str) -> egui::ImageSource<'static> {
 
 /// A bar button: smaller than the tool bar's.
 fn bar_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, lit: bool, enabled: bool, tip: &str) -> egui::Response {
-    let img = icon_image(ui, icon);
-    let button = unframed(egui::Button::image(img).min_size(egui::vec2(26.0, 26.0)));
-    backed(ui, |_| lit, |ui| ui.add_enabled(enabled, button)).tip(tip)
-}
-
-/// A button whose frame is not drawn ([`backed`] draws its background) but keeps its margins.
-fn unframed(button: egui::Button) -> egui::Button {
-    button.fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE)
-}
-
-/// A bar button's icon, in the text's colour.
-fn icon_image(ui: &egui::Ui, icon: egui::ImageSource<'static>) -> egui::Image<'static> {
-    egui::Image::new(icon).fit_to_exact_size(egui::vec2(18.0, 18.0)).tint(ui.visuals().text_color())
-}
-
-/// Draws a frameless button with `add`, and behind it the tabs' + button's background: none
-/// at rest, the [`tabs::veil`] when hovered or pressed, the selection's when `lit` (asked once
-/// the button is drawn: a menu's button is lit while its menu is open).
-fn backed(
-    ui: &mut egui::Ui,
-    lit: impl FnOnce(&egui::Response) -> bool,
-    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
-) -> egui::Response {
-    let behind = ui.painter().add(egui::Shape::Noop);
-    let r = add(ui);
-    let fill = if lit(&r) { Some(ui.visuals().selection.bg_fill) } else { tabs::veil(ui, &r) };
-    if let Some(fill) = fill {
-        ui.painter().set(behind, egui::Shape::rect_filled(r.rect, tabs::VEIL_RADIUS, fill));
-    }
-    r
+    IconButton::new(icon, BAR_BUTTON, BAR_ICON).look(Look::Veil).lit(lit).enabled(enabled).show(ui).tip(tip)
 }
 
 /// A menu's button: lit while its menu is open.
@@ -292,8 +264,8 @@ fn brand(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action
     ui.painter().galley(egui::pos2(mark.right() + spacing, top), name, egui::Color32::PLACEHOLDER);
     ui.painter().galley(egui::pos2(right - version.size().x, top - lift), version, egui::Color32::PLACEHOLDER);
     let Some(v) = home else { return };
-    if let Some(fill) = tabs::veil(ui, &r) {
-        ui.painter().set(behind, egui::Shape::rect_filled(rect, tabs::VEIL_RADIUS, fill));
+    if let Some(fill) = veil(ui, &r) {
+        ui.painter().set(behind, egui::Shape::rect_filled(rect, VEIL_RADIUS, fill));
     }
     crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
     if r.tip(v.tip()).clicked() {
@@ -372,27 +344,27 @@ fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>
 fn menu_items<'a>(ui: &mut egui::Ui, items: impl Iterator<Item = &'a CommandView>, actions: &mut Vec<Action>) {
     let items: Vec<&CommandView> = items.collect();
     // A check box among them: every label after their column.
-    let column = items.iter().any(|v| panels::is_toggle(v));
+    let column = items.iter().any(|v| is_toggle(v));
     let mut first = true;
     for v in items {
         if v.group && !first {
             ui.separator();
         }
         first = false;
-        if panels::command_item(ui, v, column) {
+        if command_item(ui, v, column) {
             actions.push(Action::Command(v.id));
         }
     }
 }
 
 /// The command search: its icon, a hint and its shortcut, opens the command palette. Drawn as
-/// the bar's buttons: no background at rest, the [`tabs::veil`] when hovered. True when
+/// the bar's buttons: no background at rest, the [`veil`] when hovered. True when
 /// clicked.
 fn search(ui: &mut egui::Ui, v: &CommandView, width: f32) -> bool {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(width, 26.0), egui::Sense::click());
     crate::handles::publish(|| format!("titlebar:{}", v.id), rect);
-    if let Some(fill) = tabs::veil(ui, &r) {
-        ui.painter().rect_filled(rect, tabs::VEIL_RADIUS, fill);
+    if let Some(fill) = veil(ui, &r) {
+        ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
     }
     let visuals = ui.visuals();
     let p = ui.painter();
@@ -460,7 +432,7 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
     });
     if mark.flash > 0.0 {
         let fill = ACTIVE.gamma_multiply(0.45 * mark.flash);
-        ui.painter().set(behind, egui::Shape::rect_filled(r.rect, tabs::VEIL_RADIUS, fill));
+        ui.painter().set(behind, egui::Shape::rect_filled(r.rect, VEIL_RADIUS, fill));
     }
     if !menu_open(&r) {
         r.tip(tip);

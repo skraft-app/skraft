@@ -2,7 +2,7 @@
 //! a part (docs/model/opening-a-part.md), erase, make an assembly, explode, make a part on its own.
 
 use skraft_i18n::t;
-use skraft_model::{EntityPath, GuidePath, Id, Operation};
+use skraft_model::{EntityPath, GuidePath, Id, Operation, Scope};
 
 use super::{After, Editor};
 use crate::ToolKind;
@@ -413,11 +413,17 @@ impl Editor {
         self.selection.iter().copied().filter(|id| self.document().is_assembly_occurrence(ctx, *id)).collect()
     }
 
-    /// Can the selection be exploded: an assembly among it or, in an open part, a group of
-    /// bodies?
+    /// The assemblies selected at any depth (« Parts », from the tree drop-up).
+    fn deep_assemblies(&self) -> Vec<EntityPath> {
+        let doc = self.document();
+        self.deep.iter().filter(|p| doc.resolve(p).is_ok_and(|o| doc.assembly(o.component).is_ok())).cloned().collect()
+    }
+
+    /// Can the selection be exploded: an assembly among it, here or at any depth, or, in an
+    /// open part, a group of bodies?
     pub fn can_explode(&self) -> bool {
         if self.open_part.is_none() {
-            return !self.selected_assemblies().is_empty();
+            return !self.selected_assemblies().is_empty() || !self.deep_assemblies().is_empty();
         }
         let Some((target, bodies)) = self.selected_bodies() else { return false };
         let Ok((_, p, _)) = self.document().resolve_container(&target) else { return false };
@@ -435,12 +441,44 @@ impl Editor {
             let _ = self.start(Operation::UngroupBodies { target, bodies, scope: self.part_scope }, After::Select, false);
             return;
         }
+        if !self.deep.is_empty() {
+            return self.explode_deep();
+        }
         let context = self.context_definition();
         self.collected.clear();
         for occurrence in self.selected_assemblies() {
             self.queue.push_back((Operation::Explode { context, occurrence }, After::Collect));
         }
         self.pump();
+    }
+
+    /// « Éclater » under « Pièces » (docs/tools/selection.md): the assemblies selected, each at
+    /// its parent, in one step; what they held then selected by its paths.
+    fn explode_deep(&mut self) {
+        let mut paths = self.deep_assemblies();
+        let doc = self.document();
+        let unique = self.part_scope == Scope::This && paths.iter().any(|p| doc.shared_along(&p.instances));
+        // The deepest first: an assembly exploded takes those inside it out of their paths.
+        paths.sort_by_key(|p| std::cmp::Reverse(p.instances.len()));
+        // Reached through two copies of a parent changed for all: once.
+        let mut seen = Vec::new();
+        let ops: Vec<Operation> = paths
+            .into_iter()
+            .filter(|p| {
+                let key = (doc.context_of(&p.instances).ok(), p.entity);
+                let first = unique || !seen.contains(&key);
+                seen.push(key);
+                first
+            })
+            .map(|p| {
+                let op = Operation::Explode { context: Id(0), occurrence: p.entity };
+                Operation::At { parent: p.instances, unique, op: Box::new(op) }
+            })
+            .collect();
+        if !ops.is_empty() {
+            self.queue.push_back((Operation::Batch(ops), After::SelectDeep));
+            self.pump();
+        }
     }
 
     /// The bodies selected in the open part, with its path.
@@ -497,6 +535,11 @@ impl Editor {
         }
     }
 
+    /// Can the selection be made unique: something selected, here or at any depth?
+    pub fn can_make_unique(&self) -> bool {
+        !self.selection.is_empty() || !self.deep.is_empty()
+    }
+
     pub fn make_unique(&mut self) {
         if self.busy() {
             return;
@@ -511,6 +554,21 @@ impl Editor {
                 self.queue.push_back((op, After::Unique));
                 self.pump();
             }
+            return;
+        }
+        // Under « Pièces »: each part on its own, the assemblies along its path made unique
+        // first, in one step (docs/tools/selection.md).
+        if !self.deep.is_empty() {
+            let ops = self
+                .deep
+                .iter()
+                .map(|p| {
+                    let op = Operation::MakeUnique { context: Id(0), occurrence: p.entity };
+                    Operation::At { parent: p.instances.clone(), unique: true, op: Box::new(op) }
+                })
+                .collect();
+            self.queue.push_back((Operation::Batch(ops), After::Unique));
+            self.pump();
             return;
         }
         let context = self.context_definition();

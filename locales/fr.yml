@@ -304,6 +304,7 @@ tabs:
 loading:
   open: "Ouverture de « %{name} »"
   import: "Import de « %{name} »"
+  pdf: "Export du PDF"
   reading: "Lecture du fichier"
   bodies: "Lecture des corps"
   previews: "Aperçu"
@@ -1145,7 +1146,7 @@ tool:
     more_occurrences: "%{count} exemplaires partageant la même définition seront modifiés"
     settings_reset: "Axes obliques : les plans de coupe et blocages d'étirement sont réinitialisés"
     hint:
-      swap_length_width: "Cliquer une pièce ou un assemblage pour permuter sa longueur et sa largeur"
+      swap_length_width: "Cliquer une pièce ou un assemblage pour permuter sa longueur et sa largeur · %{alt_key} maintenu : inverser le sens"
       swap_front_back: "Cliquer une pièce ou un assemblage pour permuter sa face et son dos"
       adapt: "Viser une face et cliquer une arête pour y adapter les axes · %{alt_key} maintenu : inverser le sens"
       origin: "Cliquer un point pour y placer l'origine"

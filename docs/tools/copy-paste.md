@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/model/src/clipboard.rs, crates/model/src/ops.rs, crates/tools/src/editor/clipboard.rs, crates/tools/src/tools/mover.rs, apps/skraft/src/clipboard.rs, apps/skraft/src/app.rs]
+code: [crates/model/src/clipboard.rs, crates/model/src/ops.rs, crates/tools/src/editor/clipboard.rs, crates/tools/src/tools/mover.rs, apps/skraft/src/clipboard.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
 ---
 
 # Copy, cut and paste
@@ -148,7 +148,7 @@ world transformation (`transform`, rigid):
   (⇧⌘V), in the Edit group (palette, shortcuts, control channel); enabled when the selection
   can be copied (`Editor::can_copy`: something selected, nothing computing, the tool at its
   first step), or when the clipboard can be pasted (`Editor::can_paste`).
-- **Keys** (`apps/skraft/src/clipboard.rs`, `app.rs`): ⌘X, ⌘C and ⌘V reach the
+- **Keys** (`apps/skraft/src/clipboard.rs`, `app/keys.rs`, `app/command_run.rs`): ⌘X, ⌘C and ⌘V reach the
   app as egui's `Event::Cut` / `Event::Copy` / `Event::Paste(text)` — egui-winit sends no key
   for them; the web sends the key *and* the clipboard event, so the keys are ignored — and
   are fixed whatever the shortcuts, done only when enabled, silently otherwise. A text field

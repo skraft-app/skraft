@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/docs.rs, apps/skraft/src/tabs.rs, apps/skraft/src/app.rs, apps/skraft/src/lib.rs, crates/kernel/src/shared.rs, crates/render/src/lib.rs, crates/control/src/params.rs]
+code: [apps/skraft/src/docs.rs, apps/skraft/src/tabs.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/lib.rs, crates/kernel/src/shared.rs, crates/render/src/lib.rs, crates/control/src/params.rs]
 ---
 
 # Several documents: file tabs
@@ -102,7 +102,7 @@ save dialog when it has no path, and the tab closes only when that document's sa
 dialogs' outcomes (`file::Outcome`) carry the `DocId` they belong to (the user may switch tabs
 while a dialog is open). Close others / all and **quitting** (⌘Q, the window's close button:
 `close_requested` + `CancelClose`) ask for each modified document in turn, its tab selected;
-Cancel stops the whole batch (`app.rs`: `Closing`, `advance_closing`, `save_prompt`). Web: the
+Cancel stops the whole batch (`app.rs`: `Closing`; `app/documents.rs`: `advance_closing`; `app/dialogs.rs`: `save_prompt`). Web: the
 page asks before it is left (`beforeunload`) while a document is modified.
 
 ## Start page
@@ -125,7 +125,7 @@ as the tab's ×, unless `force`).
 ## Code and texts
 
 - `apps/skraft/src/docs.rs` (`Doc`, `Docs`: open, close, move, cycle — tested without display),
-  `tabs.rs` (the strip, `layout` and `drop_place` tested), the closing and quitting in `app.rs`
+  `tabs.rs` (the strip, `layout` and `drop_place` tested), the closing and quitting in `app/documents.rs`
   (`Closing`, `advance_closing`, `save_prompt`); `kernel::SharedKernel` / `KernelHandle`
   (`crates/kernel/src/shared.rs`); `Renderer::set_document` / `drop_document`.
 - Texts: `tabs.*` and `start.*` keys of the catalog, without ellipsis

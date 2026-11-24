@@ -20,16 +20,14 @@ use glam::{DAffine3, DVec3};
 use skraft_i18n::t;
 use skraft_model::Operation;
 
+use super::copying::{Copying, copying_tool, count, mirror_key, mirror_warning, redone};
 use super::handle::{
-    MIRROR, Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure,
-    minimums, mirror_badge, nearest_axis_on_screen, reflection, repeat_stepped,
+    MIRROR, Measure, Target, count_step, draw_axes, draw_boxes, draw_measure, half_along, leaving_axis, measure, minimums, mirror_badge,
+    nearest_axis_on_screen, reflection, repeat_stepped,
 };
-use super::pick::Picker;
-use super::{Command, Cx, Key, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
-use crate::infer::{InferKind, Inference};
+use super::{Command, Cx, OptionValue, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
+use crate::infer::InferKind;
 use crate::vcb::{self, Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 /// Where the copies go, worked out in the target's axes (OCL's `_get_move_def`): from the
 /// centre of the box, `mps`, the last copy's centre `mpe`; the measure from `dps` to `dpe`,
@@ -85,12 +83,6 @@ fn placements(t: &Target, d: &LineDef, repeat: Repeat, mirror: bool) -> Vec<DAff
         .collect()
 }
 
-fn count(r: Repeat) -> u32 {
-    match r {
-        Repeat::Times(n) | Repeat::Divide(n) => n,
-    }
-}
-
 /// The copies just made: a value typed then redoes them.
 #[derive(Clone, Debug)]
 struct Last {
@@ -105,42 +97,21 @@ struct Last {
 
 #[derive(Clone)]
 pub struct CopyLineTool {
-    picker: Picker,
-    memo: Memo,
+    base: Copying<Last>,
     /// The cursor's point, in the target's axes, and the axis it runs along.
     end: Option<(DVec3, usize)>,
-    snap: Option<Inference>,
     repeat: Repeat,
-    last: Option<Last>,
-    /// There was something to copy at the last input (for the hints).
-    aimed: bool,
     /// The measure shown, as the last input left it.
     distance: f64,
 }
 
 impl Default for CopyLineTool {
     fn default() -> Self {
-        CopyLineTool {
-            picker: Picker::default(),
-            memo: Memo::default(),
-            end: None,
-            snap: None,
-            repeat: Repeat::Divide(1),
-            last: None,
-            aimed: false,
-            distance: 0.0,
-        }
+        CopyLineTool { base: Copying::default(), end: None, repeat: Repeat::Divide(1), distance: 0.0 }
     }
 }
 
 impl CopyLineTool {
-    fn target(&self, cx: &Cx<'_>) -> Option<Target> {
-        if !self.picker.aims() {
-            return None;
-        }
-        self.memo.target(cx)
-    }
-
     /// The cursor's point (OCL's `_snap_handle`): off the geometry, on the axis through the box's
     /// centre whose line passes nearest the cursor on screen (or the locked one), at its point
     /// nearest the cursor's ray; on the geometry, the point projected on the axis the way to it
@@ -164,7 +135,7 @@ impl CopyLineTool {
         // At the centre (the cursor's ray along the axis, seen end on): along the axis still.
         let end = if (end - c).length() < 1e-9 { c + DVec3::AXES[k] * 1e-6 } else { end };
         self.end = Some((end, k));
-        self.snap = on;
+        self.base.snap = on;
     }
 
     fn operation(cx: &Cx<'_>, t: &Target, end: DVec3, repeat: Repeat) -> Operation {
@@ -186,17 +157,14 @@ impl CopyLineTool {
     fn finish(&mut self, cx: &Cx<'_>, target: Target, end: DVec3) -> Vec<Command> {
         let op = Self::operation(cx, &target, end, self.repeat);
         let distance = Self::measured(cx, &target, end, self.repeat);
-        self.last = Some(Last { target, end, repeat: self.repeat, distance, op: op.clone() });
-        self.picker.drop();
+        let last = Last { target, end, repeat: self.repeat, distance, op: op.clone() };
         self.end = None;
-        self.snap = None;
-        // OCL lets the copies go: the next click picks something else.
-        vec![Command::Apply(op), Command::Select(Vec::new())]
+        self.base.made(last, op)
     }
 
     /// A value typed once the copies are made: they are made again.
     fn retype(&mut self, cx: &Cx<'_>, v: &VcbValue) -> Vec<Command> {
-        let Some(last) = &mut self.last else { return vec![] };
+        let Some(last) = &mut self.base.last else { return vec![] };
         let (end, repeat) = match v {
             VcbValue::Counts(c) => match c.first() {
                 Some(Some(r)) => (last.end, *r),
@@ -209,11 +177,10 @@ impl CopyLineTool {
             _ => return vec![],
         };
         let op = Self::operation(cx, &last.target, end, repeat);
-        let previous = std::mem::replace(&mut last.op, op.clone());
+        let mut out = redone(&mut last.op, op);
         (last.end, last.repeat) = (end, repeat);
         last.distance = Self::measured(cx, &last.target, end, repeat);
-        let mut out = vec![Command::Replace { previous: Box::new(previous), op: Box::new(op) }, Command::Select(Vec::new())];
-        out.extend(Self::mirror_warning(cx, count(repeat)));
+        out.extend(mirror_warning(cx, count(repeat) != 1));
         out
     }
 
@@ -221,11 +188,6 @@ impl CopyLineTool {
     fn measured(cx: &Cx<'_>, t: &Target, end: DVec3, repeat: Repeat) -> f64 {
         let d = line_def(t, end, repeat, measure(cx, Measure::Outside));
         (d.dpe - d.dps).length()
-    }
-
-    /// OCL's warning: the mirror makes one copy only.
-    fn mirror_warning(cx: &Cx<'_>, n: u32) -> Option<Command> {
-        (cx.toggle(MIRROR) && n != 1).then(|| Command::Say(t!("tool.handle.say.mirror_one")))
     }
 }
 
@@ -236,40 +198,21 @@ impl Tool for CopyLineTool {
 
     /// OCL's `STATE_SELECT` and `STATE_HANDLE` alike.
     fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
-        Some(if self.picking() {
-            self.picker.cursor(cx, crate::tools::Cursor::SelectCopyLine)
-        } else {
-            crate::tools::Cursor::SelectCopyLine
-        })
+        self.base.cursor(cx, crate::tools::Cursor::SelectCopyLine, crate::tools::Cursor::SelectCopyLine)
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        // Shift released: the selection made is taken.
-        if self.picker.shift_released(cx) {
-            self.last = None;
-        }
-        // The copy modifier tapped: the mirror (OCL's Alt / Command).
-        if let ToolInput::Key { key: Key::Copy, .. } = input {
-            let on = !cx.toggle(MIRROR);
-            let mut out = vec![Command::SetOption { key: MIRROR, value: OptionValue::Toggle(on) }];
-            if on && count(self.repeat) != 1 {
-                out.push(Command::Say(t!("tool.handle.say.mirror_one")));
-            }
+        self.base.shift_released(cx);
+        if let Some(out) = mirror_key(input, cx, count(self.repeat) != 1) {
             return out;
         }
-        let target = self.target(cx);
-        self.aimed = target.is_some();
-        let Some(t) = target else {
+        let Some(t) = self.base.aim(cx) else {
             self.end = None;
-            self.snap = None;
+            self.base.snap = None;
             if let ToolInput::Value(v) = input {
                 return self.retype(cx, v);
             }
-            let (out, took) = self.picker.input(input, cx);
-            if took {
-                self.last = None;
-            }
-            return out;
+            return self.base.pick(input, cx);
         };
         // Shift with + / −: one copy more or fewer (OCL's), `x` or `/` kept.
         if let Some(by) = count_step(input) {
@@ -278,7 +221,7 @@ impl Tool for CopyLineTool {
                 self.distance = Self::measured(cx, &t, end, self.repeat);
             }
             // OCL warns once, from one copy to two.
-            return if by > 0 && count(self.repeat) == 2 { Self::mirror_warning(cx, 2).into_iter().collect() } else { vec![] };
+            return if by > 0 && count(self.repeat) == 2 { mirror_warning(cx, true).into_iter().collect() } else { vec![] };
         }
         let end = self.end.map_or(t.center(), |e| e.0);
         match input {
@@ -295,7 +238,7 @@ impl Tool for CopyLineTool {
                     if let Some((end, _)) = self.end {
                         self.distance = Self::measured(cx, &t, end, self.repeat);
                     }
-                    return Self::mirror_warning(cx, count(*r)).into_iter().collect();
+                    return mirror_warning(cx, count(*r) != 1).into_iter().collect();
                 }
             }
             ToolInput::Value(VcbValue::Lengths(v)) => {
@@ -311,8 +254,8 @@ impl Tool for CopyLineTool {
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut p = Preview::default();
-        let Some(t) = self.target(cx) else {
-            self.picker.preview(&mut p);
+        let Some(t) = self.base.target(cx) else {
+            self.base.picker.preview(&mut p);
             return p;
         };
         let draw = &mut cx.drawer(&mut p.drawing);
@@ -323,7 +266,7 @@ impl Tool for CopyLineTool {
         };
         let d = line_def(&t, end, self.repeat, measure(cx, Measure::Outside));
         let copies = placements(&t, &d, self.repeat, cx.toggle(MIRROR));
-        let color = axis_color(k);
+        let color = axis_ink(k);
         draw_axes(draw, &t, |j| j == k, None);
         draw_boxes(draw, &t, &copies);
         // The measure, dashed, seen through what lies between, its length at its middle.
@@ -339,28 +282,28 @@ impl Tool for CopyLineTool {
             mirror_badge(draw, t.world(d.mpe), dir, half_along(t.half(), d.u), color);
         }
         p.copies = copies;
-        p.inference = self.snap.clone();
+        p.inference = self.base.snap.clone();
         p
     }
 
     fn status(&self) -> String {
-        if self.aimed {
+        if self.base.aimed {
             return t!("tool.copy_line.hint.place", copy_key = copy_key());
         }
-        if self.last.is_some() && !self.picker.busy() {
+        if self.base.last.is_some() && !self.base.picker.busy() {
             return t!("tool.copy_line.hint.again");
         }
-        self.picker.status(t!("tool.copy_line.hint.pick"), t!("tool.handle.hint.gather"))
+        self.base.picker.status(t!("tool.copy_line.hint.pick"), t!("tool.handle.hint.gather"))
     }
 
     fn vcb(&self) -> Option<Vcb> {
         let label = t!("tool.copy_line.vcb.distance");
-        if self.aimed {
+        if self.base.aimed {
             // Before any move, the cursor's point is the box's centre.
             let distance = self.end.map_or(0.0, |_| self.distance);
             return Some(Vcb::new(label, VcbKind::Lengths(vec![distance])).counts(1));
         }
-        self.last.as_ref().map(|l| Vcb::new(label, VcbKind::Lengths(vec![l.distance])).counts(1))
+        self.base.last.as_ref().map(|l| Vcb::new(label, VcbKind::Lengths(vec![l.distance])).counts(1))
     }
 
     fn copying(&self) -> bool {
@@ -369,16 +312,12 @@ impl Tool for CopyLineTool {
 
     /// While placing (OCL's `STATE_HANDLE`).
     fn takes_counts(&self) -> bool {
-        self.aimed
+        self.base.aimed
     }
 
     /// Picking, a drag draws a selection rectangle; then, it places where it is released.
     fn drag_clicks(&self) -> DragClicks {
-        if self.aimed { DragClicks::Release } else { DragClicks::No }
-    }
-
-    fn busy(&self) -> bool {
-        self.aimed || self.picker.busy() || self.last.is_some()
+        if self.base.aimed { DragClicks::Release } else { DragClicks::No }
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -389,43 +328,23 @@ impl Tool for CopyLineTool {
         // Other axes, another box: the handle starts again from its centre.
         if key == super::handle::AXES {
             self.end = None;
-            self.snap = None;
+            self.base.snap = None;
         }
     }
 
     fn leave(&mut self) {
         self.end = None;
-        self.snap = None;
-        self.picker.leave();
+        self.base.leave();
     }
 
-    fn picks_first(&self) -> bool {
-        true
-    }
-
-    /// Nothing aimed at: a click picks what to copy (also once copies are made).
-    fn picking(&self) -> bool {
-        !self.aimed
-    }
-
-    fn picks_parts(&self) -> bool {
-        true
-    }
-
-    fn dropped(&self) -> bool {
-        self.picker.dropped()
-    }
+    copying_tool!();
 
     fn back(&mut self) {
-        if self.picker.back() {
+        if self.base.picker.back() {
             return;
         }
-        self.picker.drop();
+        self.base.forget();
         self.end = None;
-        self.snap = None;
-        self.last = None;
-        // Nothing aimed at any more: no longer busy (a quick tool then hands back).
-        self.aimed = false;
     }
 
     fn reset(&mut self) {

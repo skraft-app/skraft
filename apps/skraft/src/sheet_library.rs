@@ -97,23 +97,19 @@ pub fn compositions(
 ) {
     let d = editor.document().drawing();
     let top = ui.cursor().top();
-    let revision = editor.history().revision();
     let matcher = Matcher::new(&st.library.search);
-    if st.library.rows.as_ref().is_none_or(|(r, f, _)| *r != revision || *f != st.library.search) {
-        st.library.rows = Some((revision, st.library.search.clone(), rows_of(d, &matcher)));
-    }
+    let library = &mut st.library;
+    let rows = crate::search::listed(&mut library.rows, editor.history().revision(), &library.search, || rows_of(d, &matcher)).clone();
     let salt = ui.make_persistent_id("compositions_search");
     crate::search::field(ui, salt, "compositions", &mut st.library.search, |ui, side| {
         catalog::view_toggle(ui, side, as_list, Card::Compositions, actions)
     });
     ui.add_space(crate::search::GAP - ui.spacing().item_spacing.y);
-    let Some((_, _, rows)) = st.library.rows.clone() else { return };
     if rows.is_empty() {
         ui.weak(if matcher.is_active() { t!("search.no_match") } else { t!("panel.compositions.none") });
         return;
     }
-    let room = (height - (ui.cursor().top() - top)).max(0.0);
-    let area = area.max_height(room).min_scrolled_height(room);
+    let area = catalog::fit(ui, area, height, top);
     catalog::show(ui, &mut Compositions { e: editor, d, st }, &rows, as_list, actions, area);
 }
 

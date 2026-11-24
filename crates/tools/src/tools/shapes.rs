@@ -1213,10 +1213,10 @@ fn on_axis(cx: &Cx<'_>, px: DVec2, f: &Frame, p: DVec3) -> Option<DVec3> {
         .map(|(q, _)| q)
 }
 
-/// The colour of the axis `d` runs along, if it does.
+/// The colour of the axis `d` runs along, if it does; `d` in the axes' coordinates, where the
+/// shapes are drawn.
 fn axis_color(d: DVec3) -> Option<[f32; 4]> {
-    let d = d.try_normalize()?;
-    [(DVec3::X, RED), (DVec3::Y, GREEN), (DVec3::Z, BLUE)].into_iter().find(|(a, _)| d.dot(*a).abs() > 1.0 - SQUARE).map(|(_, c)| c)
+    super::ink_along([DVec3::X, DVec3::Y, DVec3::Z], d, SQUARE)
 }
 
 impl CylinderTool {

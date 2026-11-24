@@ -33,6 +33,24 @@ const HOVERED: f32 = 0.92;
 pub const BAR_BUTTON: f32 = 26.0;
 pub const BAR_ICON: f32 = 18.0;
 
+/// The margin inside a panel's card, around its content (its border just outside).
+pub const CARD_MARGIN: f32 = 6.0;
+
+/// The room between the cards floating over the stage, and around them (points).
+pub const FLOAT_GAP: f32 = 8.0;
+
+/// The frame of a panel's card.
+pub fn card_frame(style: &egui::Style) -> egui::Frame {
+    egui::Frame::window(style).inner_margin(CARD_MARGIN)
+}
+
+/// The frame of the option bar's cards (docs/ui/interface.md#context-card): as tight above and
+/// below its buttons as the view bar around its own, a little more room on the sides for the
+/// groups' names.
+pub fn option_card(style: &egui::Style) -> egui::Frame {
+    egui::Frame::window(style).inner_margin(egui::Margin::symmetric(6, 3))
+}
+
 /// A floating card's opacity: [`RESTING`], or [`HOVERED`] when `hovered`.
 pub fn card_alpha(hovered: bool) -> f32 {
     if hovered { HOVERED } else { RESTING }

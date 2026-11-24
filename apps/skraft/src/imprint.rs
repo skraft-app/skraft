@@ -56,11 +56,7 @@ impl Dialog {
         let mut answer = Answer::Open;
         let read = |text: &str, current: f64| measure::length(text, units, current).ok().filter(|v| v.is_finite());
         let values = read(&self.around, 0.0).zip(read(&self.deep, DEEP));
-        let modal = egui::Modal::new(egui::Id::unique("imprint")).frame(crate::app::modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(380.0);
-            ui.spacing_mut().button_padding = crate::app::MODAL_BUTTON_PADDING;
-            ui.heading(t!("imprint.title"));
-            ui.add_space(6.0);
+        let modal = crate::app::modal(ctx, egui::Id::unique("imprint"), 380.0, t!("imprint.title"), |ui| {
             ui.label(egui::RichText::new(&self.summary).strong());
             ui.label(&self.into);
             ui.add_space(8.0);
@@ -80,7 +76,7 @@ impl Dialog {
             ui.label(egui::RichText::new(bad).small().color(ui.visuals().error_fg_color));
             if let Some(partial) = &self.partial {
                 ui.horizontal_top(|ui| {
-                    ui.add(crate::panels::warning(ui));
+                    ui.add(crate::widgets::warning(ui));
                     ui.add(egui::Label::new(partial).wrap());
                 });
             }

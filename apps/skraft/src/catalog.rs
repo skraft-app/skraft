@@ -6,7 +6,8 @@ use skraft_i18n::t;
 use skraft_model::Id;
 
 use crate::icons;
-use crate::panels::{Action, rename_field, tree_row, weak_share};
+use crate::panels::{Action, weak_share};
+use crate::widgets::{rename_field, tree_row};
 
 /// A list row's height, and its picture's side (points).
 pub(crate) const LIST_ROW: f32 = 30.0;
@@ -113,19 +114,19 @@ pub(crate) struct Renaming {
 impl Renaming {
     fn of(ui: &egui::Ui, salt: &'static str, id: Id) -> Renaming {
         let key = ui.make_persistent_id((salt, id));
-        let active = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(crate::panels::RENAMING))) == Some(key);
+        let active = ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(crate::widgets::RENAMING))) == Some(key);
         Renaming { key, active, renamed: None }
     }
 
     /// Starts it (a menu's « Renommer »).
     pub fn start(ui: &egui::Ui, key: egui::Id) {
-        ui.data_mut(|d| d.insert_temp(egui::Id::unique(crate::panels::RENAMING), key));
+        ui.data_mut(|d| d.insert_temp(egui::Id::unique(crate::widgets::RENAMING), key));
     }
 
     /// Its gestures: ended by its field, started by a double-click or by F2 when `f2` (the item
     /// alone chosen). The name to apply, when one was typed (never empty).
     pub fn gesture(self, ui: &egui::Ui, response: &egui::Response, f2: bool) -> Option<String> {
-        let key = egui::Id::unique(crate::panels::RENAMING);
+        let key = egui::Id::unique(crate::widgets::RENAMING);
         let f2 = || f2 && ui.memory(|m| m.focused().is_none()) && ui.input(|i| i.key_pressed(egui::Key::F2));
         if self.renamed.is_some() {
             ui.data_mut(|d| d.remove::<egui::Id>(key));
@@ -169,6 +170,13 @@ pub(crate) trait Shelf {
     }
     fn lead_picture(&mut self, _ui: &mut egui::Ui, _rect: egui::Rect, _ink: &Ink) {}
     fn lead_interact(&mut self, _ui: &mut egui::Ui, _response: egui::Response, _actions: &mut Vec<Action>) {}
+}
+
+/// `area` as high as what is left of a card's `height`, from `top` (where its content starts)
+/// down to the cursor.
+pub(crate) fn fit(ui: &egui::Ui, area: egui::ScrollArea, height: f32, top: f32) -> egui::ScrollArea {
+    let room = (height - (ui.cursor().top() - top)).max(0.0);
+    area.max_height(room).min_scrolled_height(room)
 }
 
 /// The items of `rows`, as a list or as a grid, in `area`: only the rows in view are laid out,
@@ -383,7 +391,7 @@ fn count_badge(ui: &egui::Ui, square: egui::Rect, n: u64, weak: egui::Color32) {
 /// The grid / list toggle, at the right end of the search row: the option bar's segmented
 /// control, of the row's height.
 pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: Card, actions: &mut Vec<Action>) {
-    use crate::panels::Segment;
+    use crate::widgets::Segment;
     let segments = [
         Segment::image(&t!("panel.components.as_grid"), "", icons::TILES, !list),
         Segment::image(&t!("panel.components.as_list"), "", icons::LIST, list),
@@ -391,7 +399,7 @@ pub(crate) fn view_toggle(ui: &mut egui::Ui, side: f32, list: bool, card: Card, 
     let handle = card.handle();
     let id = ui.make_persistent_id((handle, "view"));
     let name = |i: usize| format!("{handle}:{}", ["grid", "list"][i]);
-    if let Some(i) = crate::panels::segmented_sized(ui, id, &segments, (side, 14.0), name) {
+    if let Some(i) = crate::widgets::segmented_sized(ui, id, &segments, (side, 14.0), name) {
         actions.push(Action::CardList(card, i == 1));
     }
 }

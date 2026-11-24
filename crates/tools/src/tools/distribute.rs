@@ -22,20 +22,16 @@ use glam::{DAffine3, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::Operation;
 
+use super::copying::{Copying, copying_tool, redone};
 use super::handle::{
-    Measure, Memo, Target, axis_color, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen,
-    stepped,
+    Measure, Target, count_step, draw_axes, draw_boxes, draw_measure, half_along, measure, nearest_axis_on_screen, stepped,
 };
-use super::pick::Picker;
-use super::{Command, Cx, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, copy_key};
+use super::{Command, Cx, GREY, PointShape, Preview, Tool, ToolInput, ToolKind, ToolOption, WHITE, axis_ink, copy_key};
 use crate::camera::Ray;
 use crate::draw::{Ends, Pen};
 use crate::infer::{InferKind, Inference};
 use crate::scene::Owner;
 use crate::vcb::{Repeat, Vcb, VcbKind, VcbValue};
-
-const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const GREY: [f32; 4] = [0.35, 0.35, 0.35, 1.0];
 
 /// A distribute, in the target's axes: from `start` to `end` (on a line along an axis),
 /// `number` pieces, the first `spacings` set (OCL's `@spacings`, `None` an empty slot).
@@ -121,38 +117,30 @@ enum State {
 
 #[derive(Clone)]
 pub struct DistributeTool {
-    picker: Picker,
-    memo: Memo,
+    base: Copying<Last>,
     state: State,
     /// The cursor's point (the target's axes), on the line from the start in `End`, and the
     /// axis it runs along.
     cursor: Option<(DVec3, usize)>,
     /// Where the copy modifier's ray stopped (world), if it did.
     ray_hit: Option<DVec3>,
-    snap: Option<Inference>,
     number: u32,
     spacings: Vec<Option<f64>>,
-    last: Option<Last>,
     /// The last distribute, which a double-click repeats on what is picked now (OCL's previous
     /// handler's).
     previous: Option<Params>,
-    aimed: bool,
 }
 
 impl Default for DistributeTool {
     fn default() -> Self {
         DistributeTool {
-            picker: Picker::default(),
-            memo: Memo::default(),
+            base: Copying::default(),
             state: State::Start,
             cursor: None,
             ray_hit: None,
-            snap: None,
             number: 1,
             spacings: Vec::new(),
-            last: None,
             previous: None,
-            aimed: false,
         }
     }
 }
@@ -162,13 +150,6 @@ fn measure_of(cx: &Cx<'_>) -> Measure {
 }
 
 impl DistributeTool {
-    fn target(&self, cx: &Cx<'_>) -> Option<Target> {
-        if !self.picker.aims() {
-            return None;
-        }
-        self.memo.target(cx)
-    }
-
     /// The point inferred under `px`, what is distributed left out (drawn where it goes only).
     fn infer(cx: &Cx<'_>, t: &Target, px: DVec2) -> Option<Inference> {
         cx.infer(
@@ -188,7 +169,7 @@ impl DistributeTool {
             cx.ray(px).hit_plane(o, n)
         });
         self.cursor = p.map(|p| (t.local(p), 0));
-        self.snap = inf;
+        self.base.snap = inf;
     }
 
     /// The end point under `px` (OCL's `_snap_handle`): on the axis through the start whose
@@ -221,7 +202,7 @@ impl DistributeTool {
             }
         }
         self.cursor = Some((end, k));
-        self.snap = inf.filter(|_| self.ray_hit.is_none());
+        self.base.snap = inf.filter(|_| self.ray_hit.is_none());
     }
 
     fn params(&self, start: DVec3, end: DVec3) -> Params {
@@ -238,13 +219,10 @@ impl DistributeTool {
     fn finish(&mut self, cx: &Cx<'_>, target: Target, params: Params) -> Vec<Command> {
         let Some(op) = Self::operation(cx, &target, &params) else { return vec![] };
         self.previous = Some(params.clone());
-        self.last = Some(Last { target, params, op: op.clone() });
-        self.picker.drop();
         self.state = State::Start;
         self.cursor = None;
-        self.snap = None;
         self.ray_hit = None;
-        vec![Command::Apply(op), Command::Select(Vec::new())]
+        self.base.made(Last { target, params, op: op.clone() }, op)
     }
 
     /// A count typed: the pieces, or the refusal.
@@ -265,7 +243,7 @@ impl DistributeTool {
 
     /// A value typed once the pieces are placed: they are placed again.
     fn retype(&mut self, cx: &Cx<'_>, v: &VcbValue) -> Vec<Command> {
-        let Some(last) = &mut self.last else { return vec![] };
+        let Some(last) = &mut self.base.last else { return vec![] };
         let mut p = last.params.clone();
         match v {
             VcbValue::Counts(c) => match c.first().copied().flatten().map(Self::count) {
@@ -281,11 +259,11 @@ impl DistributeTool {
             _ => return vec![],
         }
         let Some(op) = Self::operation(cx, &last.target, &p) else { return vec![] };
-        let previous = std::mem::replace(&mut last.op, op.clone());
+        let out = redone(&mut last.op, op);
         last.params = p.clone();
         (self.number, self.spacings) = (p.number, p.spacings.clone());
         self.previous = Some(p);
-        vec![Command::Replace { previous: Box::new(previous), op: Box::new(op) }, Command::Select(Vec::new())]
+        out
     }
 }
 
@@ -296,27 +274,19 @@ impl Tool for DistributeTool {
 
     /// OCL's `STATE_SELECT`; then the arrow.
     fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
-        Some(if self.picking() { self.picker.cursor(cx, crate::tools::Cursor::SelectDistribute) } else { crate::tools::Cursor::Select })
+        self.base.cursor(cx, crate::tools::Cursor::SelectDistribute, crate::tools::Cursor::Select)
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        if self.picker.shift_released(cx) {
-            self.last = None;
-        }
-        let target = self.target(cx);
-        self.aimed = target.is_some();
-        let Some(t) = target else {
+        self.base.shift_released(cx);
+        let Some(t) = self.base.aim(cx) else {
             self.state = State::Start;
             self.cursor = None;
-            self.snap = None;
+            self.base.snap = None;
             if let ToolInput::Value(v) = input {
                 return self.retype(cx, v);
             }
-            let (out, took) = self.picker.input(input, cx);
-            if took {
-                self.last = None;
-            }
-            return out;
+            return self.base.pick(input, cx);
         };
         // The last distribute again (OCL's double-click), on what is picked now.
         if let ToolInput::DoubleClick { .. } = input {
@@ -364,13 +334,13 @@ impl Tool for DistributeTool {
 
     fn preview(&self, cx: &Cx<'_>) -> Preview {
         let mut p = Preview::default();
-        let Some(t) = self.target(cx) else {
-            self.picker.preview(&mut p);
+        let Some(t) = self.base.target(cx) else {
+            self.base.picker.preview(&mut p);
             return p;
         };
         // What is distributed is drawn where it goes only: in place until then.
         p.ghost = Some(DAffine3::IDENTITY);
-        p.inference = self.snap.clone();
+        p.inference = self.base.snap.clone();
         let draw = &mut cx.drawer(&mut p.drawing);
         let State::End { start } = self.state else {
             draw_axes(draw, &t, |_| false, None);
@@ -385,13 +355,13 @@ impl Tool for DistributeTool {
         let Some((end, k)) = self.cursor else { return p };
         let params = self.params(start, end);
         let Some(s) = slots(&t, &params, measure_of(cx)) else { return p };
-        let color = axis_color(k);
+        let color = axis_ink(k);
         let moves: Vec<DAffine3> = s.centers.iter().map(|m| t.translation(*m - t.center())).collect();
         draw_axes(draw, &t, |j| j == k, None);
         draw_boxes(draw, &t, &moves);
         let (a, b) = (t.world(s.lps), t.world(s.lpe));
         // From the points clicked to the measure line, which runs through the box's centre.
-        let cursor = self.ray_hit.unwrap_or_else(|| self.snap.as_ref().map_or(t.world(end), |i| i.point));
+        let cursor = self.ray_hit.unwrap_or_else(|| self.base.snap.as_ref().map_or(t.world(end), |i| i.point));
         draw.pen(Pen::dimension(GREY)).line(from, a).line(cursor, b);
         if let Some(hit) = self.ray_hit {
             draw.pen(Pen::new(color).over().bold()).edge(from, hit, Ends::End);
@@ -408,45 +378,41 @@ impl Tool for DistributeTool {
     }
 
     fn status(&self) -> String {
-        match (self.aimed, self.state) {
+        match (self.base.aimed, self.state) {
             (true, State::Start) => t!("tool.distribute.hint.start"),
             (true, State::End { .. }) => t!("tool.distribute.hint.end", copy_key = copy_key()),
-            (false, _) if self.last.is_some() && !self.picker.busy() => {
+            (false, _) if self.base.last.is_some() && !self.base.picker.busy() => {
                 t!("tool.distribute.hint.again")
             }
-            (false, _) => self.picker.status(t!("tool.distribute.hint.pick"), t!("tool.handle.hint.gather")),
+            (false, _) => self.base.picker.status(t!("tool.distribute.hint.pick"), t!("tool.handle.hint.gather")),
         }
     }
 
     fn vcb(&self) -> Option<Vcb> {
         let label = t!("tool.distribute.vcb.distance");
         let vcb = |d: f64| Some(Vcb::new(label.clone(), VcbKind::Lengths(vec![d])).counts(1).spacings());
-        if self.aimed {
+        if self.base.aimed {
             let State::End { start } = self.state else { return None };
             let d = self.cursor.map_or(0.0, |(end, _)| (end - start).length());
             return vcb(d);
         }
-        let last = self.last.as_ref()?;
+        let last = self.base.last.as_ref()?;
         vcb((last.params.end - last.params.start).length())
     }
 
     /// At the second point (OCL's `STATE_HANDLE`).
     fn takes_counts(&self) -> bool {
-        self.aimed && matches!(self.state, State::End { .. })
+        self.base.aimed && matches!(self.state, State::End { .. })
     }
 
     /// Picking, a drag draws a selection rectangle; then, it goes from the start (the press)
     /// to the end (the release).
     fn drag_clicks(&self) -> DragClicks {
         match self.state {
-            _ if !self.aimed => DragClicks::No,
+            _ if !self.base.aimed => DragClicks::No,
             State::Start => DragClicks::PressAndRelease,
             State::End { .. } => DragClicks::Release,
         }
-    }
-
-    fn busy(&self) -> bool {
-        self.aimed || self.picker.busy() || self.last.is_some()
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
@@ -463,30 +429,14 @@ impl Tool for DistributeTool {
 
     fn leave(&mut self) {
         self.cursor = None;
-        self.snap = None;
         self.ray_hit = None;
-        self.picker.leave();
+        self.base.leave();
     }
 
-    fn picks_first(&self) -> bool {
-        true
-    }
-
-    /// Nothing aimed at: a click picks what to copy (also once copies are made).
-    fn picking(&self) -> bool {
-        !self.aimed
-    }
-
-    fn picks_parts(&self) -> bool {
-        true
-    }
-
-    fn dropped(&self) -> bool {
-        self.picker.dropped()
-    }
+    copying_tool!();
 
     fn back(&mut self) {
-        if self.picker.back() {
+        if self.base.picker.back() {
             return;
         }
         if let State::End { .. } = self.state {
@@ -494,12 +444,8 @@ impl Tool for DistributeTool {
             self.cursor = None;
             return;
         }
-        self.picker.drop();
+        self.base.forget();
         self.cursor = None;
-        self.snap = None;
-        self.last = None;
-        // Nothing aimed at any more: no longer busy (a quick tool then hands back).
-        self.aimed = false;
     }
 
     fn reset(&mut self) {

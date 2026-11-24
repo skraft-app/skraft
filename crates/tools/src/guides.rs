@@ -101,9 +101,7 @@ pub fn distance(camera: &Camera, size: DVec2, shape: &GuideShape, px: DVec2) -> 
     for run in screen_runs(camera, size, shape) {
         for w in run.windows(2) {
             let ((a, sa), (b, sb)) = (w[0], w[1]);
-            let d = sb - sa;
-            let t = if d.length_squared() < 1e-12 { 0.0 } else { ((px - sa).dot(d) / d.length_squared()).clamp(0.0, 1.0) };
-            let dist = (sa + d * t).distance(px);
+            let (t, dist) = crate::segment::nearest(px, sa, sb);
             if best.is_none_or(|b| dist < b.0) {
                 best = Some((dist, a.lerp(b, t)));
             }
@@ -124,34 +122,8 @@ pub fn in_rect(camera: &Camera, size: DVec2, shape: &GuideShape, rect: (DVec2, D
     let inside = |p: DVec2| p.cmpge(rect.0).all() && p.cmple(rect.1).all();
     let finite = matches!(shape, GuideShape::Circle { .. });
     let all = finite && !runs.is_empty() && runs.iter().flatten().all(|(_, s)| inside(*s));
-    let any = runs.iter().any(|r| r.windows(2).any(|w| segment_meets_rect(w[0].1, w[1].1, rect)));
+    let any = runs.iter().any(|r| r.windows(2).any(|w| crate::segment::meets_rect(w[0].1, w[1].1, rect)));
     (all, any)
-}
-
-/// Does the segment `a`–`b` meet the rectangle (Liang–Barsky clipping)?
-fn segment_meets_rect(a: DVec2, b: DVec2, (lo, hi): (DVec2, DVec2)) -> bool {
-    let d = b - a;
-    let (mut t0, mut t1) = (0.0f64, 1.0f64);
-    for k in 0..2 {
-        for (p, q) in [(-d[k], a[k] - lo[k]), (d[k], hi[k] - a[k])] {
-            if p == 0.0 {
-                if q < 0.0 {
-                    return false;
-                }
-            } else {
-                let r = q / p;
-                if p < 0.0 {
-                    t0 = t0.max(r);
-                } else {
-                    t1 = t1.min(r);
-                }
-                if t0 > t1 {
-                    return false;
-                }
-            }
-        }
-    }
-    true
 }
 
 /// The points of a circle, the first repeated last.

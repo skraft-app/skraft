@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
+code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, apps/skraft/src/overlay.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
 ---
 
 # Drawing helpers
@@ -41,7 +41,8 @@ Decision record: [One immediate drawer for everything drawn over the model](../d
 Strokes: `line` (and `line_phased`), `edge` (arrow heads at either end, `Ends`: Kuix's px size,
 `ARROW_PX` 10), `arrow_heads` (the heads of `edge` alone), `polyline`, `segments`, `rectangle`,
 `polygon`, `curve` (sampled curves, their dashes running on from chord to chord), `circle`,
-`arc`, boxes (`box_`, `box_styled`, `oriented_box`, `oriented_boxes`: corners option, px,
+`arc`, `turn_arrow` (an arc with heads at `Ends`, lying in its plane, a fixed size on screen: a
+turn to come), boxes (`box_`, `box_styled`, `oriented_box`, `oriented_boxes`: corners option, px,
 clamped to half the edge; `shell_on_top`), `arrow`, `chevron`, `axes`, `guide` (a guide shape's
 strokes, each stipple at its phase). Fills: `fill_polygon`, `fill_triangles` (free triangles,
 Kuix's `Mesh`), `fill_rectangle`, `fill_disc`, `fill_box`, `fill_arrow`. Points and texts:
@@ -74,7 +75,13 @@ lengths' helpers written on it). A primitive may draw both its outline and its f
   four lengths, on / off, in points). They lie on the line (`Lay`) anchored (a dash at both
   ends, the period adjusted a little on screen), in model units at a phase (one period for the
   picture, set at the view's focus), or on screen at a phase (the guides'), [Display](display.md).
-  No dashes are cut on the CPU.
+  `Pen::stipple` anchors `ShortDashes`: in model units a period this short falls under the
+  shader's fade at some zooms and reads as a plain line (`curve` still lays its dashes in model
+  units). No dashes are cut on the CPU.
+
+The tools' colours are in one place, `crates/tools/src/tools/mod.rs`: the inks (`INK`, `RED`,
+`GREEN`, `BLUE`, `MAGENTA`, `PICK`, which take the mode's), `WHITE`, `BLACK`, `GREY`; `axis_ink`
+gives an axis' ink, `ink_along` that of the axis a direction runs along.
 
 ## Dimensions
 
@@ -114,6 +121,15 @@ cost.
 - `Frame.hidden_lines`: lines drawn only where faces hide them, in their own style; the app puts
   their visible part with the depth-tested lines.
 - Named theme colours are resolved by the app (`viewport.rs`, `theme_color`).
+
+## Screen overlays
+
+What is drawn in points on the screen rather than in the model goes through egui's painter, the
+3D view's as the drawing sheet's, with the shapes of `apps/skraft/src/overlay.rs`: the dash
+patterns named by what they mean (`SELECTION`, `FRAME`, `GHOST`, `ALIGNMENT`, `TRACKED`, `LEVEL`),
+the selection rectangle (`marquee`), the square grip, the cross.
+
+*Why:* the two stages had their own copies, and their selection rectangles had drifted apart.
 
 ## What draws through it
 

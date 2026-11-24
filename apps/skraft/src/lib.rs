@@ -33,6 +33,7 @@ mod native_menu;
 mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
+mod overlay;
 mod panels;
 mod parts_table;
 mod pdf;
@@ -63,6 +64,7 @@ mod view_picker;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;
+mod widgets;
 #[cfg(target_arch = "wasm32")]
 mod worker;
 mod workspace;

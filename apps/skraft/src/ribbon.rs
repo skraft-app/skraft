@@ -14,6 +14,8 @@ use egui::{Align2, Color32, FontId, Popup, PopupCloseBehavior, Rect, Sense, Stro
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
+use crate::widgets::{PinRow, pin_row};
+
 use crate::icons;
 use crate::panels::{Action, CommandView};
 use crate::style::Tip;
@@ -498,8 +500,8 @@ pub fn tab_strip(
             continue;
         }
         let response = ui.interact(rect, ids[k], Sense::click());
-        if let Some(fill) = crate::tabs::veil(ui, &response) {
-            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::tabs::VEIL_RADIUS, fill);
+        if let Some(fill) = crate::widgets::veil(ui, &response) {
+            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::widgets::VEIL_RADIUS, fill);
         }
         let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
         ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
@@ -822,34 +824,30 @@ fn group_label(ui: &mut egui::Ui, l: &Laid, rect: Rect, lit: bool) -> egui::Resp
 /// A group's menu: every command, each with its pin, and how pinning works.
 fn group_menu(ui: &mut egui::Ui, v: &View, key: &str, group: &'static Group, actions: &mut Vec<Action>) {
     let pinned = v.prefs.pinned(key, group);
-    let ink = ui.visuals().text_color();
     for &id in group.commands {
         let Some(c) = v.command(id) else { continue };
-        ui.horizontal(|ui| {
-            let mut button = match icons::command(id) {
-                Some(icon) => egui::Button::image_and_text(egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), &c.label),
-                None => egui::Button::new(&c.label),
-            };
-            button = button.selected(c.checked == Some(true)).min_size(vec2(210.0, 22.0));
-            // Always a shortcut, if empty: it pushes the label to the left (else centered).
-            button = button.shortcut_text(c.shortcut.as_deref().unwrap_or(""));
-            if ui.add_enabled(c.enabled, button).tip(tip(c)).clicked() {
-                actions.push(Action::Command(id));
-                ui.close();
-            }
-            let on = pinned.contains(&id);
-            // Pinned: a filled pin in the accent; unpinned: a faint outline.
-            let (icon, tint) = if on {
-                (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
-            } else {
-                (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
-            };
-            let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
-            let tip = if on { t!("ribbon.unpin") } else { t!("ribbon.pin") };
-            if ui.add(pin).tip(tip).clicked() {
-                actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
-            }
-        });
+        let on = pinned.contains(&id);
+        let (run, pin) = pin_row(
+            ui,
+            PinRow {
+                icon: icons::command(id),
+                check: None,
+                label: &c.label,
+                shortcut: c.shortcut.as_deref(),
+                enabled: c.enabled,
+                selected: c.checked == Some(true),
+                width: 210.0,
+                pinned: on,
+                pin_tip: if on { t!("ribbon.unpin") } else { t!("ribbon.pin") },
+            },
+        );
+        if run.tip(tip(c)).clicked() {
+            actions.push(Action::Command(id));
+            ui.close();
+        }
+        if pin {
+            actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
+        }
     }
     ui.separator();
     ui.add(egui::Label::new(egui::RichText::new(t!("ribbon.menu_note")).small().weak()).wrap());

@@ -9,6 +9,7 @@ use crate::dock::Dock;
 use crate::icons;
 use crate::panels::{Action, CommandView};
 use crate::style::Tip;
+use crate::widgets::{IconButton, Look, PinRow, pin_row};
 
 /// The standard views' button: not a command of the registry, it opens their menu.
 pub const VIEWS: &str = "view.views";
@@ -171,20 +172,8 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
 
 /// A button's rect and response, its background when hovered or `lit`, its icon.
 fn icon_button(ui: &mut egui::Ui, handle: &str, icon: egui::ImageSource<'static>, lit: bool, enabled: bool) -> egui::Response {
-    // Dragged even when it cannot run: a drag moves it.
-    let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click_and_drag());
-    crate::handles::publish_enabled(|| format!("view_bar:{handle}"), rect, enabled);
-    let visuals = ui.style().interact(&response);
-    if lit {
-        ui.painter().rect_filled(rect, visuals.corner_radius, ui.visuals().selection.bg_fill);
-    } else if enabled && response.hovered() {
-        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
-    }
-    let mut ink = if lit { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
-    if !enabled {
-        ink = ink.gamma_multiply(0.35);
-    }
-    egui::Image::new(icon).tint(ink).paint_at(ui, Rect::from_center_size(rect.center(), vec2(ICON, ICON)));
+    let response = IconButton::new(icon, BUTTON, ICON).look(Look::Bar).lit(lit).enabled(enabled).show(ui);
+    crate::handles::publish_enabled(|| format!("view_bar:{handle}"), response.rect, enabled);
     response
 }
 
@@ -295,39 +284,31 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
         .style(crate::style::menu)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            let ink = ui.visuals().text_color();
             for &id in COMMANDS {
                 let Some((name, enabled, check, shortcut)) = row(id, views) else { continue };
-                let icon = if id == VIEWS { Some(icons::VIEWS) } else { icons::command(id) };
-                ui.horizontal(|ui| {
-                    // A toggle's check box in a column every row keeps, then the icon and the label.
-                    let check = crate::style::menu_check(check);
-                    let mut b = match icon {
-                        Some(icon) => {
-                            egui::Button::new((check, egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), name))
-                        }
-                        None => egui::Button::new((check, name)),
-                    };
-                    // Its shortcut on the right; none, an empty one still pushes the label to the
-                    // left (else centred).
-                    b = b.min_size(vec2(240.0, 22.0)).shortcut_text(shortcut.unwrap_or_default());
-                    // A click on a row runs it, but the views' row: its menu is the button's.
-                    if ui.add_enabled(enabled, b).clicked() && id != VIEWS {
-                        actions.push(Action::Command(id));
-                        ui.close();
-                    }
-                    let on = pinned.contains(&id);
-                    let (icon, tint) = if on {
-                        (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
-                    } else {
-                        (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
-                    };
-                    let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(vec2(14.0, 14.0)).tint(tint)).frame(false);
-                    let tip = if on { t!("view_bar.unpin") } else { t!("view_bar.pin") };
-                    if ui.add(pin).tip(tip).clicked() {
-                        actions.push(Action::ViewPin(id));
-                    }
-                });
+                let on = pinned.contains(&id);
+                let (run, pin) = pin_row(
+                    ui,
+                    PinRow {
+                        icon: if id == VIEWS { Some(icons::VIEWS) } else { icons::command(id) },
+                        check: Some(check),
+                        label: &name,
+                        shortcut: shortcut.as_deref(),
+                        enabled,
+                        selected: false,
+                        width: 240.0,
+                        pinned: on,
+                        pin_tip: if on { t!("view_bar.unpin") } else { t!("view_bar.pin") },
+                    },
+                );
+                // A click on a row runs it, but the views' row: its menu is the button's.
+                if run.clicked() && id != VIEWS {
+                    actions.push(Action::Command(id));
+                    ui.close();
+                }
+                if pin {
+                    actions.push(Action::ViewPin(id));
+                }
             }
             // The note wraps within the rows' width instead of widening the menu.
             let width = ui.min_rect().width();

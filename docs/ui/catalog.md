@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/catalog.rs, apps/skraft/src/library.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/materials.rs, apps/skraft/src/panels.rs, crates/tools/src/editor/library.rs, crates/model/src/document.rs, crates/model/src/ops.rs]
+code: [apps/skraft/src/catalog.rs, apps/skraft/src/library.rs, apps/skraft/src/sheet_library.rs, apps/skraft/src/materials.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, crates/tools/src/editor/library.rs, crates/model/src/document.rs, crates/model/src/ops.rs]
 ---
 
 # Catalog cards

@@ -69,7 +69,8 @@ where they are drawn covers them all.
 ### Interface tokens and palettes
 
 - **Interface tokens** (`UiTokens`): panel, header, field, border, text, dim text, hover,
-  accent and soft accent, corner radii, spacing.
+  accent and soft accent, the accent on the drawing's paper (white in either mode: the palette's
+  light accent), corner radii, spacing.
 - **Palettes**: a `Palette` (user preference `palette`) gives the interface's colours, **each in
   a light and a dark variant**; the `theme` preference (system, light, dark) picks the variant,
   so the two settings are independent. Built in code, no theme files: *Navy* (navy-tinted
