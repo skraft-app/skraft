@@ -454,11 +454,14 @@ pub struct Marquee {
     pub paths: Vec<EntityPath>,
     /// The guides at any depth it would take now (« Parts »).
     pub guides: Vec<GuidePath>,
+    /// What it takes becomes the selection (Select, picking): the view shows the selection it
+    /// would leave. Not the paint tool's, which paints what it takes.
+    pub selects: bool,
 }
 
 impl Marquee {
     pub fn new(from: DVec2, to: DVec2) -> Self {
-        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new(), paths: Vec::new(), guides: Vec::new() }
+        Marquee { from, to, crossing: to.x < from.x, hits: Vec::new(), paths: Vec::new(), guides: Vec::new(), selects: true }
     }
 }
 

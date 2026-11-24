@@ -127,7 +127,7 @@ impl Tool for PaintTool {
             }
             ToolInput::Drag { px } => {
                 if let Some(m) = &self.marquee {
-                    let mut m = Marquee::new(m.from, *px);
+                    let mut m = Marquee { selects: false, ..Marquee::new(m.from, *px) };
                     (m.hits, m.paths) = Self::hits(&m, cx);
                     self.marquee = Some(m);
                 }

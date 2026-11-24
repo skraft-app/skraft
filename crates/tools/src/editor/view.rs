@@ -130,9 +130,19 @@ pub(crate) struct SelectionDrawing {
     key: DrawingKey,
     marks: Vec<ViewHighlight>,
     boxes: Vec<OrientedBox>,
+    /// Whose marks and box each are: an entity selected, by its chain of ids from the root —
+    /// what a rectangle under way would drop is left out of its preview.
+    owners: Vec<SelectionOwner>,
     set: skraft_model::FastSet<Id>,
     /// The occurrence chains of the parts selected at any depth (docs/tools/selection.md).
     deep: skraft_model::FastSet<Vec<Id>>,
+}
+
+/// An entity selected and its part of [`SelectionDrawing`]'s marks and boxes.
+struct SelectionOwner {
+    chain: Vec<Id>,
+    marks: std::ops::Range<usize>,
+    boxes: std::ops::Range<usize>,
 }
 
 /// What the selection's drawing hangs on: the scene's generation, the context, the selection,
@@ -266,6 +276,7 @@ impl Editor {
         let doc = self.document();
         let mut marks = Vec::new();
         let mut boxes = Vec::new();
+        let mut owners = Vec::new();
         // The recipe as the view shows it (`key.3`).
         let recipe = self.scene.recipe().filter(|_| key.3);
         if let Some(r) = recipe {
@@ -273,6 +284,8 @@ impl Editor {
             let at = self.open_part_path().and_then(|o| doc.resolve_container(&o).ok()).map(|(_, _, t)| t);
             for id in &self.selection {
                 if let (Some(t), Some(tool)) = (at, r.body(*id)) {
+                    let chain = self.context.iter().copied().chain([*id]).collect();
+                    owners.push(SelectionOwner { chain, marks: marks.len()..marks.len() + 1, boxes: 0..0 });
                     marks.push(ViewHighlight {
                         definition: tool.key,
                         solid: tool.key,
@@ -310,6 +323,7 @@ impl Editor {
             let mut last: Option<(Id, Option<(DVec3, DVec3)>)> = None;
             for id in &self.selection {
                 let Some(o) = index.occurrence(*id) else { continue };
+                let (from_mark, from_box) = (marks.len(), boxes.len());
                 under.clear();
                 index.solids_under_into(*id, &mut under);
                 let frame = index.transform() * o.transform;
@@ -332,12 +346,15 @@ impl Editor {
                         face: None,
                     }));
                 }
+                let chain = self.context.iter().copied().chain([*id]).collect();
+                owners.push(SelectionOwner { chain, marks: from_mark..marks.len(), boxes: from_box..boxes.len() });
             }
         }
         // The parts selected at any depth (« Parts », docs/tools/selection.md): each from its own assembly.
         for p in &self.deep {
             let Some(index) = ContextIndex::new(doc, &p.instances) else { continue };
             let Some(o) = index.occurrence(p.entity) else { continue };
+            let (from_mark, from_box) = (marks.len(), boxes.len());
             let under = index.solids_under(p.entity);
             let frame = index.transform() * o.transform;
             let bounds = *component_bounds
@@ -353,10 +370,12 @@ impl Editor {
                 ghost: key.4,
                 face: None,
             }));
+            let chain = p.instances.iter().copied().chain([p.entity]).collect();
+            owners.push(SelectionOwner { chain, marks: from_mark..marks.len(), boxes: from_box..boxes.len() });
         }
         let set = self.selection.iter().copied().collect();
         let deep = self.deep.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
-        SelectionDrawing { key, marks, boxes, set, deep }
+        SelectionDrawing { key, marks, boxes, owners, set, deep }
     }
 
     /// What to draw now.
@@ -411,6 +430,25 @@ impl Editor {
         let drawing = self.selection_drawing.borrow();
         let drawing = drawing.as_ref().expect("worked out above");
         let selected = &drawing.set;
+        // A rectangle under way shows the selection it would leave (docs/tools/selection.md):
+        // Shift held (as at its start: the gesture keeps its modifiers), the selection with what
+        // it takes toggled; else what it takes alone. What it drops, left out of the drawing.
+        let toggle = self.shift;
+        let selecting = preview.marquee.as_ref().filter(|m| m.selects);
+        let dropped: Vec<&SelectionOwner> = match selecting {
+            Some(m) => {
+                let hits = m.hits.iter().map(|h| self.context.iter().copied().chain([*h]).collect());
+                let taken: skraft_model::FastSet<Vec<Id>> =
+                    hits.chain(m.paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect())).collect();
+                drawing.owners.iter().filter(|o| taken.contains(&o.chain) == toggle).collect()
+            }
+            None => Vec::new(),
+        };
+        let kept = |len: usize, range: fn(&SelectionOwner) -> std::ops::Range<usize>| {
+            let mut keep = vec![true; len];
+            dropped.iter().for_each(|o| keep[range(o)].fill(false));
+            keep
+        };
         // Outside the context being edited: faded, or hidden with the rest of the model.
         let hide_rest_of_model = doc.settings().display.hide_rest_of_model;
         let outside = |p: &crate::scene::Placement| match &open {
@@ -638,7 +676,12 @@ impl Editor {
             }
         };
         if !hide_original && !preview.hide_selection {
-            v.highlights.extend_from_slice(&drawing.marks);
+            if dropped.is_empty() {
+                v.highlights.extend_from_slice(&drawing.marks);
+            } else {
+                let keep = kept(drawing.marks.len(), |o| o.marks.clone());
+                v.highlights.extend(drawing.marks.iter().zip(keep).filter(|(_, k)| *k).map(|(h, _)| *h));
+            }
         }
         // The selected occurrences' boxes (parts and assemblies), where the selection is drawn (moved with the ghost
         // when the original is hidden). None with the stretch and copy tools: they take the selection as
@@ -662,7 +705,13 @@ impl Editor {
         let in_scene = BoxStyle { corners: None, shell_on_top: false };
         d.pen(Pen::new(Color::Theme(ThemeColor::Selected)).dashed());
         if let Some(g) = box_at {
-            d.oriented_boxes(drawing.boxes.iter(), g, in_scene);
+            if dropped.is_empty() {
+                d.oriented_boxes(drawing.boxes.iter(), g, in_scene);
+            } else {
+                let keep = kept(drawing.boxes.len(), |o| o.boxes.clone());
+                let boxes: Vec<&OrientedBox> = drawing.boxes.iter().zip(keep).filter(|(_, k)| *k).map(|(b, _)| b).collect();
+                d.oriented_boxes(boxes.into_iter(), g, in_scene);
+            }
         }
         // The part open, else the assembly being edited: its content's box, a little larger.
         if let Some(b) = self.context_bounds() {
@@ -686,10 +735,17 @@ impl Editor {
                 d.pen(faded).guide(&g.shape);
                 continue;
             }
-            let is_selected = (here && selected.contains(&g.id)) || self.deep_guides.contains(&at(g));
-            let hovered = (here && (preview.hover == Some(g.id) || marquee_hits.contains(&g.id)))
+            let was_selected = (here && selected.contains(&g.id)) || self.deep_guides.contains(&at(g));
+            let taken = (here && marquee_hits.contains(&g.id)) || in_marquee(g);
+            // A rectangle under way: the guides selected it would drop, no longer; those it adds, hovered.
+            let is_selected = match selecting {
+                Some(_) if toggle => was_selected && !taken,
+                Some(_) => was_selected && taken,
+                None => was_selected,
+            };
+            let hovered = (here && preview.hover == Some(g.id))
                 || preview.hover_guide.as_ref() == Some(&at(g))
-                || in_marquee(g);
+                || (taken && !(selecting.is_some() && toggle && was_selected));
             let erased = (here && erasing.contains(&g.id)) || preview.erasing_guides.contains(&at(g));
             let rest = if here { guide(ThemeColor::Guide) } else { guide(ThemeColor::HalfFadedGuide).blended() };
             if is_selected && let Some(t) = preview.ghost {
@@ -753,17 +809,19 @@ impl Editor {
                 });
             }
         }
-        // What the selection rectangle would take, as if selected (docs/tools/selection.md).
+        // What a rectangle would take: as if selected when it selects (docs/tools/selection.md),
+        // else hovered (the paint tool's, its paint drawn over).
+        let taking = if selecting.is_some() { Mark::Selected } else { Mark::Hover };
         for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !selected.contains(h)) {
-            mark(&mut v.highlights, &self.context, *h, Mark::Selected, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &self.context, *h, taking, DAffine3::IDENTITY);
         }
         // The row hovered in the tree drop-up (docs/tools/selection.md).
         if let Some(p) = self.tree_hovered() {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
-        // The parts at any depth it would take (« Parts », docs/tools/selection.md), as if selected.
+        // The parts at any depth it would take (« Parts », docs/tools/selection.md).
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
-            mark(&mut v.highlights, &p.instances, p.entity, Mark::Selected, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &p.instances, p.entity, taking, DAffine3::IDENTITY);
         }
         let picked = preview.picked_solids.iter().map(|p| (p, Mark::Picked));
         for (p, m) in preview.hover_solid.iter().map(|p| (p, Mark::Hover)).chain(picked) {
