@@ -204,7 +204,8 @@ Link     { id, source: path, receiver: path, body, seat: T }
   only. One place in the copies of a receiver is one linked body. The marks are the solid
   tools' ([Solid tools](../tools/solid-tools.md#interaction)): the parts gone through as a
   selection, the sources as machinings' red ghosts, each with the badge of its step (A, B) at
-  the point clicked. A confirmation says how many
+  the point clicked, kept while the confirmation is open (`Editor::end_imprint`). A
+  confirmation says how many
   links come by the copies, what it
   cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
   receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs

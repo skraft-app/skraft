@@ -40,8 +40,9 @@ impl ImprintTool {
     }
 
     /// Enter, or a click that ends a set: on to the sources, or the kernel asked, the tool back at
-    /// its first step.
+    /// its first step (its marks drawn by the editor until the confirmation closes).
     fn validate(&mut self) -> Vec<Command> {
+        let shown = Box::new(self.marks());
         match &self.sources {
             None if !self.receivers.paths.is_empty() => {
                 self.sources = Some(PartsPicked::default());
@@ -51,6 +52,7 @@ impl ImprintTool {
                 let command = Command::Imprint {
                     sources: s.paths.iter().map(occurrences).collect(),
                     receivers: self.receivers.paths.iter().map(occurrences).collect(),
+                    shown,
                 };
                 self.reset();
                 vec![command]

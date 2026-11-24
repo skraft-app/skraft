@@ -8176,7 +8176,11 @@ fn imprinting_picks_as_subtract_cuts_the_mortise_and_says_so() {
     click(&mut e, DVec3::new(50.0, 10.0, 20.0));
     let plan = e.take_imprint_plan().unwrap();
     assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
+    // While the confirmation is open, both stay marked, though the tool is back at A.
+    assert_eq!(e.tool_steps().map(|s| s.index), Some(0));
+    assert_eq!(e.badges().iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["A", "B"]);
     e.imprint(&plan, 0.1, 2.0);
+    assert!(e.badges().is_empty(), "the confirmation closed");
     assert!(!e.busy());
     let notices = e.take_notices();
     assert_eq!((notices.len(), notices[0].kind), (1, NoticeKind::Success));

@@ -185,6 +185,8 @@ pub enum Command {
     Imprint {
         sources: Vec<Vec<Id>>,
         receivers: Vec<Vec<Id>>,
+        /// The tool's marks as it sent this, kept drawn while the confirmation is open.
+        shown: Box<Preview>,
     },
 }
 

@@ -189,11 +189,13 @@ impl Editor {
     /// occurrences from the model); the plan comes by [`Editor::take_imprint_plan`].
     pub fn ask_imprint(&mut self, sources: Vec<Vec<Id>>, receivers: Vec<Vec<Id>>) {
         if !self.can_imprint() {
+            self.end_imprint();
             return;
         }
         let probe = match self.document().imprint_probe(&sources, &receivers) {
             Ok(probe) => probe,
             Err(e) => {
+                self.end_imprint();
                 self.notify(NoticeKind::Error, t!("notice.op_failed", op = t!("operation.add_link")), Some(e.to_string()));
                 return;
             }
@@ -212,14 +214,26 @@ impl Editor {
 
     /// The kernel's answer to [`Editor::ask_imprint`]: the plan, unless the document changed.
     pub(super) fn imprint_answered(&mut self, result: JobResult) {
-        let Some(ask) = self.imprint_ask.take().filter(|a| a.revision == self.history.revision()) else { return };
+        let Some(ask) = self.imprint_ask.take().filter(|a| a.revision == self.history.revision()) else {
+            self.end_imprint();
+            return;
+        };
         let plan = result
             .map_err(|e| e.to_string())
             .and_then(|outputs: Vec<Output>| self.document().imprint_plan(&ask.probe, &outputs).map_err(|e| e.to_string()));
         match plan {
             Ok(plan) => self.imprint_ready = Some(plan),
-            Err(e) => self.notify(NoticeKind::Error, t!("notice.op_failed", op = t!("operation.add_link")), Some(e)),
+            Err(e) => {
+                self.end_imprint();
+                self.notify(NoticeKind::Error, t!("notice.op_failed", op = t!("operation.add_link")), Some(e));
+            }
         }
+    }
+
+    /// « Empreindre »'s confirmation closed (or nothing to confirm): the parts it picked are no
+    /// longer marked.
+    pub fn end_imprint(&mut self) {
+        self.imprint_shown = None;
     }
 
     /// The plan the kernel answered with, once: the confirmation to show.
@@ -229,6 +243,7 @@ impl Editor {
 
     /// « Empreindre » as `plan` says, with this clearance on the cheeks and on the bottom.
     pub fn imprint(&mut self, plan: &ImprintPlan, around: f64, deep: f64) {
+        self.end_imprint();
         let _ = self.apply(plan.operation(around, deep));
     }
 
