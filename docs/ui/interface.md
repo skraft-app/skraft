@@ -170,6 +170,8 @@ In `apps/skraft/src/widgets.rs`:
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
 - **`tree_row`**, `fold_toggle` and the drag ghost, the rows of the navigators and the lists.
 - **`warning`**, the ⚠ before an error to correct.
+- **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
+  one ([Links](../model/bodies.md#links)).
 
 Elsewhere:
 
