@@ -37,12 +37,12 @@ serde_json.workspace = true
 skraft-control.workspace = true
 # A clock on the web too (the render statistics overlay); already eframe's.
 web-time = "1.1"
-# Screenshots of the control protocol (src/driving.rs), on the web too.
+# Screenshots of the control protocol (src/system/driving.rs), on the web too.
 png = "0.18"
 # A drawing written as a PDF, its texts in the app's font (src/drawing/pdf.rs).
 krilla.workspace = true
 # The system's preferred languages, for the texts when the preferences leave the language to
-# it (src/language.rs).
+# it (src/system/language.rs).
 sys-locale = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -51,7 +51,7 @@ skraft-kernel = { workspace = true, features = ["engine"] }
 # The control protocol and its server (docs/control-protocol.md); volumes by the kernel.
 skraft-control = { workspace = true, features = ["engine"] }
 rfd.workspace = true
-# Runs the asynchronous file dialogs on a thread (src/file.rs).
+# Runs the asynchronous file dialogs on a thread (src/system/file.rs).
 pollster.workspace = true
 env_logger = "0.11"
 dirs = "7"
@@ -63,11 +63,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 [target.'cfg(target_os = "linux")'.dependencies]
 # winit's windowing backends, off with eframe's default features (workspace Cargo.toml).
 eframe = { workspace = true, features = ["wayland", "x11"] }
-# The system's decimal separator (src/separators.rs): its numeric locale.
+# The system's decimal separator (src/system/separators.rs): its numeric locale.
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-# The system's decimal and list separators (src/separators.rs).
+# The system's decimal and list separators (src/system/separators.rs).
 windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
 
 [target.'cfg(windows)'.build-dependencies]
@@ -77,7 +77,7 @@ winresource = "0.1"
 [target.'cfg(target_os = "macos")'.dependencies]
 # The native menu bar (src/window/native_menu.rs): the same commands as the ☰ menu elsewhere.
 muda = { version = "0.21", default-features = false }
-# The documents the system asks to open (src/opened.rs): an Apple Event handler.
+# The documents the system asks to open (src/system/opened.rs): an Apple Event handler.
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSLocale", "NSNotification", "NSString", "NSURL"] }
 # The window's title bar is the app's (src/lib.rs, `app_drags_window`): AppKit's own drag in it is

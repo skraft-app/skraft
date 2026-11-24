@@ -284,7 +284,7 @@ fn instance_badge(ui: &mut egui::Ui, i: &skraft_control::instances::Instance, se
     let galley = ui.painter().layout_no_wrap(text, font, egui::Color32::from_gray(24));
     let pad = egui::vec2(6.0, 2.0);
     let (rect, r) = ui.allocate_exact_size(galley.size() + 2.0 * pad, egui::Sense::hover());
-    ui.painter().rect_filled(rect, 4.0, crate::identity::color(&label, session));
+    ui.painter().rect_filled(rect, 4.0, crate::system::identity::color(&label, session));
     ui.painter().galley(rect.min + pad, galley, egui::Color32::PLACEHOLDER);
     r.tip_ui(|ui| {
         let now = skraft_control::instances::now();

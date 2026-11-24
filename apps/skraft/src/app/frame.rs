@@ -33,7 +33,7 @@ impl SkraftApp {
         // The files the system asked to open (a double click, the command line): read now, opened
         // just below with the dialogs'.
         #[cfg(not(target_arch = "wasm32"))]
-        for path in crate::opened::take() {
+        for path in crate::system::opened::take() {
             self.user_acted();
             if let Err(e) = file::open_path(&path, &self.inbox) {
                 self.toasts.push(Note::error(t!("toast.open_failed", file = file_name(&path)), e));
@@ -173,7 +173,7 @@ impl SkraftApp {
     pub(super) fn show_window_title(&self, ctx: &egui::Context) {
         // Still the window's title where the OS shows it (Window menu, Mission Control).
         // A dev build says which (several may run, one per worktree).
-        let app = crate::identity::build().map_or_else(|| "Skraft".to_owned(), |b| format!("Skraft [{}]", b.label()));
+        let app = crate::system::identity::build().map_or_else(|| "Skraft".to_owned(), |b| format!("Skraft [{}]", b.label()));
         let title = match self.docs.active() {
             Some(d) => format!("{app} — {}{}", d.name(), if d.modified() { " •" } else { "" }),
             None => app,
@@ -207,7 +207,7 @@ impl SkraftApp {
             #[cfg(target_arch = "wasm32")]
             instance: None,
             #[cfg(not(target_arch = "wasm32"))]
-            session: self.session.as_ref().and_then(crate::identity::Session::name),
+            session: self.session.as_ref().and_then(crate::system::identity::Session::name),
             #[cfg(target_arch = "wasm32")]
             session: None,
         };

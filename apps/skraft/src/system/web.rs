@@ -11,7 +11,7 @@ use std::cell::{Cell, RefCell};
 use skraft_control::{Answer, Call};
 use wasm_bindgen::prelude::*;
 
-use crate::driving::Asker;
+use crate::system::driving::Asker;
 
 /// The calls waiting for a frame at most; beyond, refused.
 const MAX_PENDING: usize = 256;

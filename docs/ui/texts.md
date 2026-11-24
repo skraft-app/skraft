@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/i18n/src/lib.rs, crates/i18n/src/tests.rs, crates/i18n/build.rs, locales/fr.yml, locales/en.yml, apps/skraft/src/language.rs, apps/skraft/src/separators.rs]
+code: [crates/i18n/src/lib.rs, crates/i18n/src/tests.rs, crates/i18n/build.rs, locales/fr.yml, locales/en.yml, apps/skraft/src/system/language.rs, apps/skraft/src/system/separators.rs]
 ---
 
 # Texts and languages

@@ -263,7 +263,7 @@ fn grid<S: Shelf>(ui: &mut egui::Ui, shelf: &mut S, rows: &Rows, actions: &mut V
     let lead = shelf.lead().is_some();
     area.show(ui, |ui| {
         ui.set_min_width(ui.available_width());
-        let tile = crate::thumbnails::TILE;
+        let tile = crate::system::thumbnails::TILE;
         let columns = (((ui.available_width() + TILE_GAP) / (tile + TILE_GAP)).floor() as usize).max(1);
         let mut first: Vec<Cell> = Vec::with_capacity(rows.used.len() + 1);
         if lead {

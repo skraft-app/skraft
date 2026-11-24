@@ -40,7 +40,7 @@ pub struct Preferences {
     /// The tools' settings from their option bar (the booleans' scope…), by tool id.
     pub tool_options: BTreeMap<String, OptionValues>,
     /// The language of the app, a locale of /locales (`fr`); none: the system's
-    /// (src/language.rs).
+    /// (src/system/language.rs).
     pub locale: Option<String>,
     /// The interface's theme (docs/render/look.md): the system's, light or dark.
     pub theme: Choice,

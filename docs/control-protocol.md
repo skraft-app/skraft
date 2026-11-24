@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/control/src/lib.rs, crates/control/src/params.rs, crates/control/src/editor.rs, crates/control/src/json.rs, crates/control/src/server.rs, crates/control/src/instances.rs, crates/control/src/record.rs, crates/tools/src/editor/journal.rs, apps/skraft/src/control.rs, apps/skraft/src/driving.rs, apps/skraft/src/kit/handles.rs, apps/skraft/src/web.rs, apps/skraft/src/identity.rs, apps/skraft/src/dialogs/journal_window.rs, apps/skraft/build.rs, apps/skraft-mcp/src/main.rs, apps/skraft-mcp/src/mcp.rs, apps/skraft-mcp/src/backend.rs, scripts/control.sh]
+code: [crates/control/src/lib.rs, crates/control/src/params.rs, crates/control/src/editor.rs, crates/control/src/json.rs, crates/control/src/server.rs, crates/control/src/instances.rs, crates/control/src/record.rs, crates/tools/src/editor/journal.rs, apps/skraft/src/system/control.rs, apps/skraft/src/system/driving.rs, apps/skraft/src/kit/handles.rs, apps/skraft/src/system/web.rs, apps/skraft/src/system/identity.rs, apps/skraft/src/dialogs/journal_window.rs, apps/skraft/build.rs, apps/skraft-mcp/src/main.rs, apps/skraft-mcp/src/mcp.rs, apps/skraft-mcp/src/backend.rs, scripts/control.sh]
 ---
 
 # Control protocol
@@ -115,7 +115,7 @@ and tasks, serialisable): an operation's job that failed, a recipe that skipped 
 for one edge), `ui.text`, `ui.scroll` — each at `where`: a window point (`pos`), a handle's
 centre (`handle`) or a world point's pixel in the viewport (`at`), with `button` and `mods`
 (`shift`, `ctrl`, `alt`, `command`). They are egui events queued one frame at a time
-(`apps/skraft/src/driving.rs`, one pointer event per frame, as SolidCraft; `raw_input_hook`
+(`apps/skraft/src/system/driving.rs`, one pointer event per frame, as SolidCraft; `raw_input_hook`
 feeds them, the modifiers as `ModifiersChanged` events, egui 0.37 having no modifiers in
 `RawInput`) and answered at the frame after the last one, once the widgets took them in; the
 window need not have the focus. They test the real interface — ribbon, panels, the translation
@@ -162,7 +162,7 @@ server, without the UI. Off by default.
 ### Web: `window.skraft`
 
 No listener (a page cannot open one). The same methods are exposed to the page as
-`window.skraft.call(method, params)` (`apps/skraft/src/web.rs`, a `wasm_bindgen` export
+`window.skraft.call(method, params)` (`apps/skraft/src/system/web.rs`, a `wasm_bindgen` export
 `skraftCall`, set on `window` by `web/index.html`): a promise of the result (`Uint8Array` of PNG
 for a screenshot), rejected with an `Error`; at most 256 calls waiting. Handled on the UI thread
 between frames like the desktop's, by the same code (`driving::Asker`: a call and where its
@@ -208,7 +208,7 @@ doing from the pilot's.
 - **Identity of a dev build**: the app's build script (`apps/skraft/build.rs`, `dev` profile
   only) stamps the git worktree, branch, short commit, `dirty` (tracked changes not committed)
   and build time (`SKRAFT_GIT_*`, `SKRAFT_BUILT`; run again on HEAD, the index, the branch's ref
-  or any source changed). `apps/skraft/src/identity.rs` reads them (none in a release). Shown
+  or any source changed). `apps/skraft/src/system/identity.rs` reads them (none in a release). Shown
   only in dev builds: a **badge** after the app's name in the title bar — the worktree's short
   name (`skraft-prism-z` → `prism-z`; the branch for the main checkout) and the commit, `*` when
   dirty, on a hue hashed from the name (FNV-1a, the same at every launch) — or, launched by a
@@ -247,7 +247,7 @@ doing from the pilot's.
   loopback server and a client, the recording written as a test. No UI toolkit. The handlers
   that need only an `Editor` (`model.*`, `tool.*`, `view.*`, `journal.*`) live there
   (`editor.rs`) so that both the app and the headless backend call them.
-- `apps/skraft/src/control.rs`, `driving.rs`, `handles.rs`, `web.rs`: what the window adds —
+- `apps/skraft/src/system/control.rs`, `driving.rs`, `handles.rs`, `web.rs`: what the window adds —
   documents, registry commands, `ui.*`, screenshots, the title bar's mark — and the web's
   `window.skraft`.
 - `apps/skraft-mcp`: the MCP server and its two backends.

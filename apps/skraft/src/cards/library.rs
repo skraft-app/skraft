@@ -14,7 +14,7 @@ use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 use crate::cards::panels::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::thumbnails::Thumbnails;
+use crate::system::thumbnails::Thumbnails;
 use crate::window::ribbon::Corners;
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
@@ -192,7 +192,7 @@ pub fn components(
         doc: look.doc,
         thumbnails: look.thumbnails,
         dark: ui.visuals().dark_mode,
-        px: ((crate::thumbnails::TILE * ppp).round() as u32).clamp(16, 512),
+        px: ((crate::system::thumbnails::TILE * ppp).round() as u32).clamp(16, 512),
     };
     let mut shelf = Components { editor, chosen: editor.chosen_component(), disabled, thumbs };
     let area = catalog::fit(ui, area, look.height, top);

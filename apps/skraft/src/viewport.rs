@@ -73,7 +73,7 @@ pub struct Viewport {
     document: u64,
     parked_slots: HashMap<u64, HashMap<Id, u32>>,
     /// The textures' images, prepared off the interface's thread.
-    images: crate::images::TextureImages,
+    images: crate::system::images::TextureImages,
     /// The size of the last frame drawn (pixels).
     size: [u32; 2],
     /// What the render statistics overlay shows.
@@ -83,7 +83,7 @@ pub struct Viewport {
     /// button is released.
     pub dragged_in: bool,
     /// The components' thumbnails (docs/ui/components-library.md#thumbnails), drawn by its renderer.
-    pub thumbnails: crate::thumbnails::Thumbnails,
+    pub thumbnails: crate::system::thumbnails::Thumbnails,
     /// The palette of the last frame and its entries' textures, the thumbnails' too.
     palette: Vec<[f32; 4]>,
     textures: Vec<[f32; 4]>,
@@ -941,7 +941,7 @@ impl Viewport {
             return;
         }
         let Some(renderer) = self.renderer.as_mut() else { return };
-        let side = ((crate::thumbnails::TILE * ppp).round() as u32).clamp(16, 512);
+        let side = ((crate::system::thumbnails::TILE * ppp).round() as u32).clamp(16, 512);
         let size = [side, side];
         let scene = editor.scene();
         let start = web_time::Instant::now();
@@ -1064,7 +1064,7 @@ struct SheetLook<'a> {
 /// A sheet view's picture `w` drawn into `picture` (docs/ui/drawing.md#rendered-views): its
 /// parts, its lines over them, on the paper's white.
 /// How many of the texture images picture `w` shows are ready (they stay so once they are).
-fn images_ready(images: &crate::images::TextureImages, w: &crate::drawing::sheet::Wanted) -> usize {
+fn images_ready(images: &crate::system::images::TextureImages, w: &crate::drawing::sheet::Wanted) -> usize {
     w.images.iter().filter(|id| images.get(id).is_some()).count()
 }
 

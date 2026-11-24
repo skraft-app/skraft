@@ -170,7 +170,7 @@ impl ViewPicker {
     }
 
     /// The dialog, this frame.
-    pub fn show(&mut self, ctx: &egui::Context, e: &Editor, thumbnails: &mut crate::thumbnails::Thumbnails, doc_id: u64) -> Answer {
+    pub fn show(&mut self, ctx: &egui::Context, e: &Editor, thumbnails: &mut crate::system::thumbnails::Thumbnails, doc_id: u64) -> Answer {
         let doc = e.document();
         let typing = ctx.memory(|m| m.focused().is_some());
         let revision = e.history().revision();
@@ -203,7 +203,7 @@ impl ViewPicker {
             ui.separator();
             let (mut toggled, mut folded) = (None, None);
             // The « Composants » card's size: one thumbnail each, drawn once.
-            let px = ((crate::thumbnails::TILE * ctx.pixels_per_point()).round() as u32).clamp(16, 512);
+            let px = ((crate::system::thumbnails::TILE * ctx.pixels_per_point()).round() as u32).clamp(16, 512);
             let dark = ui.visuals().dark_mode;
             egui::ScrollArea::vertical()
                 .id_salt("view_picker_rows")

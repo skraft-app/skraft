@@ -68,7 +68,7 @@ impl Fields<'_> {
 /// Today's date, day/month/year (UTC).
 fn today() -> String {
     let secs = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let (y, m, d) = crate::dates::civil_from_days((secs / 86_400) as i64);
+    let (y, m, d) = crate::system::dates::civil_from_days((secs / 86_400) as i64);
     format!("{d:02}/{m:02}/{y}")
 }
 

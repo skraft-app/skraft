@@ -13,9 +13,9 @@ use skraft_tools::{Editor, ToolKind};
 use crate::cards::catalog::{self, Card, Ink, LIST_ROW, Renaming, Rows, Shelf};
 use crate::cards::library::natural_cmp;
 use crate::cards::panels::{Action, NEW_COLORS};
-use crate::images::{Decoder, Size};
 use crate::kit::icons;
 use crate::kit::style::Tip;
+use crate::system::images::{Decoder, Size};
 
 /// What the card keeps of a document between frames (never on disk): its search, its rows, made
 /// again when the document or the search changes.

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use skraft_i18n::t;
 
-use crate::dates::civil_from_days;
+use crate::system::dates::civil_from_days;
 
 /// Beyond, the log starts over: it keeps the last crashes, not years of them.
 const MAX_LOG_BYTES: u64 = 1 << 20;

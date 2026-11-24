@@ -3,34 +3,16 @@
 
 mod app;
 mod cards;
-mod clipboard;
 mod commands;
-#[cfg(not(target_arch = "wasm32"))]
-mod control;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod crash;
-mod dates;
 mod dialogs;
 mod docs;
 mod drawing;
-mod driving;
-mod file;
-mod identity;
-mod images;
 mod instance_name;
 mod kit;
-mod language;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod opened;
 mod prefs;
-mod separators;
-mod thumbnails;
+pub mod system;
 mod viewport;
-#[cfg(target_arch = "wasm32")]
-mod web;
 mod window;
-#[cfg(target_arch = "wasm32")]
-mod worker;
 mod workspace;
 
 pub use app::SkraftApp;
@@ -111,7 +93,7 @@ pub fn start() {
         // of the app. The preferences are not read yet: the texts in the system's language.
         if !has_webgpu() {
             log::error!("Skraft needs WebGPU: navigator.gpu is missing");
-            language::apply(None);
+            system::language::apply(None);
             show_failure(&canvas, &skraft_i18n::t!("error.web.webgpu"));
             return;
         }
@@ -119,7 +101,7 @@ pub fn start() {
         let result = eframe::WebRunner::new().start(canvas.clone(), options, Box::new(|cc| Ok(Box::new(SkraftApp::new(cc))))).await;
         if let Err(e) = result {
             log::error!("Skraft failed to start: {e:?}");
-            language::apply(None);
+            system::language::apply(None);
             show_failure(&canvas, &skraft_i18n::t!("error.web.start", error = format!("{e:?}")));
         }
     });

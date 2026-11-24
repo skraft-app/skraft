@@ -249,7 +249,7 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
     egui::Grid::new("general").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.general.language"));
         let before = prefs.locale.clone();
-        let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::language::system()));
+        let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::system::language::system()));
         egui::ComboBox::from_id_salt("locale")
             .icon(crate::kit::icons::combo_chevron)
             .selected_text(prefs.locale.as_deref().map_or_else(|| system.clone(), skraft_i18n::locale_name))
@@ -262,7 +262,7 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
                 }
             });
         if prefs.locale != before {
-            crate::language::apply(prefs.locale.as_deref());
+            crate::system::language::apply(prefs.locale.as_deref());
         }
         ui.end_row();
         if !cfg!(target_arch = "wasm32") {
