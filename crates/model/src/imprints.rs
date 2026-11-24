@@ -464,8 +464,10 @@ impl Document {
     /// seated between parts whose own bodies changed take the source's shape as it now is, where
     /// it now is (a stretch moves a receiver and reshapes its source at once). Each link showing
     /// the source where the body now lies takes its own pose as its seat: through a mirrored
-    /// receiver, one change of the source is another change in its axes. A source only moved
-    /// out of its receiver leaves the body.
+    /// receiver, one change of the source is another change in its axes. A receiver reshaped
+    /// carries the sources seated in it wherever they now are: what it now is cannot be read
+    /// while the job is recorded, and its box before misjudges a source a stretch carried past
+    /// it (a shelf raised by legs made taller).
     pub(crate) fn update_imprints(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<()> {
         let changed: BTreeSet<Id> = self
             .components
@@ -506,7 +508,6 @@ impl Document {
                 if !(changed.contains(&from) || changed.contains(&to))
                     || before.link_state(holder, was) != LinkState::Seated
                     || self.part(to).map_or(true, |q| q.body(l.body).is_none())
-                    || (!changed.contains(&from) && !pose.abs_diff_eq(l.seat, SAME) && !before.source_enters(holder, was, &pose))
                 {
                     continue;
                 }

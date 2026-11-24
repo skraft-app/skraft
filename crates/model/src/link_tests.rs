@@ -1497,3 +1497,27 @@ fn a_stretch_across_mirrored_legs_keeps_each_link_seated() {
     assert_eq!(states(&h), vec![LinkState::Seated, LinkState::Seated]);
     assert!(close(volume(&h, leg_part), 20.0 * 100.0 * 100.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
 }
+
+#[test]
+fn a_stretch_making_the_legs_taller_carries_the_mortise_past_their_old_top() {
+    let mut h = History::new(Document::new());
+    let (leg, leg2, shelf) = shelf_between_mirrored_legs(&mut h);
+    let leg_part = part_of(&h, leg);
+
+    // Cut under the shelf, the top raised by 100: the shelf ends above the legs' old top.
+    h.apply(Operation::Stretch {
+        context: vec![],
+        occurrences: vec![leg, leg2, shelf],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::Z,
+        cuts: vec![30.0],
+        moves: vec![0.0, 100.0],
+        scope: Scope::All,
+        cutters: None,
+    })
+    .unwrap();
+    assert_eq!(states(&h), vec![LinkState::Seated, LinkState::Seated]);
+    let mortise = h.document().part(leg_part).unwrap().negatives().next().unwrap().placement;
+    assert!((mortise.translation - at(10.0, 10.0, 140.0)).length() < 1e-9, "where the shelf now is: {mortise:?}");
+    assert!(close(volume(&h, leg_part), 20.0 * 100.0 * 200.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
+}

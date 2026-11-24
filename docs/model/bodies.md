@@ -185,9 +185,10 @@ Link     { id, source: path, receiver: path, body, seat: T }
   stays, its body frozen in place and told.
 - **Its shape follows** (`Document::update_imprints`): when the own bodies of a source or a
   receiver change, the tools of its seated links are built again from the source as it now is,
-  where it now is, in every copy, their seats with them. No contact left: the tool stays as it
-  was, where it was. A move alone keeps the tool rigid: what newly enters the receiver has no
-  clearance until the next change of shape.
+  where it now is, in every copy, their seats with them, even past the receiver's former box (a
+  shelf raised by legs stretched taller). A move alone keeps the tool rigid: what newly enters
+  the receiver has no clearance until the next change of shape; a source moved out of its
+  receiver leaves the tool as it was, where it was.
 - **Stretch never touches a linked body**: neither moved nor stretched, nor counted in what it
   measures. It is built again from its source, so a stretch carrying a receiver and lengthening
   its source leaves the mortise around the tenon. Each link showing the source where the body
