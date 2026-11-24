@@ -186,6 +186,11 @@ out copies of one part: the frame could not be linked at all.
   per two copies.
 - **A part may imprint its copies**, never itself. The linked body lies in the source's own
   definition, read without its linked bodies, so one pass still updates everything.
+- **One copy moved alone still drives the body** (the user's decision): in a closed cycle the
+  housing then moves inside the moved copy too. « Replacer » places the others in a chain, each
+  once the copy it enters has its place: a move in the frame's plane closes round again. An
+  offset that adds up round the cycle (one rail raised) has no place for all: it moves those it
+  seats and tells the rest. Moving every copy at once stays seated.
 - Alternatives considered: the selection's order giving the way, the search kept (tried, but one
   selection could not say which parts are sources); choosing the way in the confirmation, heavier
   to draw; leaving copies out, which keeps identical frames from being linked.

@@ -169,7 +169,12 @@ Link     { id, source: path, receiver: path, body, seat: T }
   (plain bodies, as « Rompre le lien »); nothing is removed before a click, and closed without an
   answer the body stays frozen, ⚠.
 - **`Operation::ReseatSources`** (« Replacer »): each source goes where its seats say, computed in
-  its receivers' axes. When they disagree it is not moved, and the warning gives the gap.
+  its receivers' axes. When they disagree it is not moved, and the warning gives the gap. A
+  source that is also a receiver moves the seats of what enters it, so they are placed **in a
+  chain**, each once the parts it enters are where they stay: a frame of copies with one rail
+  moved in its plane closes again round it. When no chain seats them all (a closed cycle asked an
+  offset that adds up, such as one rail of the frame raised), each still off once all have moved
+  goes back where it was and is told.
 - **`Operation::SeparateReceivers`** (« Séparer »): the parts these sources enter become parts of
   their own; in them and in the copies left, a linked body in which no source is seated goes back
   under its sources, when they agree.

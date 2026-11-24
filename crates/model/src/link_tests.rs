@@ -1399,6 +1399,58 @@ fn a_part_imprints_its_copies_the_way_pointed() {
     assert!(!cut.abs_diff_eq(housing, 1e-6));
 }
 
+#[test]
+fn one_copy_of_a_self_imprinted_frame_moved_cannot_be_replaced() {
+    let (mut h, rails) = frame();
+    let root = h.document().root();
+    imprint(&mut h, rails[0], &[rails[1]], 0.0, 0.0);
+
+    // Every rail moved alike: nothing follows, nothing off.
+    let o = h.apply(Operation::Transform { context: root, entities: rails.clone(), transform: moved(DVec3::Z * 5.0) }).unwrap();
+    assert!(o.links.moved.is_empty());
+    assert!(h.document().link_status().off.is_empty());
+    assert!(copy_clash(&h, &rails) < 1e-6);
+
+    // One alone: the housing follows in every copy, its own too, so the three others are off.
+    // No place seats them all (the cycle never closes): « Replacer » moves those it seats and
+    // tells the others, left where they were.
+    let o = h.apply(Operation::Transform { context: root, entities: vec![rails[0]], transform: moved(DVec3::Z * 5.0) }).unwrap();
+    assert_eq!(o.links.moved.len(), 1);
+    let off = h.document().link_status().off;
+    assert_eq!(off.len(), 3);
+    let before: Vec<DAffine3> = rails.iter().map(|r| h.document().resolve(&EntityPath::root(*r)).unwrap().transform).collect();
+    let o = h.apply(Operation::ReseatSources { sources: off.into_iter().collect() }).unwrap();
+    let Some(Warning::NotReseated { names, .. }) = o.warning else { panic!("{:?}", o.warning) };
+    let off = h.document().link_status().off;
+    assert_eq!(names.len(), off.len(), "each source still off is told");
+    for (k, r) in rails.iter().enumerate() {
+        let t = h.document().resolve(&EntityPath::root(*r)).unwrap().transform;
+        let told = off.iter().any(|s| s.occurrence == *r);
+        assert!(!told || t == before[k], "a source told stays where it was");
+    }
+}
+
+#[test]
+fn one_copy_of_a_self_imprinted_frame_moved_in_its_plane_brings_the_others_round() {
+    let (mut h, rails) = frame();
+    let root = h.document().root();
+    imprint(&mut h, rails[0], &[rails[1]], 0.0, 0.0);
+    let o = h.apply(Operation::Transform { context: root, entities: vec![rails[0]], transform: moved(at(0.0, -30.0, 0.0)) }).unwrap();
+    assert_eq!(o.links.moved.len(), 1);
+    let off = h.document().link_status().off;
+    assert_eq!(off.len(), 3);
+
+    // Each placed once the rail it enters is where it stays: the frame closes, smaller.
+    let o = h.apply(Operation::ReseatSources { sources: off.into_iter().collect() }).unwrap();
+    assert!(o.warning.is_none(), "{:?}", o.warning);
+    assert!(all_seated(&h));
+    assert!(copy_clash(&h, &rails) < 1e-6);
+    let first = h.document().resolve(&EntityPath::root(rails[0])).unwrap().transform;
+    assert_eq!(first.translation, at(-200.0, 170.0, 0.0), "the rail moved stays");
+    assert!(h.undo());
+    assert_eq!(h.document().link_status().off.len(), 3);
+}
+
 /// The most material two different rails share.
 fn copy_clash(h: &History, rails: &[Id]) -> f64 {
     let mut most: f64 = 0.0;
