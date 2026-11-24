@@ -523,8 +523,8 @@ impl SkraftApp {
                 }
                 return;
             }
-            Action::QuickPin(id) => return crate::quick::toggle(&mut self.prefs.quick_tools, id),
-            Action::ViewPin(id) => return crate::view_bar::toggle(&mut self.prefs.view_bar, id),
+            Action::QuickPin(id) => return crate::window::quick::toggle(&mut self.prefs.quick_tools, id),
+            Action::ViewPin(id) => return crate::window::view_bar::toggle(&mut self.prefs.view_bar, id),
             Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
             Action::CardList(card, list) => {
                 let pref = match card {
@@ -534,8 +534,8 @@ impl SkraftApp {
                 };
                 return *pref = list;
             }
-            Action::ViewMove(id, before) => return crate::view_bar::move_to(&mut self.prefs.view_bar, id, before),
-            Action::QuickMove(id, before) => return crate::quick::move_to(&mut self.prefs.quick_tools, id, before),
+            Action::ViewMove(id, before) => return crate::window::view_bar::move_to(&mut self.prefs.view_bar, id, before),
+            Action::QuickMove(id, before) => return crate::window::quick::move_to(&mut self.prefs.quick_tools, id, before),
             Action::QuickTool(id) => {
                 if let (Some(k), Some(d)) = (tool_of(id), self.docs.active_mut()) {
                     d.vcb.clear();

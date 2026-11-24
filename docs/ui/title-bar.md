@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/titlebar.rs, apps/skraft/src/native_menu.rs, apps/skraft/src/kit/style.rs, apps/skraft/src/tabs.rs, apps/skraft/src/lib.rs]
+code: [apps/skraft/src/window/titlebar.rs, apps/skraft/src/window/native_menu.rs, apps/skraft/src/kit/style.rs, apps/skraft/src/window/tabs.rs, apps/skraft/src/lib.rs]
 ---
 
 # Title bar and native menus
@@ -14,7 +14,7 @@ Decision record: [A title bar instead of a menu strip](../decisions/0006-title-b
 
 ## Title bar
 
-- `apps/skraft/src/titlebar.rs`, 34 pt (`titlebar::HEIGHT`): the app's mark
+- `apps/skraft/src/window/titlebar.rs`, 34 pt (`titlebar::HEIGHT`): the app's mark
   (`assets/app-icon.svg`), name and version (the workspace's, smaller and weak) — while a
   document is shown, one button to the start page (`view.home`,
   [Several documents: file tabs](file-tabs.md)), else a place that moves the window —, the badge

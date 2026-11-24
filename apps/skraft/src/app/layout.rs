@@ -582,33 +582,33 @@ impl SkraftApp {
         // The view bar (docs/ui/view-bar.md): over the left or right edge, beside that side's
         // column, centered on the view's height but never over the ribbon; what zoom extents
         // frames stops at it.
-        let bar_width = crate::view_bar::width(&ctx.global_style());
+        let bar_width = crate::window::view_bar::width(&ctx.global_style());
         let left_x = if free_left > view.left() { free_left } else { view.left() + margin };
         let right_x = if free_right < view.right() { free_right } else { view.right() - margin } - bar_width;
         let side = self.prefs.view_bar_side;
         let heights = egui::Rangef::new(below_ribbon, view.bottom() - margin);
-        let place = crate::view_bar::Place { side, xs: [left_x, right_x], heights, center: view.center().y };
-        crate::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
+        let place = crate::window::view_bar::Place { side, xs: [left_x, right_x], heights, center: view.center().y };
+        crate::window::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
         let (free_left, free_right) = match side {
-            crate::dock::Dock::Left => (left_x + bar_width + margin, free_right),
-            crate::dock::Dock::Right => (free_left, right_x - margin),
+            crate::window::dock::Dock::Left => (left_x + bar_width + margin, free_right),
+            crate::window::dock::Dock::Right => (free_left, right_x - margin),
         };
         // OCL's tree drop-up, at the cursor where it was opened (docs/tools/selection.md).
         if let Some(tree) = doc.editor.tree() {
             let at = view.min + egui::vec2(tree.at.x as f32, tree.at.y as f32);
-            crate::tree::drop_up(ctx, view, at, tree, actions);
+            crate::window::drop_up::show(ctx, view, at, tree, actions);
         }
         // The steps bar at the bottom centre of the view, the validation at the top under the
         // tool's options (docs/ui/interface.md#steps-bar).
         let steps = doc.editor.tool_steps();
-        self.steps_top = crate::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
+        self.steps_top = crate::window::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
         if doc.editor.tool_awaits_validation() {
-            crate::steps::validation(ctx, view.center().x, free_top, actions);
+            crate::window::steps::validation(ctx, view.center().x, free_top, actions);
         }
         // The quick tools' card, at the centre of what was just made (docs/tools/quick-tools.md).
         if let Some(at) = doc.editor.quick_card() {
             let at = view.min + egui::vec2(at.x as f32, at.y as f32);
-            crate::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
+            crate::window::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
         }
         // What zoom extents frames: below the ribbon (and the options), beside the side panels,
         // in viewport pixels.

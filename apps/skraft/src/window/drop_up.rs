@@ -18,7 +18,7 @@ const ROW_PAD: f32 = 8.0;
 /// The list, its bottom right corner on `at` (the cursor, screen points), kept inside `view`.
 /// Every row as wide as the list (the ribbon's menus), its name as [`instance_name`] writes it,
 /// in the strong ink — greyed for the levels that cannot be chosen.
-pub fn drop_up(ctx: &egui::Context, view: Rect, at: egui::Pos2, tree: &Tree, actions: &mut Vec<Action>) {
+pub fn show(ctx: &egui::Context, view: Rect, at: egui::Pos2, tree: &Tree, actions: &mut Vec<Action>) {
     let mut hovered = None;
     egui::Area::new(egui::Id::unique("tree_drop_up"))
         .fixed_pos(at)

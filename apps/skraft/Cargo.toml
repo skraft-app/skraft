@@ -75,7 +75,7 @@ windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
 winresource = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# The native menu bar (src/native_menu.rs): the same commands as the ☰ menu elsewhere.
+# The native menu bar (src/window/native_menu.rs): the same commands as the ☰ menu elsewhere.
 muda = { version = "0.21", default-features = false }
 # The documents the system asks to open (src/opened.rs): an Apple Event handler.
 objc2 = "0.6"

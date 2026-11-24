@@ -1,14 +1,14 @@
 //! The title bar (docs/ui/title-bar.md): one band at the top of the window with
 //! the app's mark and name, the File menu, undo and redo, the file tabs (docs/ui/file-tabs.md,
-//! [`crate::tabs`]), the command search and the preferences, every button a command of the
+//! [`crate::window::tabs`]), the command search and the preferences, every button a command of the
 //! registry. The other menus are not in the bar: their commands are in the ribbon, the view bar
-//! ([`crate::view_bar`]), the command search and the shortcuts.
+//! ([`crate::window::view_bar`]), the command search and the shortcuts.
 //!
 //! On the macOS desktop this band stands in for the system's title bar, which
 //! [`native_options`](crate::native_options) hides while letting the content reach the window's
 //! top. The band keeps clear of the three window buttons; dragging a free part of it carries the
 //! window and double-clicking there toggles its maximized size. The system menu bar
-//! ([`crate::native_menu`]) holds the File menu only. The web, Windows and Linux keep the OS frame.
+//! ([`crate::window::native_menu`]) holds the File menu only. The web, Windows and Linux keep the OS frame.
 
 use skraft_i18n::{ellipsis, t};
 
@@ -22,7 +22,7 @@ use crate::kit::icons;
 use crate::kit::style::{BAR_BUTTON, BAR_ICON, Tip};
 use crate::kit::widgets::{IconButton, Look, VEIL_RADIUS, backed, command_item, is_toggle, unframed, veil};
 use crate::panels::{Action, CommandView};
-use crate::tabs::{self, Tab};
+use crate::window::tabs::{self, Tab};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;

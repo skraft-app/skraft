@@ -309,7 +309,7 @@ impl SkraftApp {
                 let missing = crate::pdf::missing_fields(&d.editor, presentation.id);
                 if !missing.is_empty() {
                     let fields = missing.iter().map(|f| format!("{{{f}}}")).collect::<Vec<_>>().join(", ");
-                    self.toasts.push(Note::new(crate::toasts::Level::Warning, t!("toast.pdf_missing_fields"), Some(fields)));
+                    self.toasts.push(Note::new(crate::window::toasts::Level::Warning, t!("toast.pdf_missing_fields"), Some(fields)));
                 }
             }
             Err(e) => self.toasts.push(Note::error(t!("toast.pdf_failed"), e)),

@@ -483,7 +483,7 @@ pub fn tab_strip(
     ui.painter().rect_filled(band, egui::CornerRadius { nw, ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
     // Centered on the card; from its left edge when narrower than the tabs.
-    let mut x = (row.center().x - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::tabs::TAB_RADIUS);
+    let mut x = (row.center().x - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::window::tabs::TAB_RADIUS);
     let font = tab_font();
     let mut clicked = None;
     // The shown tab drawn last: its curves over its neighbours' hover.
@@ -513,8 +513,8 @@ pub fn tab_strip(
     let line = visuals.widgets.noninteractive.bg_stroke;
     match open {
         Some((label, rect)) => {
-            crate::tabs::open_tab(ui.painter(), rect, visuals.window_fill);
-            let outline = crate::tabs::open_tab_outline(rect, band.left(), band.right(), line.width / 2.0);
+            crate::window::tabs::open_tab(ui.painter(), rect, visuals.window_fill);
+            let outline = crate::window::tabs::open_tab_outline(rect, band.left(), band.right(), line.width / 2.0);
             ui.painter().add(egui::Shape::line(outline, line));
             ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), visuals.strong_text_color());
         }
@@ -542,13 +542,13 @@ fn tab_labels_width(painter: &egui::Painter, labels: &[String]) -> f32 {
 /// The width a [`tab_strip`] of `labels` needs: its tabs, and the shown one's curves on both
 /// sides (a window sized to its content gives it at least that).
 pub fn tab_strip_width(painter: &egui::Painter, labels: &[String]) -> f32 {
-    tab_labels_width(painter, labels) + 2.0 * crate::tabs::TAB_RADIUS
+    tab_labels_width(painter, labels) + 2.0 * crate::window::tabs::TAB_RADIUS
 }
 
 /// The tab row's width: its tabs, and the shown one's curves on both sides.
 fn tab_row_width(painter: &egui::Painter, w: &Workspace) -> f32 {
     let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
-    tab_labels_width(painter, &labels) + 2.0 * crate::tabs::TAB_RADIUS
+    tab_labels_width(painter, &labels) + 2.0 * crate::window::tabs::TAB_RADIUS
 }
 
 /// The groups shown (the fixed one first) and their sizes, as [`arrange`] takes them.

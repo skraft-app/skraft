@@ -14,8 +14,8 @@ use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::panels::Action;
-use crate::ribbon::Corners;
 use crate::thumbnails::Thumbnails;
+use crate::window::ribbon::Corners;
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
 /// its search, its tab, its rows — made again when the document (its history's revision) or
@@ -159,7 +159,7 @@ pub fn components(
         Tab::Assemblies => 1,
     };
     let handles = ["components:parts", "components:assemblies"];
-    match crate::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &handles) {
+    match crate::window::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &handles) {
         Some(0) => state.tab = Tab::Parts,
         Some(_) => state.tab = Tab::Assemblies,
         None => {}

@@ -12,7 +12,6 @@ mod control;
 pub mod crash;
 mod dates;
 mod dims;
-mod dock;
 mod docs;
 mod driving;
 mod file;
@@ -26,39 +25,29 @@ mod language;
 mod library;
 mod materials;
 mod naming;
-#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
-mod native_menu;
 mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
 mod panels;
 mod parts_table;
 mod pdf;
-mod pins;
 mod prefs;
-mod quick;
-mod ribbon;
 mod separators;
 mod sheet;
 mod sheet_board;
 mod sheet_library;
 mod sheet_tree;
-mod steps;
-mod tabs;
 mod templates;
 mod thumbnails;
-mod titlebar;
-mod toasts;
-mod tree;
 #[cfg(not(target_arch = "wasm32"))]
 mod update;
-mod view_bar;
 mod view_framer;
 mod view_lines;
 mod view_picker;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;
+mod window;
 #[cfg(target_arch = "wasm32")]
 mod worker;
 mod workspace;

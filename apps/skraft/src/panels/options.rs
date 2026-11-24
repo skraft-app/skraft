@@ -168,7 +168,7 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
         }
         option_group(ui, &mut first, &t!("option_bar.options"), &t!("option_bar.options_tip"));
         // Side by side like the ribbon's buttons.
-        ui.spacing_mut().item_spacing.x = crate::ribbon::BUTTON_GAP;
+        ui.spacing_mut().item_spacing.x = crate::window::ribbon::BUTTON_GAP;
         for (o, on) in toggles {
             if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon, o.swatch) {
                 actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));

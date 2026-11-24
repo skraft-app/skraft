@@ -55,8 +55,10 @@ impl SkraftApp {
                 let m = ui.style().spacing.window_margin;
                 let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
                 // The window as wide as its tabs at least (it takes its content's width).
-                let width = ui.available_width().max(crate::ribbon::tab_strip_width(ui.painter(), &labels));
-                if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::ribbon::Corners::Square, &[]) {
+                let width = ui.available_width().max(crate::window::ribbon::tab_strip_width(ui.painter(), &labels));
+                if let Some(k) =
+                    crate::window::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::window::ribbon::Corners::Square, &[])
+                {
                     tab = tabs[k].0;
                 }
                 ui.add_space(4.0);

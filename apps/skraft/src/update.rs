@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
-use crate::toasts::{Act, Note};
+use crate::window::toasts::{Act, Note};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const REPOSITORY: &str = "https://github.com/skraft-app/skraft";

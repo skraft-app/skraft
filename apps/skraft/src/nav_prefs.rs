@@ -10,7 +10,7 @@ use skraft_tools::navigation::{Binding, BindingError, Button, Mods, NavAction, N
 use crate::kit::style::Tip;
 use crate::kit::style::{settings_grid as grid, settings_section as section};
 use crate::prefs::Navigation;
-use crate::ribbon::Corners;
+use crate::window::ribbon::Corners;
 
 /// The mouse drawn: its size, and its buttons' line (points from its top).
 const MOUSE: Vec2 = vec2(84.0, 136.0);
@@ -352,10 +352,10 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
         let tabs = [Button::Middle, Button::Right, Button::Back, Button::Forward];
         // The buttons' names, as in the drawing; the frame (and the window) as wide as the tabs.
         let labels: Vec<String> = tabs.iter().map(|b| button_name(*b)).collect();
-        ui.set_min_width(crate::ribbon::tab_strip_width(ui.painter(), &labels));
+        ui.set_min_width(crate::window::ribbon::tab_strip_width(ui.painter(), &labels));
         let ids: Vec<egui::Id> = tabs.iter().map(|b| egui::Id::unique(("nav_button_tab", *b))).collect();
         let shown = tabs.iter().position(|b| b == picked);
-        if let Some(k) = crate::ribbon::tab_strip(ui, &labels, &ids, shown, ui.available_width(), margin, Corners::Round, &[]) {
+        if let Some(k) = crate::window::ribbon::tab_strip(ui, &labels, &ids, shown, ui.available_width(), margin, Corners::Round, &[]) {
             *picked = tabs[k];
         }
         ui.add_space(6.0);

@@ -10,7 +10,7 @@ use skraft_tools::{Key, Steps};
 
 use crate::kit::style::Tip;
 use crate::panels::Action;
-use crate::toasts::Level;
+use crate::window::toasts::Level;
 
 /// A step number's square, and the link between two.
 const NUMBER: f32 = 22.0;
@@ -117,7 +117,7 @@ fn buttons(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         let response = ui.interact(r, ui.scope_id().with(name), Sense::click()).tip(tip);
         crate::kit::handles::publish(|| name.into(), r);
         let dark = ui.visuals().dark_mode;
-        let (hue, fill, _) = crate::toasts::colors(ui.visuals(), level, dark);
+        let (hue, fill, _) = crate::window::toasts::colors(ui.visuals(), level, dark);
         // Hovered, the colours swap (OCL's `:hover` style).
         let (ground, ink) = if response.hovered() { (hue, fill) } else { (fill, hue) };
         let painter = ui.painter();

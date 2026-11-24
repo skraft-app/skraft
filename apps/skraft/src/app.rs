@@ -13,19 +13,19 @@ use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, Tool
 
 use crate::clipboard::{Clipboard, Copied};
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
-use crate::dock::{self, Dock, PanelId};
 use crate::docs::{DocId, Docs, file_name};
 use crate::file::{self, Inbox};
 use crate::kit::style::{CARD_MARGIN, Tip, card_frame, option_card};
-#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
-use crate::native_menu::NativeMenu;
 use crate::panels::{self, Action, CommandView};
 use crate::prefs::Preferences;
-use crate::ribbon;
-use crate::tabs::{MenuRow, Tab, TabAction};
-use crate::titlebar;
-use crate::toasts::{Act, Note, Toasts};
 use crate::viewport::{self, Viewport};
+use crate::window::dock::{self, Dock, PanelId};
+#[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
+use crate::window::native_menu::NativeMenu;
+use crate::window::ribbon;
+use crate::window::tabs::{MenuRow, Tab, TabAction};
+use crate::window::titlebar;
+use crate::window::toasts::{Act, Note, Toasts};
 use crate::workspace::{self, Stage, Workspace};
 
 pub struct SkraftApp {

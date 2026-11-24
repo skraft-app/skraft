@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/docs.rs, apps/skraft/src/tabs.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/lib.rs, crates/kernel/src/shared.rs, crates/render/src/lib.rs, crates/control/src/params.rs]
+code: [apps/skraft/src/docs.rs, apps/skraft/src/window/tabs.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/lib.rs, crates/kernel/src/shared.rs, crates/render/src/lib.rs, crates/control/src/params.rs]
 ---
 
 # Several documents: file tabs

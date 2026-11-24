@@ -10,7 +10,7 @@ use skraft_tools::journal::{Entry, Event, Failure, JobKind, Journal, Origin};
 use skraft_tools::{Modifiers, ToolInput};
 
 use crate::kit::style::Tip;
-use crate::ribbon::Corners;
+use crate::window::ribbon::Corners;
 
 /// The width of the entries' kind column (« Début de glisser » fits).
 const KIND_WIDTH: f32 = 120.0;
@@ -136,7 +136,7 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
             // Up to the title bar's line: the window's margin and a spacing above the content.
             let m = ui.style().spacing.window_margin;
             let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
-            match crate::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &[]) {
+            match crate::window::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &[]) {
                 Some(0) => w.tab = Tab::Log,
                 Some(_) => w.tab = Tab::Failures,
                 None => {}
@@ -219,7 +219,7 @@ fn pilot_mark(ui: &mut egui::Ui, origin: &Origin, height: f32) {
     if !origin.is_control() {
         return;
     }
-    let img = egui::Image::new(crate::kit::icons::REMOTE).tint(crate::titlebar::ACTIVE);
+    let img = egui::Image::new(crate::kit::icons::REMOTE).tint(crate::window::titlebar::ACTIVE);
     img.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK)));
     r.tip(match origin.client() {
         Some(c) => t!("journal.origin.pilot_named", client = c),

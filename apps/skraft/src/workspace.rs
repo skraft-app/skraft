@@ -1,5 +1,5 @@
 //! Workspaces (docs/ui/workspaces.md, decision 0047): each a profile of the editor — its
-//! ribbon (tabs and the fixed group, drawn by [`crate::ribbon`]), its stage, the commands
+//! ribbon (tabs and the fixed group, drawn by [`crate::window::ribbon`]), its stage, the commands
 //! available in it — and the document's: each document is shown in one, kept in its file
 //! ([`skraft_model::FileView`]).
 //!
@@ -11,7 +11,7 @@ use egui::ImageSource;
 use skraft_i18n::t;
 
 use crate::kit::icons;
-use crate::ribbon::{Group, Tab, group};
+use crate::window::ribbon::{Group, Tab, group};
 
 /// A workspace: a profile of the editor.
 pub struct Workspace {
@@ -28,7 +28,7 @@ pub struct Workspace {
     pub commands: &'static [&'static str],
     /// The side panels it shows until the user arranges its own (none: as the first
     /// workspace's), each in the first workspace's place (docs/ui/workspaces.md#panels).
-    pub panels: Option<&'static [crate::dock::PanelId]>,
+    pub panels: Option<&'static [crate::window::dock::PanelId]>,
     /// The ribbon's group shown before the tab's own, on every tab (Selection).
     pub fixed: Group,
     pub tabs: &'static [Tab],
@@ -178,7 +178,11 @@ pub const WORKSPACES: &[Workspace] = &[
         commands: &["drawing.save_template", "drawing.edit_composition"],
         // The sheet, the entity info to set the view picked, the navigator of its tree, the
         // compositions to place.
-        panels: Some(&[crate::dock::PanelId::EntityInfo, crate::dock::PanelId::Outliner, crate::dock::PanelId::Compositions]),
+        panels: Some(&[
+            crate::window::dock::PanelId::EntityInfo,
+            crate::window::dock::PanelId::Outliner,
+            crate::window::dock::PanelId::Compositions,
+        ]),
         fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "edit.erase"], &["tool.select", "edit.erase"]),
         tabs: &[Tab {
             id: "sheet",

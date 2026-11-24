@@ -85,7 +85,7 @@ pub enum Action {
     /// Hide the occurrence (true) or show it again: the outliner's eye.
     SetHidden(EntityPath, bool),
     /// The ribbon's own state: tab, pins, labels (docs/ui/ribbon.md).
-    Ribbon(crate::ribbon::Change),
+    Ribbon(crate::window::ribbon::Change),
     /// The shown document into workspace `id` (decision 0047).
     Workspace(&'static str),
     /// The parts `paths` (from the root) selected: a row of the parts list (docs/ui/parts-list.md).
@@ -100,10 +100,10 @@ pub enum Action {
     /// quick tools' card.
     ViewMove(&'static str, Option<&'static str>),
     /// The view bar's grip dragged to the other side.
-    ViewBarSide(crate::dock::Dock),
+    ViewBarSide(crate::window::dock::Dock),
     QuickMove(&'static str, Option<&'static str>),
     /// On the file tabs (docs/ui/file-tabs.md).
-    Tab(crate::tabs::TabAction),
+    Tab(crate::window::tabs::TabAction),
 }
 
 /// A command as shown now: its label, whether it can run, its state, its shortcut.
