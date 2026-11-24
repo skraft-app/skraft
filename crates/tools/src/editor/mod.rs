@@ -1728,6 +1728,12 @@ impl Editor {
         self.preview().drawing.marks
     }
 
+    /// The step numbers the tool draws on the parts it picked (the app draws them,
+    /// docs/ui/interface.md#steps-bar).
+    pub fn badges(&self) -> Vec<tools::StepBadge> {
+        self.preview().badges
+    }
+
     /// The round points the tool draws over everything (the app draws them).
     pub fn overlay_points(&self) -> Vec<tools::PreviewPoint> {
         self.preview().drawing.grips

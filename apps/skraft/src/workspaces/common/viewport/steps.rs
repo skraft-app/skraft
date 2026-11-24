@@ -98,10 +98,25 @@ fn stepper(ui: &mut egui::Ui, s: &Steps) {
             std::cmp::Ordering::Less => (ground, strong, strong),
             std::cmp::Ordering::Greater => (ground, dim, dim),
         };
-        painter.rect(square, 3.0, fill, Stroke::new(1.5, line), StrokeKind::Inside);
         let font = if i == s.index { crate::kit::style::semibold(13.0) } else { font.clone() };
-        painter.text(square.center(), Align2::CENTER_CENTER, (i + 1).to_string(), font, text);
+        number(painter, square, &s.name(i), (fill, line, text), font);
     }
+}
+
+/// A step's name (`Steps::name`) centred on `at`, drawn as a step passed: on a part the step
+/// took, where it was clicked (docs/ui/interface.md#steps-bar). Its square, for what is placed
+/// after to keep clear of it.
+pub fn badge(painter: &egui::Painter, visuals: &egui::Visuals, at: egui::Pos2, name: &str) -> Rect {
+    let square = Rect::from_center_size(at, vec2(NUMBER, NUMBER));
+    let (strong, ground) = (visuals.strong_text_color(), visuals.window_fill);
+    number(painter, square, name, (ground, strong, strong), crate::kit::style::semibold(13.0));
+    square
+}
+
+/// A step's name in its square: its fill, frame and text colours.
+fn number(painter: &egui::Painter, square: Rect, name: &str, (fill, line, text): (Color32, Color32, Color32), font: egui::FontId) {
+    painter.rect(square, 3.0, fill, Stroke::new(1.5, line), StrokeKind::Inside);
+    painter.text(square.center(), Align2::CENTER_CENTER, name, font, text);
 }
 
 /// ✗ (Esc) and ✓ (Enter), OCL's red and green squares.

@@ -8,8 +8,9 @@
 
 use super::DragClicks;
 use skraft_i18n::t;
-use skraft_model::{Boolean, EntityPath, Operation, Scope};
+use skraft_model::{Boolean, EntityPath, Operation, Scope, Sign};
 
+use super::parts_picked::PartsPicked;
 use super::{Command, Cx, Key, OptionChoice, OptionValue, Preview, Steps, Tool, ToolInput, ToolKind, ToolOption};
 
 /// The scope option's key and values.
@@ -33,41 +34,18 @@ fn scope(cx: &Cx<'_>) -> Scope {
     if cx.choice(SCOPE) == Some(THIS) { Scope::This } else { Scope::All }
 }
 
-/// A set of parts the tool picks (OCL's `Selection`): once it holds more than one, or Shift
-/// added to it, it waits for Enter.
-#[derive(Default)]
-struct Picked {
-    paths: Vec<EntityPath>,
-    gathering: bool,
-}
-
-impl Picked {
-    fn toggle(&mut self, path: EntityPath) {
-        if let Some(i) = self.paths.iter().position(|p| *p == path) {
-            self.paths.remove(i);
-        } else {
-            self.paths.push(path);
-            self.gathering |= self.paths.len() > 1;
-        }
-    }
-
-    fn clear(&mut self) {
-        *self = Picked::default();
-    }
-}
-
 pub struct BooleanTool {
     op: Boolean,
     /// The targets (A).
-    a: Picked,
+    a: PartsPicked,
     /// The tools (B), once the targets are taken.
-    b: Option<Picked>,
+    b: Option<PartsPicked>,
     hover: Option<EntityPath>,
 }
 
 impl BooleanTool {
     pub fn new(op: Boolean) -> Self {
-        BooleanTool { op, a: Picked::default(), b: None, hover: None }
+        BooleanTool { op, a: PartsPicked::default(), b: None, hover: None }
     }
 
     /// What the tool does, inside its hints.
@@ -85,7 +63,7 @@ impl BooleanTool {
     }
 
     /// The set the step now picks into.
-    fn set(&self) -> &Picked {
+    fn set(&self) -> &PartsPicked {
         self.b.as_ref().unwrap_or(&self.a)
     }
 
@@ -111,7 +89,7 @@ impl BooleanTool {
     fn validate(&mut self, cx: &Cx<'_>) -> Vec<Command> {
         match &self.b {
             None if !self.a.paths.is_empty() => {
-                self.b = Some(Picked::default());
+                self.b = Some(PartsPicked::default());
                 vec![]
             }
             Some(b) if !b.paths.is_empty() => self.operate(cx),
@@ -145,7 +123,8 @@ impl Tool for BooleanTool {
                 self.hover = cx.pick(*px).map(|h| h.path).filter(|p| self.b.is_none() || !self.a.paths.contains(p));
             }
             ToolInput::Click { px, mods } => {
-                let Some(path) = cx.pick(*px).map(|h| h.path) else { return vec![] };
+                let Some(hit) = cx.pick(*px) else { return vec![] };
+                let path = hit.path;
                 let gathers = self.gathers();
                 let set = match &mut self.b {
                     Some(_) if self.a.paths.contains(&path) => return vec![],
@@ -155,7 +134,7 @@ impl Tool for BooleanTool {
                 if !gathers {
                     set.clear();
                 }
-                set.toggle(path);
+                set.toggle(path, hit.point);
                 if set.paths.is_empty() {
                     return vec![];
                 }
@@ -185,6 +164,17 @@ impl Tool for BooleanTool {
             hover_solid: self.hover.clone(),
             picked_solids: self.a.paths.clone(),
             picked_tools: self.b.as_ref().map(|b| b.paths.clone()).unwrap_or_default(),
+            // The tools as the bodies they become in their targets (docs/model/bodies.md).
+            picked_sign: Some(match self.op {
+                Boolean::Union => Sign::Positive,
+                Boolean::Difference => Sign::Negative,
+                Boolean::Intersection => Sign::Intersect,
+            }),
+            badges: self
+                .a
+                .badges(t!("tool.boolean.step.a"))
+                .chain(self.b.iter().flat_map(|b| b.badges(t!("tool.boolean.step.b"))))
+                .collect(),
             propagate,
             ..Default::default()
         }
@@ -259,7 +249,9 @@ impl Tool for BooleanTool {
             None => t!("tool.boolean.step.targets"),
             Some(_) => t!("tool.boolean.step.tools"),
         };
-        Some(Steps { count: 2, index: usize::from(self.b.is_some()), text })
+        // Named as the texts and options call them (« Conserver A »).
+        let names = vec![t!("tool.boolean.step.a"), t!("tool.boolean.step.b")];
+        Some(Steps { count: 2, index: usize::from(self.b.is_some()), text, names })
     }
 
     /// A set gathering several parts waits for Enter (OCL's `need_validation?`).

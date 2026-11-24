@@ -201,7 +201,11 @@ Link     { id, source: path, receiver: path, body, seat: T }
   material (`Document::imprint_probe`, `Task::Contact`, then `imprint_plan`), before anything
   changes. A part may go into its own copies, the way pointed (a frame of one rail turned by
   quarters: one rail then the next, four links, one linked body); two copies are paired one way
-  only. One place in the copies of a receiver is one linked body. A confirmation says how many
+  only. One place in the copies of a receiver is one linked body. The marks are the solid
+  tools' by role ([Solid tools](../tools/solid-tools.md#interaction)): the sources, which act,
+  as machinings' red ghosts, the destinations as a selection, each with the badge of its step
+  (① the sources, ② the destinations) at the point clicked, a source taken from the selection at
+  its box's centre. A confirmation says how many
   links come by the copies, what it
   cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
   receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs

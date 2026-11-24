@@ -19,7 +19,8 @@ bodies, a free shape) is the model's: [Booleans between parts](../model/bodies.m
   takes it out, and the set then waits — a plain click too adds or takes out, once the set holds
   more than one. **Enter**, or the ✓ button, goes on; ✗ is Esc. Shift let go with a set waiting
   says so in the status bar (OCL's `validate_a` / `validate_b` notifications).
-- **The steps bar** ([Steps bar](../ui/interface.md#steps-bar)): ① A, ② B, and the step's
+- **The steps bar** ([Steps bar](../ui/interface.md#steps-bar)): A, B — named as the texts and
+  « Conserver A » / « Conserver B » call them, not numbered —, and the step's
   sentence; the ✗ / ✓ buttons, under the tool's options, while a set waits.
 - **A union takes one target**: its first step takes one part and goes on; its tools gather as
   the others'.
@@ -27,9 +28,22 @@ bodies, a free shape) is the model's: [Booleans between parts](../model/bodies.m
 - **Esc**: the tools let go, then back to A with none kept, then the targets let go.
 - **The selection is ignored** ([Selection](selection.md)): the tool always starts at A.
 - A drag from a part to another is a click on each (`DragClicks`).
-- **Marks**: the targets in the picked orange (`Mark::Picked`), the tools lighter
-  (`Mark::PickedTool`, `Theme::picked_tool`), the other occurrences of the first target's part
-  `Related` under « Tous les exemplaires ».
+- **Marks** (`Preview::picked_solids`, `picked_tools`, `picked_sign`, `badges`): the parts that
+  receive the change and those that make it, told apart by their role:
+  - **the targets** as a selection (`Mark::Picked`: the selection's edges, no tint), the other
+    occurrences of the first target's part, under « Tous les exemplaires », lighter
+    (`Mark::PickedRelated`);
+  - **the tools** see-through, as the body each will become in its target
+    ([Bodies](../model/bodies.md)): a machining's red ghost for « Soustraire », an
+    intersection's for « Intersecter », a positive body's plain ghost for « Unir »; what they
+    enter of a target shows through;
+  - **a badge** on each part picked, its step's name (A the targets, B the tools), as the
+    steps bar draws it, at the point clicked, over everything
+    ([Steps bar](../ui/interface.md#steps-bar)).
+
+  **Why:** the targets and the tools in two oranges, the other occurrences in a third, could not
+  be told apart beside the hover; a colour of their own for each role reads at once, the badge
+  whatever the size, the angle or the eye.
 
 ## Options
 

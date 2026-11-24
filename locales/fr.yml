@@ -1349,6 +1349,9 @@ tool:
       tools_gather: "Sélection multiple : cliquer une pièce outil B pour l'ajouter ou la retirer · Entrée : %{verb}"
     # The steps bar's sentence of each step (docs/ui/interface.md#steps-bar).
     step:
+      # The steps' names, in the steps bar and on the parts picked.
+      a: "A"
+      b: "B"
       target: "Choisir la pièce A à modifier"
       targets: "Choisir les pièces A à modifier"
       tools: "Choisir les pièces outils B"

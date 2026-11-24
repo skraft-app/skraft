@@ -443,7 +443,7 @@ fn tool_state(e: &Editor) -> Answer {
         "face_lock": e.face_lock().map(v3),
         "options": options,
         // The steps bar and the validation buttons (docs/ui/interface.md#steps-bar).
-        "steps": e.tool_steps().map(|s| json!({ "count": s.count, "index": s.index, "text": s.text })),
+        "steps": e.tool_steps().map(|s| json!({ "count": s.count, "index": s.index, "text": s.text, "names": (0..s.count).map(|k| s.name(k)).collect::<Vec<_>>() })),
         "awaits_validation": e.tool_awaits_validation(),
         "selection": json::ids(e.selection()),
         "inference": preview.inference.as_ref().map(json::inference),

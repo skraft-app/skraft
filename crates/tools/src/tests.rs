@@ -1660,12 +1660,12 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
     // Aiming at one board: "×3", and the two others marked as changing too.
     hover(&mut e, DVec3::new(20.0, 20.0, 50.0));
     assert_eq!(scope(&e).choices[0].label, "Tous les exemplaires ×3");
-    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Related).count(), 2);
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::PickedRelated).count(), 2);
 
     // Tab: only this one; nothing else marked.
     e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
     assert_eq!(scope(&e).value, OptionValue::Choice("this".into()));
-    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Related).count(), 0);
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::PickedRelated).count(), 0);
     // Cut the middle board only.
     let d1 = drill(&mut e, 300.0);
     e.set_tool(ToolKind::Boolean(Boolean::Difference));
@@ -7013,6 +7013,9 @@ fn solid_tools_gather_targets_and_tools_with_shift() {
         e.input(ToolInput::Click { px: at, mods: shift });
     };
     let marks = |e: &Editor, m: Mark| e.view().highlights.iter().filter(|h| h.mark == m).count();
+    // The tools picked, drawn see-through as the machinings they become.
+    let tools = |e: &Editor| e.view().batches.iter().flat_map(|(_, ps)| ps).filter(|p| p.ghost && p.look == Look::Tool).count();
+    let badges = |e: &Editor| ["A", "B"].map(|k| e.badges().iter().filter(|b| b.name == k).count()).to_vec();
     let enter = |e: &mut Editor| e.input(ToolInput::Key { key: Key::Enter, mods: Modifiers::default() });
 
     e.set_tool(ToolKind::Boolean(Boolean::Difference));
@@ -7032,12 +7035,14 @@ fn solid_tools_gather_targets_and_tools_with_shift() {
     shift_click(&mut e, DVec3::new(100.0, 100.0, 70.0));
     // A target is not a tool.
     click(&mut e, DVec3::new(20.0, 20.0, 50.0));
-    assert_eq!(marks(&e, Mark::PickedTool), 1);
+    assert_eq!(tools(&e), 1);
     click(&mut e, DVec3::new(400.0, 100.0, 70.0));
-    assert_eq!(marks(&e, Mark::PickedTool), 2);
+    assert_eq!(tools(&e), 2);
+    // Each part picked shows its step's number.
+    assert_eq!(badges(&e), [2, 2]);
     // Esc lets the tools go, then the targets.
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
-    assert_eq!((marks(&e, Mark::Picked), marks(&e, Mark::PickedTool)), (2, 0));
+    assert_eq!((marks(&e, Mark::Picked), tools(&e), badges(&e)), (2, 0, vec![2, 0]));
     shift_click(&mut e, DVec3::new(100.0, 100.0, 70.0));
     click(&mut e, DVec3::new(400.0, 100.0, 70.0));
     enter(&mut e);

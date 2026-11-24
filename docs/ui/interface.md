@@ -264,7 +264,8 @@ active tool tells — any tool, through two methods of `Tool` (none by default) 
 the bottom centre of the view, under the toasts, the validation at the top centre, under the
 tool's options:
 
-- **`Tool::steps`** (`Steps { count, index, text }`): the steps' numbers, linked, the current one
+- **`Tool::steps`** (`Steps { count, index, text, names }`): the steps' numbers — or their names,
+  when the tool's texts call them so (the solid tools' A and B) —, linked, the current one
   filled, those passed in the text's colour, the next ones dimmed; below, the step's main
   sentence framed (the status bar keeps the hint with its keys). `count` 0: the sentence alone.
   The block stays at the view's centre, whatever the side panels' widths; the sentence keeps to
@@ -274,6 +275,10 @@ tool's options:
   the error and success toasts, swapped under the pointer), which give the tool **Esc** and
   **Enter** (`Action::ToolKey`, through `Editor::input`: the journal and the recordings see the
   key). Hidden while the kernel computes (`Editor::tool_awaits_validation`).
+- **The badges** (`Preview::badges`, `steps::badge`): a step's number or name, drawn as a step passed
+  (the text's colour on the window's), at a world point of the view, over everything — the
+  part a step took, at the point clicked. One drawing for both: the badge on a part reads as
+  the step in the bar.
 - Shown by the solid tools ([Solid tools](../tools/solid-tools.md)): A then B; the validation
   while a set gathers. `tool.state` gives both (`steps`, `awaits_validation`); handles
   `validation:cancel`, `validation:ok`.

@@ -6,8 +6,9 @@
 //! many. Started with parts selected, they are the sources and it waits for the destinations.
 
 use skraft_i18n::t;
-use skraft_model::{EntityPath, Id};
+use skraft_model::{EntityPath, Id, Sign};
 
+use super::parts_picked::PartsPicked;
 use super::{Command, Cursor, Cx, DragClicks, Key, Preview, Steps, Tool, ToolInput, ToolKind};
 
 /// The occurrences a part's path goes through, from the model, its own last.
@@ -17,30 +18,11 @@ pub fn occurrences(path: &EntityPath) -> Vec<Id> {
     out
 }
 
-/// A set of parts the tool picks: once it holds more than one, or Shift added to it, it waits
-/// for Enter.
-#[derive(Default)]
-struct Picked {
-    paths: Vec<EntityPath>,
-    gathering: bool,
-}
-
-impl Picked {
-    fn toggle(&mut self, path: EntityPath) {
-        if let Some(i) = self.paths.iter().position(|p| *p == path) {
-            self.paths.remove(i);
-        } else {
-            self.paths.push(path);
-            self.gathering |= self.paths.len() > 1;
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct ImprintTool {
-    sources: Picked,
+    sources: PartsPicked,
     /// The destinations, once the sources are taken.
-    receivers: Option<Picked>,
+    receivers: Option<PartsPicked>,
     hover: Option<EntityPath>,
 }
 
@@ -52,7 +34,7 @@ impl ImprintTool {
     }
 
     /// The set the step now picks into.
-    fn set(&self) -> &Picked {
+    fn set(&self) -> &PartsPicked {
         self.receivers.as_ref().unwrap_or(&self.sources)
     }
 
@@ -61,7 +43,7 @@ impl ImprintTool {
     fn validate(&mut self) -> Vec<Command> {
         match &self.receivers {
             None if !self.sources.paths.is_empty() => {
-                self.receivers = Some(Picked::default());
+                self.receivers = Some(PartsPicked::default());
                 vec![]
             }
             Some(r) if !r.paths.is_empty() => {
@@ -102,8 +84,8 @@ impl Tool for ImprintTool {
         }));
         let paths: Vec<EntityPath> = picked.filter_map(|p| Self::part_path(cx, p)).collect();
         if !paths.is_empty() {
-            self.sources = Picked { gathering: paths.len() > 1, paths };
-            self.receivers = Some(Picked::default());
+            self.sources = PartsPicked::of(cx, paths);
+            self.receivers = Some(PartsPicked::default());
         }
     }
 
@@ -117,7 +99,7 @@ impl Tool for ImprintTool {
                 };
             }
             ToolInput::Click { px, mods } => {
-                let Some(path) = cx.pick(*px).and_then(|h| Self::part_path(cx, h.path)) else { return vec![] };
+                let Some((path, point)) = cx.pick(*px).and_then(|h| Some((Self::part_path(cx, h.path)?, h.point))) else { return vec![] };
                 if self.receivers.is_some() {
                     if self.sources.paths.contains(&path) {
                         return vec![];
@@ -127,7 +109,7 @@ impl Tool for ImprintTool {
                     }
                 }
                 let set = self.receivers.as_mut().unwrap_or(&mut self.sources);
-                set.toggle(path);
+                set.toggle(path, point);
                 if set.paths.is_empty() {
                     return vec![];
                 }
@@ -152,8 +134,11 @@ impl Tool for ImprintTool {
     fn preview(&self, _cx: &Cx<'_>) -> Preview {
         Preview {
             hover_solid: self.hover.clone(),
-            picked_solids: self.sources.paths.clone(),
-            picked_tools: self.receivers.as_ref().map(|r| r.paths.clone()).unwrap_or_default(),
+            // The sources act: drawn as the machinings they become, the destinations as targets.
+            picked_solids: self.receivers.as_ref().map(|r| r.paths.clone()).unwrap_or_default(),
+            picked_tools: self.sources.paths.clone(),
+            picked_sign: Some(Sign::Negative),
+            badges: self.sources.badges("1".into()).chain(self.receivers.iter().flat_map(|r| r.badges("2".into()))).collect(),
             ..Default::default()
         }
     }
@@ -170,7 +155,7 @@ impl Tool for ImprintTool {
     /// The sources, then where they go.
     fn steps(&self) -> Option<Steps> {
         let text = if self.receivers.is_none() { t!("tool.imprint.step.sources") } else { t!("tool.imprint.step.receivers") };
-        Some(Steps { count: 2, index: usize::from(self.receivers.is_some()), text })
+        Some(Steps { count: 2, index: usize::from(self.receivers.is_some()), text, names: Vec::new() })
     }
 
     fn awaits_validation(&self) -> bool {
@@ -194,7 +179,7 @@ impl Tool for ImprintTool {
     /// Esc: the destinations let go, then back to the sources, none kept.
     fn back(&mut self) {
         match &mut self.receivers {
-            Some(r) if !r.paths.is_empty() => *r = Picked::default(),
+            Some(r) if !r.paths.is_empty() => r.clear(),
             _ => self.reset(),
         }
     }

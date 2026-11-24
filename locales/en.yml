@@ -1235,6 +1235,9 @@ tool:
       tools_gather: "Multiple selection: click a tool part B to add or remove it · Enter: %{verb}"
     # The steps bar's sentence of each step (docs/ui/interface.md#steps-bar).
     step:
+      # The steps' names, in the steps bar and on the parts picked.
+      a: "A"
+      b: "B"
       target: "Choose the part A to change"
       targets: "Choose the parts A to change"
       tools: "Choose the tool parts B"
