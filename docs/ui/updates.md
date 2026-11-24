@@ -12,7 +12,7 @@ What it found is kept in the preferences, so a launch that does not check still 
 builds do not check by themselves, unless `SKRAFT_UPDATE_URL` names a manifest to try.
 
 « Vérifier les mises à jour » in the general preferences turns the automatic check off. The command
-`app.updates` (File menu, palette, a link in « À propos ») always works and tells the outcome.
+`app.updates` (palette, a button in « À propos »; in no menu) always works and tells the outcome.
 
 ## What the user sees
 

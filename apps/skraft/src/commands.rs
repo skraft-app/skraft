@@ -79,8 +79,6 @@ pub const COMMANDS: &[Command] = &[
     c("file.recent.4", || t!("menu.file.recent", n = 4), M::File, None),
     // In the app menu on macOS; not on the web (the page is closed instead).
     g("app.about", || t!("menu.app.about", app = t!("start.title")), M::File, None),
-    // The check for a new version (docs/ui/updates.md; desktop).
-    c("app.updates", || ellipsis(t!("menu.app.updates")), M::File, None),
     g("app.quit", || t!("menu.file.quit"), M::File, Some("Cmd+Q")),
     c("edit.undo", || t!("menu.edit.undo"), M::Edit, Some("Cmd+Z")),
     c("edit.redo", || t!("menu.edit.redo"), M::Edit, Some("Cmd+Shift+Z")),
@@ -137,6 +135,9 @@ pub const COMMANDS: &[Command] = &[
     c("drawing.style_hybrid", || t!("menu.drawing.style_hybrid"), M::Edit, None),
     g("app.command_palette", || ellipsis(t!("menu.edit.command_palette")), M::Edit, Some("Cmd+K")),
     c("app.preferences", || ellipsis(t!("menu.edit.preferences")), M::Edit, Some("Cmd+Comma")),
+    // The check for a new version (docs/ui/updates.md; desktop): in no menu, the palette, the
+    // title bar's badge and « À propos » run it.
+    c("app.updates", || ellipsis(t!("menu.app.updates")), M::Edit, None),
     // The control channel, on or off (desktop).
     c("app.remote_control", || t!("menu.edit.remote_control"), M::Edit, None),
     // The journal window: what the shown document's editor went through (docs/control-protocol.md).
