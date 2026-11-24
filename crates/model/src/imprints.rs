@@ -461,49 +461,60 @@ impl Document {
     }
 
     /// The linked bodies after an operation (`before` the document it was applied to): those
-    /// seated between parts whose own bodies changed take the source's shape as it now is, where
-    /// it now is, their links' seats with them (a stretch moves a receiver and reshapes its source
-    /// at once). A source only moved out of its receiver leaves the body.
+    /// seated between parts whose own bodies changed (in place, or in the part an occurrence was
+    /// made unique into) take the source's shape as it now is, where it now is (a stretch moves
+    /// a receiver and reshapes its source at once). Each link takes its own pose as its seat:
+    /// through a mirrored receiver, one change of the source is another change in its axes; one
+    /// whose source is not where the body lies then reads off. A receiver reshaped
+    /// carries the sources seated in it wherever they now are: what it now is cannot be read
+    /// while the job is recorded, and its box before misjudges a source a stretch carried past
+    /// it (a shelf raised by legs made taller).
     pub(crate) fn update_imprints(&mut self, before: &Document, solver: &mut dyn Solver) -> Result<()> {
-        let changed: BTreeSet<Id> = self
+        // Nothing to do unless a part changed or a new one came (made unique).
+        let touched = self
             .components
             .iter()
-            .filter_map(|(id, c)| {
-                let ComponentKind::Part(p) = &c.kind else { return None };
-                if before.components.get(id).is_none_or(|b| Arc::ptr_eq(b, c)) {
-                    return None;
-                }
-                let old = before.part(*id).ok()?;
-                (own_bodies(p) != own_bodies(old)).then_some(*id)
-            })
-            .collect();
-        if changed.is_empty() {
+            .any(|(id, c)| matches!(c.kind, ComponentKind::Part(_)) && before.components.get(id).is_none_or(|b| !Arc::ptr_eq(b, c)));
+        if !touched {
             return Ok(());
         }
+        // The part a link reaches now has other own bodies than the one it reached before: the
+        // same part changed, or another one (an occurrence made unique, then reshaped).
+        let reshaped = |was: Id, now: Id| match (before.part(was), self.part(now)) {
+            (Ok(a), Ok(b)) => !std::ptr::eq(a, b) && own_bodies(a) != own_bodies(b),
+            _ => false,
+        };
         /// The link a machining is built from.
         struct Target {
             from: Id,
             pose: DAffine3,
-            seat: DAffine3,
             /// It is the one the body was placed by.
             on_body: bool,
         }
         let mut targets: BTreeMap<(Id, Id), Target> = BTreeMap::new();
+        /// A link a body is rebuilt for, the source where it now is in the receiver's axes.
+        struct Seated {
+            holder: Id,
+            link: Id,
+            pose: DAffine3,
+        }
+        let mut seated: BTreeMap<(Id, Id), Vec<Seated>> = BTreeMap::new();
         for holder in self.link_holders() {
             let (Ok(a), Ok(old)) = (self.assembly(holder), before.assembly(holder)) else { continue };
             for l in a.links() {
                 let Some(was) = old.links().iter().find(|o| o.id == l.id) else { continue };
                 let Ok((from, to, pose)) = self.link_pose(holder, l) else { continue };
-                if !(changed.contains(&from) || changed.contains(&to))
+                let Ok((from0, to0, _)) = before.link_pose(holder, was) else { continue };
+                if !(reshaped(from0, from) || reshaped(to0, to))
                     || before.link_state(holder, was) != LinkState::Seated
                     || self.part(to).map_or(true, |q| q.body(l.body).is_none())
-                    || (!changed.contains(&from) && !pose.abs_diff_eq(l.seat, SAME) && !before.source_enters(holder, was, &pose))
                 {
                     continue;
                 }
-                let placed = before.link_pose(holder, was).ok().and_then(|(_, t, _)| Some(before.part(t).ok()?.body(was.body)?.placement));
+                let placed = before.part(to0).ok().and_then(|q| Some(q.body(was.body)?.placement));
                 let on_body = placed.is_some_and(|p| p.abs_diff_eq(was.seat, SAME));
-                let target = Target { from, pose, seat: l.seat, on_body };
+                seated.entry((to, l.body)).or_default().push(Seated { holder, link: l.id, pose });
+                let target = Target { from, pose, on_body };
                 match targets.entry((to, l.body)) {
                     std::collections::btree_map::Entry::Vacant(e) => {
                         e.insert(target);
@@ -519,8 +530,12 @@ impl Document {
         let mut reshaped = BTreeSet::new();
         for ((to, body), t) in targets {
             self.rebuild_tool((t.from, to, body), &t.pose, None, &mut own, solver)?;
-            if !t.pose.abs_diff_eq(t.seat, SAME) {
-                self.map_seats(to, Some(body), &(t.pose * t.seat.inverse()));
+            // Every link takes its pose, decided without the solids made here: they are stand-ins
+            // while the job is recorded. One whose source is not where the body lies reads off.
+            for Seated { holder, link, pose } in seated.remove(&(to, body)).unwrap_or_default() {
+                if let Some(l) = self.assembly_mut(holder)?.links_mut().iter_mut().find(|l| l.id == link) {
+                    l.seat = pose;
+                }
             }
             reshaped.insert(to);
         }

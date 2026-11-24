@@ -185,13 +185,18 @@ Link     { id, source: path, receiver: path, body, seat: T }
 - A link whose receiver or body is gone is dropped after the operation; one whose source is gone
   stays, its body frozen in place and told.
 - **Its shape follows** (`Document::update_imprints`): when the own bodies of a source or a
-  receiver change, the tools of its seated links are built again from the source as it now is,
-  where it now is, in every copy, their seats with them. No contact left: the tool stays as it
-  was, where it was. A move alone keeps the tool rigid: what newly enters the receiver has no
-  clearance until the next change of shape.
+  receiver change, in place or in the part it was just made unique into (a stretch « Seulement
+  celle-ci »), the tools of its seated links are built again from the source as it now is,
+  where it now is, in every copy, their seats with them, even past the receiver's former box (a
+  shelf raised by legs stretched taller). A move alone keeps the tool rigid: what newly enters
+  the receiver has no clearance until the next change of shape; a source moved out of its
+  receiver leaves the tool as it was, where it was.
 - **Stretch never touches a linked body**: neither moved nor stretched, nor counted in what it
   measures. It is built again from its source, so a stretch carrying a receiver and lengthening
-  its source leaves the mortise around the tenon.
+  its source leaves the mortise around the tenon. Each link takes its own pose as its seat:
+  through a mirrored receiver, one stretch of the source is another change in that receiver's
+  axes; one whose source is not where the body lies reads off. Decided without the solids the
+  operation makes, stand-ins while its job is recorded.
 - **« Empreindre »** (`edit.imprint`, Assembler › Composants; `ToolKind::Imprint`,
   `crates/tools/src/tools/imprint.rs`): a tool picking, as « Soustraire » does, **A the parts
   gone through, then B the sources** that go into them: a click takes one part and goes on,
