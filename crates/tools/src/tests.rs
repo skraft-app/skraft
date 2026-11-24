@@ -908,10 +908,10 @@ fn navigator_hover_marks_in_view() {
     // One inside an assembly not entered, too.
     e.set_navigator_hover(Some(EntityPath::new(vec![g], a)));
     assert_eq!(hovered(&e), 1);
-    // Selected: marked so only.
+    // Selected: hovered too, over its selection mark (docs/render/look.md).
     e.select(vec![g]);
     e.set_navigator_hover(Some(EntityPath::new(vec![], g)));
-    assert_eq!(hovered(&e), 0);
+    assert_eq!(hovered(&e), 1);
     assert!(e.set_navigator_hover(None));
     assert_eq!(hovered(&e), 0);
     // Inside `g`: `b`, outside it, hovered but still faded; `a`, inside, plainly hovered.

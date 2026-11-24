@@ -37,6 +37,12 @@ triangles, instances, lines, boxes, bytes uploaded) with the meshes' GPU memory.
   tooltip. Two themes, **light** and **dark**; the app sets egui's theme from the user's
   `theme` preference (system by default, light, dark).
 - `render` keeps no colour of its own: faces and ink come in `Frame::style`.
+- **Marks** (`Mark`, the app's `mark_colors`): a highlight tints its part's faces and edges,
+  drawn over it in the order given. A part hovered (in the view or the navigator) has only its
+  faces tinted: its edge tint is transparent, and a highlight without one draws neither its
+  edges nor its section cut lines again (`Highlight::edge_tint`), those under it keeping their
+  colour. A part selected and hovered shows both: faces tinted, edges the selection's blue.
+  *Why:* hovered edges drawn over the selection's hid it while the cursor stayed on it.
 
 ### View background
 

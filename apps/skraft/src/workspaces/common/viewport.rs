@@ -1222,8 +1222,9 @@ fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
 fn mark_colors(theme: &Theme, mark: Mark, fade: render::Tint) -> skraft_theme::MarkColors {
     match mark {
         Mark::Selected => theme.selected,
-        Mark::Hover => theme.hover,
-        Mark::HoverFaded => skraft_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) },
+        // Hovered: its faces tinted, its edges left as they are (a selection's stay blue).
+        Mark::Hover => skraft_theme::MarkColors { face: theme.hover.face, edge: [0.0; 4] },
+        Mark::HoverFaded => skraft_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: [0.0; 4] },
         Mark::Picked => theme.picked,
         Mark::PickedRelated => theme.picked_related,
         Mark::Ghost => theme.ghost,

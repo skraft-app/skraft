@@ -717,14 +717,14 @@ impl Editor {
             d.pen(pen).guide(&g.shape);
         }
         let listed = self.listed_hover.filter(|_| recipe.is_some());
-        if let Some(h) = listed.or(preview.hover).filter(|h| !selected.contains(h)) {
+        // Selected too: its faces tinted, its edges the selection's.
+        if let Some(h) = listed.or(preview.hover) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
         }
         // The occurrence hovered in the navigator, in any context, as if hovered in the view —
-        // unless selected or open (already marked so) —, still faded outside the active path.
+        // unless open (already marked so) —, still faded outside the active path.
         if let Some(p) = &self.navigator_hover
             && open.as_ref() != Some(p)
-            && !(p.instances == self.context && selected.contains(&p.entity))
             && let hovered = p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>()
             // Hidden (it or an assembly above it, out of the active path): not marked, unless
             // the hidden are shown. What is hidden below it, `solids_under` leaves out.
