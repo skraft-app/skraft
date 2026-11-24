@@ -78,7 +78,7 @@ pub struct Viewport {
     size: [u32; 2],
     /// What the render statistics overlay shows.
     timing: Timing,
-    /// A component dragged from the « Composants » card is carried (docs/ui/components-library.md#placing):
+    /// A component dragged from the library is carried (docs/ui/components-library.md#placing):
     /// the card's row holds the drag, the view follows the pointer and puts it down where the
     /// button is released.
     pub dragged_in: bool,
@@ -600,7 +600,7 @@ impl Viewport {
         }
     }
 
-    /// A component dragged in from the « Composants » card (docs/ui/components-library.md#placing): no
+    /// A component dragged in from the library (docs/ui/components-library.md#placing): no
     /// widget of the view is hovered while the card's row holds the drag, so the pointer is
     /// followed here over the view (not over a card floating on it); released there, it is put
     /// down — a click —, elsewhere given up (Esc).
@@ -925,7 +925,7 @@ impl Viewport {
 }
 
 impl Viewport {
-    /// Draws the thumbnails the « Composants » card asked for (docs/ui/components-library.md#thumbnails),
+    /// Draws the thumbnails the library asked for (docs/ui/components-library.md#thumbnails),
     /// the shown document's, within [`THUMBNAIL_BUDGET_MS`]: the others the next frame. Each a
     /// parallel iso view of the component's meshes framed on their box, in the view's colours
     /// and with its palette, registered as an egui texture; those evicted freed.

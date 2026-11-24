@@ -26,7 +26,7 @@ pub struct Doc {
     pub vcb: String,
     /// Its navigator's rows unfolded, and what they are kept by.
     pub navigator: crate::workspaces::common::cards::NavigatorState,
-    /// Its « Composants » card's rows (docs/ui/components-library.md).
+    /// Its library's components (docs/ui/components-library.md).
     pub library: crate::workspaces::common::cards::library::LibraryState,
     pub materials: crate::workspaces::common::cards::materials::MaterialsState,
     /// Its parts list's sort and rows (docs/ui/parts-list.md).

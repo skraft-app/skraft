@@ -32,7 +32,7 @@ placed, in which material, of which size, how many.
 Both ways, the 3D view's selection being the one:
 
 - **A row clicked selects its occurrences** under the context edited
-  (`Editor::select_occurrences`, as « Sélectionner les occurrences » of the « Composants » card:
+  (`Editor::select_occurrences`, as « Sélectionner les occurrences » of the library's components:
   the scope turned to « Pièces » when one lies deeper than the context's children).
 - **A row is lit** when one of its occurrences is selected, picked at any depth or under an
   occurrence selected in the context edited.

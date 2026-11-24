@@ -17,10 +17,14 @@ Decision [0038](../decisions/0038-components-library-card.md).
 
 ## The card
 
-- **A fourth docked card**, « Composants » (`PanelId::Components`, command
-  `view.components`), beside Entity info, Materials and the navigator: folded, moved, sized and
-  closed as they are ([Layout](interface.md#layout)); it may fill its column's height left
-  (`PanelId::fills`). Closed by default, under the navigator when shown.
+- **What the library shows outside a sheet**: the card « Bibliothèque » (`PanelId::Library`,
+  command `view.library`), beside Entity info, Materials and the navigator, shows the
+  workspace's definitions: the components here, the drawing's compositions on a sheet
+  ([The compositions card](drawing.md#the-compositions-card)). Folded, moved, sized and closed
+  as the others are ([Layout](interface.md#layout)); it may fill its column's height left
+  (`PanelId::fills`). Closed by default, under the navigator when shown. **Why:** one card for
+  each workspace's definitions, as one navigator for each workspace's tree; the components have
+  no use on a sheet (decided with the user, 2026-11-24).
 - **What it lists**: the document's components but the model's root — its **parts** and its
   **assemblies**, not the body definitions (the navigator shows those of the open part). Each
   one with its nature's icon (a part's, `icons::COMPONENT` for an assembly), its name (the
@@ -166,7 +170,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
 
 ## Search
 
-- **One module for the « Composants » card and the navigator**, **by name only**: the matcher
+- **One module for the library and the navigator**, **by name only**: the matcher
   in `tools` (`skraft_tools::search`: `Matcher`, `fold`; no UI, tested), the search field in
   the app (`search::field`), at the top of both cards' contents, under their header (in the
   card, under its tabs); the list under them takes the height left.
@@ -176,14 +180,13 @@ Decision [0038](../decisions/0038-components-library-card.md).
   `search::GAP` apart (6 pt), the field as far from what is above it (the navigator's title
   bar line, the card's tabs) and from the list under it. In the navigator, over the whole
   width; in the
-  « Composants » card, left of the grid / list toggle. Handles `components:search`,
-  `navigator:search`.
+  library, left of the grid / list toggle. Handles `components:search`, `navigator:search`.
 - **Name**: a substring of the name, case and diacritics ignored (« etag » finds
   « Étagère#2 »): both folded to lower case, the diacritics of Latin letters dropped by a table
   (`search::fold`, no Unicode normalisation crate), the ligatures spelt out (« œ » → « oe »),
   automatic names too. In the navigator a row matches by its component's name or its
   occurrence's name (a body's by its definition's or its own).
-- **What the search does**: the « Composants » card shows only what matches, in both tabs
+- **What the search does**: the library shows only what matches, in both tabs
   (the sections kept; the tabs' counts those it lets through; « Rien ne correspond » in a tab
   where nothing does), its rows made again when the document or the search changes. The
   navigator shows the rows that match and the rows above them (`cards::Filtered`): those that
@@ -200,7 +203,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
 
 ## Commands and driving
 
-- `view.components` shows or closes the card; `components.purge` (the card's menu, the command
+- `view.library` shows or closes the card; `components.purge` (the card's menu, the command
   palette).
 - Control protocol ([Control protocol](../control-protocol.md), `crates/control/src/editor.rs`):
   `model.components` lists them (id, name, kind, named, count, unused) with the one chosen and

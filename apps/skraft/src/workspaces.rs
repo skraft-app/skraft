@@ -84,7 +84,7 @@ pub const WORKSPACES: &[Workspace] = &[
         icon: icons::MODELLING,
         under_way: false,
         stage: Stage::View,
-        // The « Composants » card's.
+        // The library's.
         commands: &["components.purge"],
         panels: None,
         fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "tool.erase"], &["tool.select", "tool.erase"]),
@@ -181,7 +181,7 @@ pub const WORKSPACES: &[Workspace] = &[
         panels: Some(&[
             crate::window::dock::PanelId::EntityInfo,
             crate::window::dock::PanelId::Navigator,
-            crate::window::dock::PanelId::Compositions,
+            crate::window::dock::PanelId::Library,
         ]),
         fixed: group("selection", || t!("ribbon.group.selection"), &["tool.select", "edit.erase"], &["tool.select", "edit.erase"]),
         tabs: &[Tab {
@@ -255,10 +255,6 @@ impl Workspace {
 
     /// Is the command `id` available in it?
     pub fn has(&self, id: &str) -> bool {
-        // A panel of sheets, out of the common « view. » base.
-        if id == "view.compositions" {
-            return self.stage == Stage::Sheet;
-        }
         COMMON.contains(&id)
             || COMMON_PREFIXES.iter().any(|p| id.starts_with(p))
             || self.commands.contains(&id)

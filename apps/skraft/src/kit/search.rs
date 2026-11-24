@@ -16,7 +16,7 @@ pub fn field(ui: &mut egui::Ui, salt: egui::Id, handle: &'static str, text: &mut
     let weak = ui.visuals().weak_text_color();
     ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), height), egui::Layout::right_to_left(egui::Align::Center), |ui| {
         // One gap on the line (egui adds it after each item), the one above it in the
-        // « Composants » card too. No scope around `trailing`: an empty one would still take a
+        // library too. No scope around `trailing`: an empty one would still take a
         // gap, the navigator's field then short of the card's margin.
         ui.spacing_mut().item_spacing.x = GAP;
         trailing(ui, height);

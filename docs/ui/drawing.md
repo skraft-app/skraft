@@ -399,9 +399,10 @@ instances, as an empty assembly, as a step of its own.
 
 ### The compositions card
 
-The card « Compositions » (`PanelId::Compositions`, `view.compositions`, `drawing::cards::library`) is to
-the drawing what [« Composants »](components-library.md) is to the model. It exists only in a
-workspace of sheets, and is shown there at first, under the navigator.
+On a sheet the library (« Bibliothèque », `PanelId::Library`, `view.library`) shows the
+compositions (`drawing::cards::library`): they are to the drawing what the
+[components](components-library.md) are to the model, and the components are not shown there.
+In a workspace of sheets the library is shown at first, under the navigator.
 
 - **What it lists**: every composition, by name in natural order, as tiles or rows (the toggle and
   its preference are the components card's), with a search. Its picture is **its outline**
@@ -688,7 +689,7 @@ presentation's « + ») and its menu's `navigator:menu:blank_sheet`, `navigator:
 menu's `navigator:menu:new_presentation`, `navigator:menu:presentation_template:<n>`; the navigator's
 `navigator:document`, `:presentation:<id>`, `:sheet:<id>`, `:element:<id>`, and on an
 element's row `:eye:<id>`, `:lock:<id>`, `:up:<id>`, `:down:<id>` (the last three under the
-pointer), in an open menu `:menu:<command>`, `:menu:copy`, `:menu:save_template`; in the compositions card `compositions:<id>`, `:search`, `:grid`,
+pointer), in an open menu `:menu:<command>`, `:menu:copy`, `:menu:save_template`; in the library `compositions:<id>`, `:search`, `:grid`,
 `:list`, `:purge`, and in an open menu `:menu:place`, `:menu:delete`; in the entity info
 `drawing_border`, `drawing_value:<id>:<n>`, `drawing_field_value:<name>`, `drawing_new_field`;
 `drawing_insert_field`

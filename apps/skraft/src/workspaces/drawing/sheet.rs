@@ -84,7 +84,7 @@ pub struct SheetState {
     /// What the navigator or the clipboard ask of the stage, done at its next frame (it has the
     /// editor, and the pointer in the level open).
     pub asked: Option<SheetAsk>,
-    /// The « Compositions » card's search, rows and outlines.
+    /// The library's compositions: search, rows and outlines.
     pub library: crate::workspaces::drawing::cards::library::CompositionsState,
     /// The composition being dragged from that card, placed where it is let go.
     pub carried: Option<Id>,

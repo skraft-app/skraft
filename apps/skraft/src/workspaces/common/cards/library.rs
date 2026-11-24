@@ -1,7 +1,8 @@
-//! The « Composants » card (docs/ui/components-library.md): the document's parts and assemblies
-//! in a tab each, how many times each is in the model, the unused ones apart; a click chooses one (the entity
-//! info shows it), its menu selects its occurrences, replaces the selection by it, renames or
-//! deletes it; « Purger » drops the unused ones.
+//! The library outside a sheet, the components (docs/ui/components-library.md): the
+//! document's parts and assemblies in a tab each, how many times each is in the model, the
+//! unused ones apart; a click chooses one (the entity info shows it), its menu selects its
+//! occurrences, replaces the selection by it, renames or deletes it; « Purger » drops the
+//! unused ones.
 
 use std::cmp::Ordering;
 

@@ -50,9 +50,9 @@ pub struct Preferences {
     pub shortcuts: BTreeMap<String, String>,
     /// The render statistics overlay, in a corner of the view.
     pub show_render_stats: bool,
-    /// The « Composants » card as a list, not a grid of thumbnails (docs/ui/components-library.md).
+    /// The library's components as a list, not a grid of thumbnails (docs/ui/components-library.md).
     pub components_list: bool,
-    /// The « Compositions » card as a list.
+    /// The library's compositions as a list.
     pub compositions_list: bool,
     /// The « Matières » card as a list.
     pub materials_list: bool,
@@ -189,9 +189,13 @@ impl Preferences {
             Ok(None) => (Preferences::default(), None),
             Ok(Some(text)) => match serde_json::from_str::<Preferences>(&text) {
                 Ok(mut p) if p.version <= VERSION => {
-                    // The navigator's command was `view.outliner`: its shortcut kept.
-                    if let Some(keys) = p.shortcuts.remove("view.outliner") {
-                        p.shortcuts.entry("view.navigator".to_owned()).or_insert(keys);
+                    // The panels' former commands: their shortcuts kept.
+                    for (old, new) in
+                        [("view.outliner", "view.navigator"), ("view.components", "view.library"), ("view.compositions", "view.library")]
+                    {
+                        if let Some(keys) = p.shortcuts.remove(old) {
+                            p.shortcuts.entry(new.to_owned()).or_insert(keys);
+                        }
                     }
                     p.panels.normalize();
                     // A panel new to a workspace's layout shown if the workspace shows it at first.

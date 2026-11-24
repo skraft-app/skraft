@@ -1,5 +1,5 @@
-//! The « Compositions » card (docs/ui/drawing.md#the-compositions-card): the drawing's
-//! definitions, as the « Composants » card shows the model's: tiles or rows, how many times each
+//! The library on a sheet, the compositions (docs/ui/drawing.md#the-compositions-card): the drawing's
+//! definitions, as the library shows the model's: tiles or rows, how many times each
 //! is on the sheets, the unused ones apart; a click picks its instances in the level open, a drag
 //! onto the sheet places one more at the pointer, its menu places, renames or deletes it.
 
