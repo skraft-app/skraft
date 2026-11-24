@@ -722,7 +722,9 @@ fn rectangle_selection_window_or_crossing_by_direction() {
     e.input(ToolInput::Drag { px: px(&e, DVec3::new(250.0, -50.0, 0.0)) });
     let v = e.view();
     assert!(v.marquee.as_ref().is_some_and(|m| m.crossing && m.hits == [b]));
-    assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Hover).count(), 1);
+    // Marked as selected (docs/tools/selection.md): `b` with `a`, selected.
+    assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Selected).count(), 2);
+    assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Hover).count(), 0);
     e.input(ToolInput::Key { key: Key::Escape, mods: none });
     e.input(ToolInput::DragEnd { px: px(&e, DVec3::new(250.0, -50.0, 0.0)), mods: none });
     assert_eq!(e.selection(), &[a]);
