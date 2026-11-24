@@ -321,19 +321,24 @@ impl Editor {
     }
 
     /// Hides the occurrence `path` names, or shows it again (the navigator's eye). Hidden, it
-    /// leaves the selection, unless the hidden are shown.
+    /// leaves the selection, unless the hidden are shown — with what is selected under it at
+    /// any depth (« Parts »), unless it is on the way to the context edited (shown then).
     pub fn set_hidden(&mut self, path: &EntityPath, hidden: bool) {
         if self.busy() {
             return;
         }
         let Ok(context) = self.document().context_of(&path.instances) else { return };
         let op = Operation::SetHidden { context, entities: vec![path.entity], hidden };
-        if self.start(op, After::Nothing, false).is_ok()
-            && hidden
-            && !self.document().settings().display.show_hidden
-            && self.context == path.instances
-        {
+        if self.start(op, After::Nothing, false).is_err() || !hidden || self.document().settings().display.show_hidden {
+            return;
+        }
+        if self.context == path.instances {
             self.selection.retain(|id| *id != path.entity);
+        }
+        let gone: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+        if !self.context.starts_with(&gone) {
+            self.deep.retain(|p| p != path && !p.instances.starts_with(&gone));
+            self.deep_guides.retain(|g| !g.instances.starts_with(&gone));
         }
     }
 
