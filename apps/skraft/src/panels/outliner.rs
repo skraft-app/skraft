@@ -200,6 +200,7 @@ pub fn outliner(
     let editing = editor.profile_body();
     // The components in error at any depth, each found once (definitions are shared).
     let mut errors = FastMap::default();
+    let cx = TreeCx { editor, doc, selection: &selection, height, salt, text, weak, on_selection, editing };
     // Row 0 the model's, the tree's after it.
     area.show_rows(ui, height, rows.len() + 1, |ui, range| {
         ui.set_min_width(ui.available_width());
@@ -218,213 +219,314 @@ pub fn outliner(
                 }
                 None => {}
             }
-            let o = row.occurrence;
-            // The part open: selected while none of its bodies is (a body selected is marked on
-            // its own row, not its part's).
-            // The part open: marked open when it is the level open, else (a group open in it) only
-            // as on the way to it, its name in the accent's colour (docs/model/opening-a-part.md).
-            let open_here = editor.open_part() == Some(o.id) && editor.context() == row.path.as_slice();
-            let open = open_here && editor.open_group().is_empty() && selection.is_empty() && editing.is_none();
-            let on_path = open_here && !editor.open_group().is_empty();
-            let selected = (editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open))
-                || editor.deep_selection().iter().any(|p| p.instances == row.path && p.entity == o.id);
-            // Hidden, itself or by an assembly above: greyed.
-            let greyed = o.hidden || row.hidden_above;
-            let tint = if selected || on_path {
-                on_selection
-            } else if greyed {
-                hidden_color(ui.visuals(), false)
-            } else if row.dim {
-                weak
-            } else {
-                text
-            };
-            // A part in several pieces, or empty: an error to correct (docs/model/bodies.md). A body failed
-            // in it, at any depth, or a part in error in an assembly: ⚠ too, its name as it is
-            // (the error is below, seen once unfolded).
-            let part = doc.part(o.component).ok();
-            let pieces = part.map_or(1, |p| p.pieces());
-            let broken = pieces != 1;
-            let inner = !broken && in_error(doc, o.component, &mut errors, 0);
-            // A name edited in place, from a double-click, or F2 while it is the one occurrence
-            // selected: the occurrence's own, shown first, where it has one and the double-click
-            // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
-            let rename = ui.make_persistent_id(("outliner_rename", &row.path, o.id));
-            let rename_occurrence = rename.with("occurrence");
-            let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
-                Some(id) if id == rename => Some(false),
-                Some(id) if id == rename_occurrence => Some(true),
-                _ => None,
-            };
-            let name = doc.component(o.component).map(|c| c.name.clone()).unwrap_or_default();
-            let (response, (eye, renamed, split)) = tree_row(ui, height, selected, false, false, |ui| {
-                // The toggle button (or, for a part, its room) one indent per level, so all
-                // the icons of a level line up.
-                let spacing = ui.spacing().item_spacing.x;
-                ui.spacing_mut().item_spacing.x = 0.0;
-                ui.add_space(ui.spacing().indent * row.path.len() as f32);
-                match row.fold {
-                    Some(fold) => fold_toggle(ui, salt, fold, folds),
-                    None => ui.add_space(ui.spacing().indent),
-                }
-                ui.spacing_mut().item_spacing.x = spacing;
-                ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
-                // The eye first, at the right end (open while shown, struck through once
-                // hidden), then the name in the room left, truncated with "…" so a long name
-                // never pushes the eye out.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let (icon, tip) =
-                        if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
-                    let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
-                    let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
-                    // Its own material, if any: a dot of its colour left of the eye, a column of
-                    // its own so the names stay aligned.
-                    if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
-                        material_dot(ui, m, greyed);
-                    }
-                    let renamed = ui
-                        .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            if broken || inner {
-                                ui.add(warning(ui));
-                            }
-                            let color = if broken { ui.visuals().error_fg_color } else { tint };
-                            // The name edited alone in its field, the whole row's width.
-                            match renaming {
-                                Some(true) => return (rename_field(ui, rename_occurrence, &o.name), None),
-                                Some(false) => return (rename_field(ui, rename, &name), None),
-                                None => {}
-                            }
-                            let auto = doc.component(o.component).is_ok_and(|c| !c.named);
-                            let back = ui.visuals().window_fill;
-                            let (_, split) = instance_label(ui, &o.name, &name, auto, color, selected, back);
-                            (None, split)
-                        })
-                        .inner;
-                    (eye, renamed.0, renamed.1)
-                })
-                .inner
-            });
-            let tip = match pieces {
-                0 => Some(t!("panel.outliner.empty_part")),
-                1 if inner && part.is_some() => Some(t!("panel.outliner.failed_inside_part")),
-                1 if inner => Some(t!("panel.outliner.error_inside_assembly")),
-                1 => None,
-                _ => Some(t!("panel.outliner.pieces", count = pieces)),
-            };
-            let response = match tip {
-                Some(tip) => response.tip(tip),
-                None => response,
-            };
-            let path = EntityPath::new(row.path, o.id);
-            // The whole row, its indent and toggle included.
-            if ui.rect_contains_pointer(response.rect) {
-                over = Some(path.clone());
-            }
-            crate::handles::publish(|| format!("outliner:{}", o.id.0), response.rect);
-            // Bodies dragged onto their part's row: to its root (decision 0044).
-            // Dragged (decision 0044): the selected occurrences of its assembly with it when it
-            // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
-            // makes a part of bodies.
-            let response = response.interact(egui::Sense::click_and_drag());
-            let with: Vec<Id> = match selected && editor.context() == path.instances.as_slice() {
-                true => doc
-                    .context_of(&path.instances)
-                    .and_then(|c| doc.assembly(c))
-                    .map(|a| a.occurrences().iter().map(|x| x.id).filter(|id| selection.contains(id)).collect())
-                    .unwrap_or_default(),
-                false => vec![o.id],
-            };
-            if response.drag_started() {
-                let shown = if o.name.is_empty() { name.clone() } else { o.name.to_string() };
-                set_drag_ghost(ui.ctx(), occurrence_icon(doc, o), shown, with.len());
-            }
-            response.dnd_set_drag_payload(PartsDrag { instances: path.instances.clone(), occurrences: with });
-            let (bodies_over, parts_over) = dragged_over(&response);
-            if bodies_over.is_some() || parts_over.is_some() {
-                let is_part = doc.part(o.component).is_ok();
-                let target: DropTarget<'_> = match (bodies_over, parts_over) {
-                    (Some(drag), _) if is_part => {
-                        let same = same_part(doc, &drag.from.part_path(), &path);
-                        drag.to(same, &path, Vec::new()).map(|to| (Mark::Into, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
-                    }
-                    (Some(drag), _) => {
-                        let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
-                        Some((Mark::Into, Box::new(move |copy| drag.op(editor, BodiesTo::NewPart(inside), copy)) as Box<_>))
-                    }
-                    (None, Some(drag)) if is_part => {
-                        let at = path.clone();
-                        drag.onto_part(doc, &at, Vec::new(), false).map(|_| {
-                            (Mark::Into, Box::new(move |copy| drag.onto_part(doc, &at, Vec::new(), copy).expect("checked")) as Box<_>)
-                        })
-                    }
-                    (None, Some(drag)) => {
-                        let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
-                        drag.onto_assembly(doc, inside.clone(), false)
-                            .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_assembly(doc, inside, copy).expect("checked")) as Box<_>))
-                    }
-                    _ => None,
-                };
-                drop_on_row(ui, &response, 0.0, target, actions);
-            }
-            // A component's name is never empty, and unique: an emptied one is kept, one taken
-            // refused (the failure told); an occurrence's emptied is cleared.
-            let alone = selected && selection.len() == 1;
-            let on_occurrence = match (split, response.interact_pointer_pos()) {
-                (Some(split), Some(at)) if response.double_clicked() => at.x < split,
-                (split, _) => split.is_some(),
-            };
-            let key = if on_occurrence { rename_occurrence } else { rename };
-            match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
-                (Some(true), Some(Some(name))) => {
-                    let context = doc.context_of(&path.instances).unwrap_or(doc.root());
-                    actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
-                }
-                (_, Some(Some(name))) if !name.is_empty() => {
-                    actions.push(Action::Apply(Operation::RenameComponent { component: o.component, name }));
-                }
-                _ => {}
-            }
-            let in_selection = (editor.open_part().is_none() && editor.context() == path.instances.as_slice() && selection.contains(&o.id))
-                || editor.deep_selection().iter().any(|p| p.instances == path.instances && p.entity == o.id);
-            let select = (!in_selection).then(|| Action::SelectPath(path.clone(), false));
-            let own = (!o.name.is_empty()).then_some(rename_occurrence);
-            // « Aplatir » on a part with a tree: the parts selected with it, when it is.
-            let composed = part.is_some_and(|p| p.has_tree());
-            row_menu(
-                &response,
-                doc.assembly(o.component).is_ok(),
-                (rename, own),
-                select,
-                actions,
-                |_, _| {},
-                |ui, actions| {
-                    if composed && flatten_button(ui) {
-                        let targets: Vec<EntityPath> = match in_selection {
-                            true => selection
-                                .iter()
-                                .map(|id| EntityPath::new(path.instances.clone(), *id))
-                                .chain(editor.deep_selection().iter().cloned())
-                                .filter(|q| doc.resolve_part(q).is_ok_and(|(_, p, _)| p.has_tree()))
-                                .collect(),
-                            false => vec![path.clone()],
-                        };
-                        let part_open = editor.open_part_path().is_some_and(|x| x.part_path() == path.part_path());
-                        let scope = if part_open { editor.part_scope() } else { Scope::All };
-                        let ops = targets.into_iter().map(|target| Operation::FlattenPart { target, scope }).collect();
-                        actions.push(Action::Apply(Operation::Batch(ops)));
-                    }
-                },
-            );
-            if eye {
-                actions.push(Action::SetHidden(path, !o.hidden));
-            } else if response.clicked() {
-                actions.push(Action::SelectPath(path, ui.input(|i| i.modifiers.shift)));
-            }
+            occurrence_row(ui, cx, row, folds, &mut errors, &mut over, actions);
         }
     });
     paint_drag_ghost(ui.ctx());
     actions.push(Action::HoverOutliner(over));
     actions.push(Action::HoverMachining(over_body));
+}
+
+/// What the rows of the outliner's tree read.
+#[derive(Clone, Copy)]
+struct TreeCx<'a> {
+    editor: &'a Editor,
+    doc: &'a Document,
+    selection: &'a std::collections::HashSet<Id>,
+    height: f32,
+    /// Keeps a row's fold apart from another document's.
+    salt: egui::Id,
+    text: egui::Color32,
+    weak: egui::Color32,
+    on_selection: egui::Color32,
+    /// The body whose profile is edited.
+    editing: Option<Id>,
+}
+
+/// What an occurrence's line gives back: its eye clicked, the name typed, where its own name
+/// ends.
+type LineOutcome = (bool, Option<Option<String>>, Option<f32>);
+
+/// How an occurrence's row shows, and its name's edit.
+#[derive(Clone, Copy)]
+struct OccurrenceLook {
+    selected: bool,
+    tint: egui::Color32,
+    greyed: bool,
+    pieces: usize,
+    broken: bool,
+    inner: bool,
+    rename: egui::Id,
+    rename_occurrence: egui::Id,
+    /// Its name edited: the occurrence's own (true) or its component's.
+    renaming: Option<bool>,
+}
+
+fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &OutlinerRow<'_>, errors: &mut FastMap<Id, bool>) -> OccurrenceLook {
+    let TreeCx { editor, doc, selection, text, weak, on_selection, editing, .. } = cx;
+    let o = row.occurrence;
+    // The part open: selected while none of its bodies is (a body selected is marked on
+    // its own row, not its part's).
+    // The part open: marked open when it is the level open, else (a group open in it) only
+    // as on the way to it, its name in the accent's colour (docs/model/opening-a-part.md).
+    let open_here = editor.open_part() == Some(o.id) && editor.context() == row.path.as_slice();
+    let open = open_here && editor.open_group().is_empty() && selection.is_empty() && editing.is_none();
+    let on_path = open_here && !editor.open_group().is_empty();
+    let selected = (editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open))
+        || editor.deep_selection().iter().any(|p| p.instances == row.path && p.entity == o.id);
+    // Hidden, itself or by an assembly above: greyed.
+    let greyed = o.hidden || row.hidden_above;
+    let tint = if selected || on_path {
+        on_selection
+    } else if greyed {
+        hidden_color(ui.visuals(), false)
+    } else if row.dim {
+        weak
+    } else {
+        text
+    };
+    // A part in several pieces, or empty: an error to correct (docs/model/bodies.md). A body failed
+    // in it, at any depth, or a part in error in an assembly: ⚠ too, its name as it is
+    // (the error is below, seen once unfolded).
+    let part = doc.part(o.component).ok();
+    let pieces = part.map_or(1, |p| p.pieces());
+    let broken = pieces != 1;
+    let inner = !broken && in_error(doc, o.component, errors, 0);
+    // A name edited in place, from a double-click, or F2 while it is the one occurrence
+    // selected: the occurrence's own, shown first, where it has one and the double-click
+    // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
+    let rename = ui.make_persistent_id(("outliner_rename", &row.path, o.id));
+    let rename_occurrence = rename.with("occurrence");
+    let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
+        Some(id) if id == rename => Some(false),
+        Some(id) if id == rename_occurrence => Some(true),
+        _ => None,
+    };
+    OccurrenceLook { selected, tint, greyed, pieces, broken, inner, rename, rename_occurrence, renaming }
+}
+
+/// The line of an occurrence: its fold, icon, name (or the field editing it), material and eye.
+/// Its response; the eye clicked, the name typed, where its own name ends.
+fn occurrence_line(
+    ui: &mut egui::Ui,
+    cx: TreeCx<'_>,
+    row: &OutlinerRow<'_>,
+    look: &OccurrenceLook,
+    name: &str,
+    folds: &mut FastSet<egui::Id>,
+) -> (egui::Response, LineOutcome) {
+    let TreeCx { doc, height, salt, weak, .. } = cx;
+    let OccurrenceLook { selected, tint, greyed, broken, inner, rename, rename_occurrence, renaming, .. } = *look;
+    let o = row.occurrence;
+    tree_row(ui, height, selected, false, false, |ui| {
+        // The toggle button (or, for a part, its room) one indent per level, so all
+        // the icons of a level line up.
+        let spacing = ui.spacing().item_spacing.x;
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(ui.spacing().indent * row.path.len() as f32);
+        match row.fold {
+            Some(fold) => fold_toggle(ui, salt, fold, folds),
+            None => ui.add_space(ui.spacing().indent),
+        }
+        ui.spacing_mut().item_spacing.x = spacing;
+        ui.add(egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint));
+        // The eye first, at the right end (open while shown, struck through once
+        // hidden), then the name in the room left, truncated with "…" so a long name
+        // never pushes the eye out.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.outliner.show")) } else { (icons::EYE, t!("panel.outliner.hide")) };
+            let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(if selected { tint } else { weak });
+            let eye = ui.add(egui::Button::image(img).frame(false)).tip(tip).clicked();
+            // Its own material, if any: a dot of its colour left of the eye, a column of
+            // its own so the names stay aligned.
+            if let Some(m) = o.material.and_then(|m| doc.material(m).ok()) {
+                material_dot(ui, m, greyed);
+            }
+            let renamed = ui
+                .with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if broken || inner {
+                        ui.add(warning(ui));
+                    }
+                    let color = if broken { ui.visuals().error_fg_color } else { tint };
+                    // The name edited alone in its field, the whole row's width.
+                    match renaming {
+                        Some(true) => return (rename_field(ui, rename_occurrence, &o.name), None),
+                        Some(false) => return (rename_field(ui, rename, name), None),
+                        None => {}
+                    }
+                    let auto = doc.component(o.component).is_ok_and(|c| !c.named);
+                    let back = ui.visuals().window_fill;
+                    let (_, split) = instance_label(ui, &o.name, name, auto, color, selected, back);
+                    (None, split)
+                })
+                .inner;
+            (eye, renamed.0, renamed.1)
+        })
+        .inner
+    })
+}
+
+/// What is dragged over an occurrence's row (decision 0044): a part takes bodies or parts in, at
+/// its root; an assembly makes a part of bodies.
+fn drop_on_occurrence(
+    ui: &egui::Ui,
+    editor: &Editor,
+    o: &Occurrence,
+    path: &EntityPath,
+    response: &egui::Response,
+    actions: &mut Vec<Action>,
+) {
+    let doc = editor.document();
+    let (bodies_over, parts_over) = dragged_over(response);
+    if bodies_over.is_some() || parts_over.is_some() {
+        let is_part = doc.part(o.component).is_ok();
+        let target: DropTarget<'_> = match (bodies_over, parts_over) {
+            (Some(drag), _) if is_part => {
+                let same = same_part(doc, &drag.from.part_path(), path);
+                drag.to(same, path, Vec::new()).map(|to| (Mark::Into, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
+            }
+            (Some(drag), _) => {
+                let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
+                Some((Mark::Into, Box::new(move |copy| drag.op(editor, BodiesTo::NewPart(inside), copy)) as Box<_>))
+            }
+            (None, Some(drag)) if is_part => {
+                let at = path.clone();
+                drag.onto_part(doc, &at, Vec::new(), false)
+                    .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_part(doc, &at, Vec::new(), copy).expect("checked")) as Box<_>))
+            }
+            (None, Some(drag)) => {
+                let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
+                drag.onto_assembly(doc, inside.clone(), false)
+                    .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_assembly(doc, inside, copy).expect("checked")) as Box<_>))
+            }
+            _ => None,
+        };
+        drop_on_row(ui, response, 0.0, target, actions);
+    }
+}
+
+/// An occurrence's right-click menu, « Aplatir » on a part with a tree.
+fn occurrence_menu(
+    editor: &Editor,
+    selection: &std::collections::HashSet<Id>,
+    o: &Occurrence,
+    path: &EntityPath,
+    response: &egui::Response,
+    (rename, rename_occurrence): (egui::Id, egui::Id),
+    actions: &mut Vec<Action>,
+) {
+    let doc = editor.document();
+    let part = doc.part(o.component).ok();
+    let in_selection = (editor.open_part().is_none() && editor.context() == path.instances.as_slice() && selection.contains(&o.id))
+        || editor.deep_selection().iter().any(|p| p.instances == path.instances && p.entity == o.id);
+    let select = (!in_selection).then(|| Action::SelectPath(path.clone(), false));
+    let own = (!o.name.is_empty()).then_some(rename_occurrence);
+    // « Aplatir » on a part with a tree: the parts selected with it, when it is.
+    let composed = part.is_some_and(|p| p.has_tree());
+    row_menu(
+        response,
+        doc.assembly(o.component).is_ok(),
+        (rename, own),
+        select,
+        actions,
+        |_, _| {},
+        |ui, actions| {
+            if composed && flatten_button(ui) {
+                let targets: Vec<EntityPath> = match in_selection {
+                    true => selection
+                        .iter()
+                        .map(|id| EntityPath::new(path.instances.clone(), *id))
+                        .chain(editor.deep_selection().iter().cloned())
+                        .filter(|q| doc.resolve_part(q).is_ok_and(|(_, p, _)| p.has_tree()))
+                        .collect(),
+                    false => vec![path.clone()],
+                };
+                let part_open = editor.open_part_path().is_some_and(|x| x.part_path() == path.part_path());
+                let scope = if part_open { editor.part_scope() } else { Scope::All };
+                let ops = targets.into_iter().map(|target| Operation::FlattenPart { target, scope }).collect();
+                actions.push(Action::Apply(Operation::Batch(ops)));
+            }
+        },
+    );
+}
+
+/// An occurrence's row of the tree.
+fn occurrence_row(
+    ui: &mut egui::Ui,
+    cx: TreeCx<'_>,
+    row: OutlinerRow<'_>,
+    folds: &mut FastSet<egui::Id>,
+    errors: &mut FastMap<Id, bool>,
+    over: &mut Option<EntityPath>,
+    actions: &mut Vec<Action>,
+) {
+    let TreeCx { editor, doc, selection, .. } = cx;
+    let o = row.occurrence;
+    let look = occurrence_look(ui, cx, &row, errors);
+    let OccurrenceLook { selected, pieces, inner, rename, rename_occurrence, renaming, .. } = look;
+    let part = doc.part(o.component).ok();
+    let name = doc.component(o.component).map(|c| c.name.clone()).unwrap_or_default();
+    let (response, (eye, renamed, split)) = occurrence_line(ui, cx, &row, &look, &name, folds);
+    let tip = match pieces {
+        0 => Some(t!("panel.outliner.empty_part")),
+        1 if inner && part.is_some() => Some(t!("panel.outliner.failed_inside_part")),
+        1 if inner => Some(t!("panel.outliner.error_inside_assembly")),
+        1 => None,
+        _ => Some(t!("panel.outliner.pieces", count = pieces)),
+    };
+    let response = match tip {
+        Some(tip) => response.tip(tip),
+        None => response,
+    };
+    let path = EntityPath::new(row.path, o.id);
+    // The whole row, its indent and toggle included.
+    if ui.rect_contains_pointer(response.rect) {
+        *over = Some(path.clone());
+    }
+    crate::handles::publish(|| format!("outliner:{}", o.id.0), response.rect);
+    // Bodies dragged onto their part's row: to its root (decision 0044).
+    // Dragged (decision 0044): the selected occurrences of its assembly with it when it
+    // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
+    // makes a part of bodies.
+    let response = response.interact(egui::Sense::click_and_drag());
+    let with: Vec<Id> = match selected && editor.context() == path.instances.as_slice() {
+        true => doc
+            .context_of(&path.instances)
+            .and_then(|c| doc.assembly(c))
+            .map(|a| a.occurrences().iter().map(|x| x.id).filter(|id| selection.contains(id)).collect())
+            .unwrap_or_default(),
+        false => vec![o.id],
+    };
+    if response.drag_started() {
+        let shown = if o.name.is_empty() { name.clone() } else { o.name.to_string() };
+        set_drag_ghost(ui.ctx(), occurrence_icon(doc, o), shown, with.len());
+    }
+    response.dnd_set_drag_payload(PartsDrag { instances: path.instances.clone(), occurrences: with });
+    drop_on_occurrence(ui, editor, o, &path, &response, actions);
+    // A component's name is never empty, and unique: an emptied one is kept, one taken
+    // refused (the failure told); an occurrence's emptied is cleared.
+    let alone = selected && selection.len() == 1;
+    let on_occurrence = match (split, response.interact_pointer_pos()) {
+        (Some(split), Some(at)) if response.double_clicked() => at.x < split,
+        (split, _) => split.is_some(),
+    };
+    let key = if on_occurrence { rename_occurrence } else { rename };
+    match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
+        (Some(true), Some(Some(name))) => {
+            let context = doc.context_of(&path.instances).unwrap_or(doc.root());
+            actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
+        }
+        (_, Some(Some(name))) if !name.is_empty() => {
+            actions.push(Action::Apply(Operation::RenameComponent { component: o.component, name }));
+        }
+        _ => {}
+    }
+    occurrence_menu(editor, selection, o, &path, &response, (rename, rename_occurrence), actions);
+    if eye {
+        actions.push(Action::SetHidden(path, !o.hidden));
+    } else if response.clicked() {
+        actions.push(Action::SelectPath(path, ui.input(|i| i.modifiers.shift)));
+    }
 }
 
 /// A navigator row's material: a round dot of its colour, ringed so a pale one shows on the
