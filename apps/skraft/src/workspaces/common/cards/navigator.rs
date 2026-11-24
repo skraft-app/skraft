@@ -295,7 +295,7 @@ fn occurrence_links(editor: &Editor, doc: &Document, here: Id, o: &Occurrence) -
     });
     let shapes = editor
         .link_map()
-        .receivers_of(o.component)
+        .receivers_of(source)
         .map(|parts| parts.iter().filter_map(|p| doc.component(*p).ok().map(|c| c.name.as_str())).collect::<Vec<_>>().join(", "));
     OccurrenceLinks { overlap_tip, shapes }
 }

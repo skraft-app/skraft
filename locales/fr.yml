@@ -199,6 +199,10 @@ toolbar:
 steps:
   cancel: "Annuler (Échap)"
   validate: "Valider (Entrée)"
+  # The steps' names of the tools picking as the solid tools, in the steps bar and on the parts
+  # picked: A what the change is made to, B what makes it.
+  a: "A"
+  b: "B"
 
 # The workspace card and the ribbon (docs/ui/ribbon.md).
 ribbon:
@@ -840,8 +844,8 @@ panel:
     role_negative: "Usinage"
     role_intersect: "Intersection"
     # A linked machining's clearance (decision 0055).
-    imprint_around: "Jeu"
-    imprint_deep: "Jeu au fond"
+    imprint_around: "Jeu d'ouverture"
+    imprint_deep: "Jeu de profondeur"
     state: "État"
     failed: "n'a pas pu être calculé, à corriger"
     # How many bodies of the part share the body's definition (its shape).
@@ -1073,12 +1077,11 @@ notice:
   imprinted_plural: "%{count} liens créés"
   rename: "Renommer"
 
-# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 # « Empreindre »'s confirmation (decision 0055).
 imprint:
   title: "Empreindre dans les pièces traversées"
-  around: "Jeu tout autour"
-  deep: "Profondeur en plus"
+  around: "Jeu d'ouverture"
+  deep: "Jeu de profondeur"
   machinings: "%{count} usinage"
   machinings_plural: "%{count} usinages"
   links: "%{count} lien"
@@ -1090,6 +1093,7 @@ imprint:
   bad_value: "valeur illisible"
   ok: "Empreindre"
 
+# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 naming:
   title_part: "Nom de la pièce"
   title_assembly: "Nom de l'assemblage"
@@ -1143,18 +1147,18 @@ status:
 tool:
   imprint:
     name: "Empreindre"
-    out_of_reach: "Cette pièce est hors de portée de la source"
+    out_of_reach: "Cette pièce n'atteint aucune pièce A"
     hint:
-      sources: "Cliquer la pièce qui empreint sa forme · Maj : en choisir plusieurs"
-      sources_gather: "Sélection multiple : cliquer une pièce source pour l'ajouter ou la retirer · Entrée : choisir où elles vont"
-      receivers: "Cliquer une pièce traversée · Maj : en ajouter plusieurs"
-      receivers_gather: "Sélection multiple : cliquer une pièce traversée pour l'ajouter ou la retirer · Entrée : empreindre"
+      receivers: "Cliquer la pièce A traversée · Maj : sélection multiple"
+      receivers_gather: "Sélection multiple : cliquer une pièce A pour l'ajouter ou la retirer · Entrée : valider"
+      sources: "Cliquer la pièce source B qui empreint sa forme · Maj : sélection multiple"
+      sources_gather: "Sélection multiple : cliquer une pièce source B pour l'ajouter ou la retirer · Entrée : empreindre"
     step:
-      sources: "Pièces sources"
-      receivers: "Pièces traversées"
+      receivers: "Choisir les pièces A traversées"
+      sources: "Choisir les pièces sources B"
     say:
-      validate_sources: "Valider (Entrée) pour choisir les pièces traversées"
-      validate: "Valider (Entrée) pour empreindre"
+      validate_a: "Valider (Entrée) pour passer à la sélection de B"
+      validate_b: "Valider (Entrée) pour empreindre"
   reorient:
     name: "Réorienter"
     # The part already has these axes.

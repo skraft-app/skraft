@@ -320,11 +320,8 @@ fn mouse_drawing(ui: &mut egui::Ui, style: &NavStyle, picked: &mut Button, mac: 
         let title_y = r.top() + LINE_HEIGHT / 2.0;
         // One bend: a slant from the button, then a short shelf to the text (a drawing's leader).
         let end_x = if *on_right { r.left() - 4.0 } else { r.right() + 4.0 };
-        let shelf_x = if *on_right { end_x - SHELF } else { end_x + SHELF };
-        let points = vec![*anchor, pos2(shelf_x, title_y), pos2(end_x, title_y)];
         let stroke = if *picked == block.button { Stroke::new(1.5, accent_ink) } else { line };
-        painter.add(egui::Shape::line(points, stroke));
-        painter.circle_filled(*anchor, 2.0, stroke.color);
+        crate::kit::overlay::leader(&painter, *anchor, pos2(end_x, title_y), SHELF, stroke);
         let (align, x) = if *on_right { (Align2::LEFT_CENTER, r.left()) } else { (Align2::RIGHT_CENTER, r.right()) };
         // The picked button's title in semibold, in its line's colour.
         let (title_font, title_color) =

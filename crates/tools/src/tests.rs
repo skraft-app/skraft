@@ -1655,12 +1655,12 @@ fn boolean_scope_option_counts_marks_and_cuts_one_or_all() {
     // Aiming at one board: "×3", and the two others marked as changing too.
     hover(&mut e, DVec3::new(20.0, 20.0, 50.0));
     assert_eq!(scope(&e).choices[0].label, "Tous les exemplaires ×3");
-    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Related).count(), 2);
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::PickedRelated).count(), 2);
 
     // Tab: only this one; nothing else marked.
     e.input(ToolInput::Key { key: Key::Tab, mods: Modifiers::default() });
     assert_eq!(scope(&e).value, OptionValue::Choice("this".into()));
-    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Related).count(), 0);
+    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::PickedRelated).count(), 0);
     // Cut the middle board only.
     let d1 = drill(&mut e, 300.0);
     e.set_tool(ToolKind::Boolean(Boolean::Difference));
@@ -7012,6 +7012,9 @@ fn solid_tools_gather_targets_and_tools_with_shift() {
         e.input(ToolInput::Click { px: at, mods: shift });
     };
     let marks = |e: &Editor, m: Mark| e.view().highlights.iter().filter(|h| h.mark == m).count();
+    // The tools picked, drawn see-through as the machinings they become.
+    let tools = |e: &Editor| e.view().batches.iter().flat_map(|(_, ps)| ps).filter(|p| p.ghost && p.look == Look::Tool).count();
+    let badges = |e: &Editor| ["A", "B"].map(|k| e.badges().iter().filter(|b| b.name == k).count()).to_vec();
     let enter = |e: &mut Editor| e.input(ToolInput::Key { key: Key::Enter, mods: Modifiers::default() });
 
     e.set_tool(ToolKind::Boolean(Boolean::Difference));
@@ -7031,12 +7034,14 @@ fn solid_tools_gather_targets_and_tools_with_shift() {
     shift_click(&mut e, DVec3::new(100.0, 100.0, 70.0));
     // A target is not a tool.
     click(&mut e, DVec3::new(20.0, 20.0, 50.0));
-    assert_eq!(marks(&e, Mark::PickedTool), 1);
+    assert_eq!(tools(&e), 1);
     click(&mut e, DVec3::new(400.0, 100.0, 70.0));
-    assert_eq!(marks(&e, Mark::PickedTool), 2);
+    assert_eq!(tools(&e), 2);
+    // Each part picked shows its step's number.
+    assert_eq!(badges(&e), [2, 2]);
     // Esc lets the tools go, then the targets.
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
-    assert_eq!((marks(&e, Mark::Picked), marks(&e, Mark::PickedTool)), (2, 0));
+    assert_eq!((marks(&e, Mark::Picked), tools(&e), badges(&e)), (2, 0, vec![2, 0]));
     shift_click(&mut e, DVec3::new(100.0, 100.0, 70.0));
     click(&mut e, DVec3::new(400.0, 100.0, 70.0));
     enter(&mut e);
@@ -8139,7 +8144,7 @@ fn a_part_losing_its_source_tells_its_machining_lost_its_link() {
 }
 
 #[test]
-fn imprinting_from_the_selection_cuts_the_mortise_and_says_so() {
+fn imprinting_picks_as_subtract_cuts_the_mortise_and_says_so() {
     use skraft_model::{Scope, Sign};
     let mut e = top_editor(Document::new());
     let root = e.document().root();
@@ -8155,19 +8160,26 @@ fn imprinting_from_the_selection_cuts_the_mortise_and_says_so() {
     let add = Operation::AddBody { target, primitive: tenon, placement: glam::DAffine3::IDENTITY, sign: Sign::Positive, scope: Scope::All };
     e.apply(add).unwrap().unwrap();
     e.take_notices();
-    // A part selected: the tool, that part its source, waiting for where it goes.
+    // The selection ignored: the tool starts at A, as « Soustraire ».
     e.select(vec![rail]);
     assert!(e.can_imprint());
     e.start_imprint();
     assert_eq!(e.tool_kind(), ToolKind::Imprint);
+    assert_eq!(e.tool_steps().map(|s| (s.index, s.name(0), s.name(1))), Some((0, "A".into(), "B".into())));
     assert!(e.take_imprint_plan().is_none(), "nothing asked yet");
 
-    // The source, then where it goes (what the tool's last step sends).
-    e.set_tool(ToolKind::Select);
-    e.ask_imprint(vec![vec![rail]], vec![vec![leg]]);
+    // A the leg gone through, then B the rail that goes into it: the kernel asked.
+    click(&mut e, DVec3::new(130.0, 20.0, 60.0));
+    assert_eq!(e.tool_steps().map(|s| s.index), Some(1));
+    assert_eq!(e.badges().iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["A"]);
+    click(&mut e, DVec3::new(50.0, 10.0, 20.0));
     let plan = e.take_imprint_plan().unwrap();
     assert_eq!((plan.machining_count(), plan.link_count()), (1, 1));
+    // While the confirmation is open, both stay marked, though the tool is back at A.
+    assert_eq!(e.tool_steps().map(|s| s.index), Some(0));
+    assert_eq!(e.badges().iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["A", "B"]);
     e.imprint(&plan, 0.1, 2.0);
+    assert!(e.badges().is_empty(), "the confirmation closed");
     assert!(!e.busy());
     let notices = e.take_notices();
     assert_eq!((notices.len(), notices[0].kind), (1, NoticeKind::Success));
@@ -8204,4 +8216,40 @@ fn a_direction_takes_the_ink_of_the_axis_it_runs_along() {
     let nearly = glam::DVec3::new(1.0, 0.01, 0.0);
     assert_eq!(ink_along(axes, nearly, 1e-9), None);
     assert_eq!(ink_along(axes, nearly, 1e-3), Some(RED), "within a wider tolerance");
+}
+
+#[test]
+fn a_copy_whose_link_is_broken_no_longer_shows_it_imprints() {
+    use skraft_model::{BodySource, LinkSource};
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let shift = glam::DAffine3::from_translation;
+    let add = |e: &mut Editor, size, at| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: shift(at), material: None }).unwrap().unwrap().created[0]
+    };
+    // A board and two copies of one dowel going into it.
+    let board = add(&mut e, DVec3::new(300.0, 100.0, 20.0), DVec3::ZERO);
+    let dowel = add(&mut e, DVec3::new(10.0, 10.0, 40.0), DVec3::new(50.0, 50.0, -10.0));
+    let part = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    let (board_part, dowel_part) = (part(&e, board), part(&e, dowel));
+    let place = Operation::PlaceOccurrence { context: root, component: dowel_part, transform: shift(DVec3::new(200.0, 50.0, -10.0)) };
+    let dowel2 = e.apply(place).unwrap().unwrap().created[0];
+    e.ask_imprint(vec![vec![dowel], vec![dowel2]], vec![vec![board]]);
+    let plan = e.take_imprint_plan().unwrap();
+    e.imprint(&plan, 0.0, 0.0);
+    let linked = |e: &Editor| {
+        let p = e.document().part(board_part).unwrap();
+        p.bodies.iter().filter(|b| p.def_of(b).source == BodySource::Linked).map(|b| b.id).collect::<Vec<_>>()
+    };
+    let shapes = |e: &Editor, o| e.link_map().receivers_of(LinkSource { assembly: root, occurrence: o }).is_some();
+    let bodies = linked(&e);
+    assert_eq!((bodies.len(), shapes(&e, dowel), shapes(&e, dowel2)), (2, true, true));
+    // One link broken: that copy shapes nothing more, the other still does.
+    let first = e.link_map().source_of(board_part, bodies[0]).map(|_| bodies[0]).unwrap();
+    e.apply(Operation::Unlink { part: board_part, bodies: vec![first] }).unwrap().unwrap();
+    assert_eq!([shapes(&e, dowel), shapes(&e, dowel2)].iter().filter(|s| **s).count(), 1);
+    // The other removed: neither does.
+    e.apply(Operation::RemoveLinked { bodies: vec![(board_part, bodies[1])] }).unwrap().unwrap();
+    assert!(!shapes(&e, dowel) && !shapes(&e, dowel2));
 }

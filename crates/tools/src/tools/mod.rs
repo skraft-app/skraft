@@ -15,6 +15,7 @@ pub mod imprint;
 mod measure;
 mod mover;
 mod paint;
+mod parts_picked;
 mod pick;
 pub(crate) mod profile;
 mod reorient;
@@ -184,6 +185,8 @@ pub enum Command {
     Imprint {
         sources: Vec<Vec<Id>>,
         receivers: Vec<Vec<Id>>,
+        /// The tool's marks as it sent this, kept drawn while the confirmation is open.
+        shown: Box<Preview>,
     },
 }
 
@@ -220,10 +223,17 @@ pub struct Preview {
     pub hover_solid: Option<EntityPath>,
     /// The guide at any depth under the cursor (« Parts », docs/tools/selection.md).
     pub hover_guide: Option<GuidePath>,
-    /// The solids picked (the solid tools' targets, A).
+    /// The parts picked that a two-step tool changes (the solid tools' targets, « Empreindre »'s
+    /// destinations), marked as a selection (docs/tools/solid-tools.md).
     pub picked_solids: Vec<EntityPath>,
-    /// The solids picked as tools (the solid tools' B), drawn lighter.
+    /// The parts picked that make the change (the solid tools' tools, « Empreindre »'s
+    /// sources), drawn see-through as the bodies they become, of sign `picked_sign`.
     pub picked_tools: Vec<EntityPath>,
+    /// The sign of the bodies `picked_tools` become; set by the tools that pick so, whose
+    /// targets' other occurrences are marked as theirs (`Mark::PickedRelated`).
+    pub picked_sign: Option<Sign>,
+    /// The step numbers drawn on the parts picked (docs/ui/interface.md#steps-bar).
+    pub badges: Vec<StepBadge>,
     /// The selection drawn moved by this world transform (the move tool's ghost).
     pub ghost: Option<DAffine3>,
     /// The selection carried, off the view: drawn neither where it is nor moved (a component
@@ -359,14 +369,33 @@ pub struct OptionChoice {
 }
 
 /// The steps a tool goes through, as the steps bar at the bottom of the view shows them
-/// (docs/ui/interface.md#steps-bar, OpenCutList's `SmartTool#set_steps_bar`): `count` numbers,
-/// the one at `index` (from 0) the current, then what to do at it; no number when `count` is 0.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// (docs/ui/interface.md#steps-bar, OpenCutList's `SmartTool#set_steps_bar`): `count` steps,
+/// the one at `index` (from 0) the current, then what to do at it; no step when `count` is 0.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Steps {
     pub count: usize,
     pub index: usize,
     /// The step's main sentence, without the keys (the status bar keeps them).
     pub text: String,
+    /// The steps' names, when the tool's texts call them so (the solid tools' A and B); else
+    /// their numbers.
+    pub names: Vec<String>,
+}
+
+impl Steps {
+    /// The name of step `k` (from 0): its own, else its number.
+    pub fn name(&self, k: usize) -> String {
+        self.names.get(k).cloned().unwrap_or_else(|| (k + 1).to_string())
+    }
+}
+
+/// A step's name drawn at a world point of the view, over everything: on a part the step took,
+/// where it was clicked (docs/ui/interface.md#steps-bar).
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepBadge {
+    pub at: DVec3,
+    /// As the steps bar names the step ([`Steps::name`]).
+    pub name: String,
 }
 
 /// An option of the active tool, as the bar shows it.

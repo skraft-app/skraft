@@ -194,7 +194,18 @@ In `apps/skraft/src/kit/widgets.rs`:
   **`framed_field`** applies a value once typed (Enter or a click away; Esc puts it back: the
   entity info, the tool options), **`live_field`** keeps each keystroke for a modal box that
   checks what is typed as it comes (« Empreindre »'s lengths, a name). Apart, `rename_field` and
-  `start_rename` (a name edited in its row, as the row draws it), `cut_label`.
+  `start_rename` (a name edited in its row, as the row draws it), `cut_label`. A field whose text
+  cannot be used is outlined in the error colour (`FieldLook::bad`).
+- **A modal box's form** (`form.rs`): **`form_row`**, a row — the label on the left (lit, in
+  semibold and the accent's ink, while a figure beside the form shows what its value sets), the
+  field (`FORM_FIELD_WIDTH`) and its unit against the right edge, so that the fields line up
+  with each other and with the buttons;
+  **`form_message`**, the line saying what is wrong, kept empty so the box does not jump;
+  **`warning_box`**, a warning in a box tinted with the error colour (« Empreindre »'s
+  confirmation, the naming box's message).
+- **`overlay::leader`**, a figure's leader to its text — a dot, a slant, a short shelf —, in
+  the dim ink, in the accent's when what it points at is picked or typed: the mouse of the
+  Preferences to its gestures, « Empreindre »'s tenon to its clearances.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
 - **`confirm_buttons`**, the buttons closing a modal box: its main one, filled, then the one
   cancelling; Enter and Esc stay the box's.
@@ -264,7 +275,8 @@ active tool tells — any tool, through two methods of `Tool` (none by default) 
 the bottom centre of the view, under the toasts, the validation at the top centre, under the
 tool's options:
 
-- **`Tool::steps`** (`Steps { count, index, text }`): the steps' numbers, linked, the current one
+- **`Tool::steps`** (`Steps { count, index, text, names }`): the steps' numbers — or their names,
+  when the tool's texts call them so (the solid tools' A and B) —, linked, the current one
   filled, those passed in the text's colour, the next ones dimmed; below, the step's main
   sentence framed (the status bar keeps the hint with its keys). `count` 0: the sentence alone.
   The block stays at the view's centre, whatever the side panels' widths; the sentence keeps to
@@ -274,6 +286,10 @@ tool's options:
   the error and success toasts, swapped under the pointer), which give the tool **Esc** and
   **Enter** (`Action::ToolKey`, through `Editor::input`: the journal and the recordings see the
   key). Hidden while the kernel computes (`Editor::tool_awaits_validation`).
+- **The badges** (`Preview::badges`, `steps::badge`): a step's number or name, drawn as a step passed
+  (the text's colour on the window's), at a world point of the view, over everything — the
+  part a step took, at the point clicked. One drawing for both: the badge on a part reads as
+  the step in the bar.
 - Shown by the solid tools ([Solid tools](../tools/solid-tools.md)): A then B; the validation
   while a set gathers. `tool.state` gives both (`steps`, `awaits_validation`); handles
   `validation:cancel`, `validation:ok`.

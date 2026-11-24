@@ -52,6 +52,7 @@ impl Dialog {
                 width: ui.available_width(),
                 align: egui::Align2::LEFT_CENTER,
                 lit: false,
+                bad: why.is_some(),
                 addon: None,
                 handle: Some("naming.field".into()),
             };
@@ -72,10 +73,8 @@ impl Dialog {
                 }
                 ctx.request_repaint();
             }
-            // The line saying why, kept even when empty: the dialog does not jump.
-            let line = why.clone().unwrap_or_default();
             ui.add_space(2.0);
-            ui.label(egui::RichText::new(line).small().color(ui.visuals().error_fg_color));
+            crate::kit::widgets::form_message(ui, why.as_deref());
             ui.add_space(8.0);
             ui.horizontal(|ui| match confirm_buttons(ui, "naming", t!("naming.ok"), why.is_none(), t!("naming.cancel")) {
                 Some(Confirm::Ok) => answer = Answer::Name(self.text.clone()),

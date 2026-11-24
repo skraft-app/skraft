@@ -32,7 +32,7 @@ triangles, instances, lines, boxes, bytes uploaded) with the meshes' GPU memory.
 ## Theme
 
 - **`crates/theme`** (no egui, like `render`): named **tokens** in linear RGBA — default front
-  and back faces, edge ink, highlights (selected, hover, picked, ghost, other occurrences),
+  and back faces, edge ink, highlights (selected, hover, picked, ghost, other occurrences, those of a target picked),
   fading outside the context, section cap shade, axes, selection rectangle, inference markers,
   tooltip. Two themes, **light** and **dark**; the app sets egui's theme from the user's
   `theme` preference (system by default, light, dark).

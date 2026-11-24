@@ -416,7 +416,7 @@ impl Tool for BlendTool {
 
     /// The edges, then the validation (OCL's steps bar of the solid actions).
     fn steps(&self) -> Option<Steps> {
-        Some(Steps { count: 1, index: 0, text: t!("tool.blend.step.edges") })
+        Some(Steps { count: 1, index: 0, text: t!("tool.blend.step.edges"), names: Vec::new() })
     }
 
     /// A node's edges wait for it once changed; new ones as soon as one is picked.

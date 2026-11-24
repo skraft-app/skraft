@@ -131,8 +131,9 @@ Link     { id, source: path, receiver: path, body, seat: T }
   file): renaming the part renames it; a body that lost its source keeps the last name.
 - **Told in the navigator** (`Document::link_map`): the icon of « Empreindre » and a chain on its
   row, whose tip names the source and says how to change it (no chain once its link is broken); a
-  chain on the source's row, whose tip names the
-  parts it shapes. The
+  chain on the row of each occurrence imprinting, whose tip names the parts it shapes — per
+  occurrence, not per part: of two copies of a source, the one whose link was broken or removed
+  shows none. The
   entity info gives « Lié à » in place of its name.
 - **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly
   again keeps its links, and a copy into another document follows the ids drawn afresh.
@@ -192,18 +193,22 @@ Link     { id, source: path, receiver: path, body, seat: T }
   measures. It is built again from its source, so a stretch carrying a receiver and lengthening
   its source leaves the mortise around the tenon.
 - **« Empreindre »** (`edit.imprint`, Assembler › Composants; `ToolKind::Imprint`,
-  `crates/tools/src/tools/imprint.rs`): a tool picking **the sources, then the parts they go
-  into**, as the solid tools pick theirs: a click takes one part and goes on, Shift gathers
-  several, Enter goes on. Started with parts selected, they are the sources. A destination is
-  taken only within a source's box (`Document::may_imprint`). Each source is tried against each
+  `crates/tools/src/tools/imprint.rs`): a tool picking, as « Soustraire » does, **A the parts
+  gone through, then B the sources** that go into them: a click takes one part and goes on,
+  Shift gathers several, Enter goes on. The selection is ignored: the tool always starts at A. A
+  source is taken only when a part A lies within its box (`Document::may_imprint`). Each source is tried against each
   destination, and **every pair of copies placed as a pair pointed is** comes along (the rails of
   a table in their legs, every copy of a shelf with its dowels); the kernel says which share
   material (`Document::imprint_probe`, `Task::Contact`, then `imprint_plan`), before anything
   changes. A part may go into its own copies, the way pointed (a frame of one rail turned by
   quarters: one rail then the next, four links, one linked body); two copies are paired one way
-  only. One place in the copies of a receiver is one linked body. A confirmation says how many
+  only. One place in the copies of a receiver is one linked body. The marks are the solid
+  tools' ([Solid tools](../tools/solid-tools.md#interaction)): the parts gone through as a
+  selection, the sources as machinings' red ghosts, each with the badge of its step (A, B) at
+  the point clicked, kept while the confirmation is open (`Editor::end_imprint`). A
+  confirmation says how many
   links come by the copies, what it
-  cuts and where, asks the clearance on the cheeks and the bottom, and warns when copies of a
+  cuts and where, asks the clearance on the cheeks and the bottom (none by default), and warns when copies of a
   receiver would show a machining with no part facing them; `Operation::Imprint` takes the pairs
   found. `Operation::SetClearance` changes it afterwards, from the linked body's entity info, for
   that machining.

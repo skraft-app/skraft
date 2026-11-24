@@ -171,6 +171,10 @@ toolbar:
 steps:
   cancel: "Cancel (Esc)"
   validate: "Confirm (Enter)"
+  # The steps' names of the tools picking as the solid tools, in the steps bar and on the parts
+  # picked: A what the change is made to, B what makes it.
+  a: "A"
+  b: "B"
 
 ribbon:
   workspace:
@@ -767,8 +771,8 @@ panel:
     role_negative: "Machining"
     role_intersect: "Intersection"
     # A linked machining's clearance (decision 0055).
-    imprint_around: "Clearance"
-    imprint_deep: "End gap"
+    imprint_around: "Opening clearance"
+    imprint_deep: "Depth clearance"
     state: "State"
     failed: "could not be computed, needs fixing"
     copies: "Copies"
@@ -977,11 +981,11 @@ notice:
   imprinted_plural: "%{count} links made"
   rename: "Rename"
 
-# « Imprimer »'s confirmation (decision 0055).
+# « Empreindre »'s confirmation (decision 0055).
 imprint:
   title: "Imprint Into the Parts It Enters"
-  around: "Clearance all around"
-  deep: "Extra depth"
+  around: "Opening clearance"
+  deep: "Depth clearance"
   machinings: "%{count} machining"
   machinings_plural: "%{count} machinings"
   links: "%{count} link"
@@ -993,6 +997,7 @@ imprint:
   bad_value: "unreadable value"
   ok: "Imprint"
 
+# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 naming:
   title_part: "Part Name"
   title_assembly: "Assembly Name"
@@ -1034,18 +1039,18 @@ status:
 tool:
   imprint:
     name: "Imprint"
-    out_of_reach: "This part is out of the source's reach"
+    out_of_reach: "This part reaches no part A"
     hint:
-      sources: "Click the part that imprints its shape · Shift: choose several"
-      sources_gather: "Multiple selection: click a source part to add or remove it · Enter: choose where they go"
-      receivers: "Click a part gone through · Shift: add several"
-      receivers_gather: "Multiple selection: click a part it goes through to add or remove it · Enter: imprint"
+      receivers: "Click the part A gone through · Shift: multiple selection"
+      receivers_gather: "Multiple selection: click a part A to add or remove it · Enter: confirm"
+      sources: "Click the source part B that imprints its shape · Shift: multiple selection"
+      sources_gather: "Multiple selection: click a source part B to add or remove it · Enter: imprint"
     step:
-      sources: "Source parts"
-      receivers: "Parts gone through"
+      receivers: "Choose the parts A gone through"
+      sources: "Choose the source parts B"
     say:
-      validate_sources: "Confirm (Enter) to choose the parts gone through"
-      validate: "Confirm (Enter) to imprint"
+      validate_a: "Confirm (Enter) to go on to choosing B"
+      validate_b: "Confirm (Enter) to imprint"
   reorient:
     name: "Reorient"
     # The part already has these axes.
