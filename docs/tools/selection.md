@@ -108,7 +108,8 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   touched, as the click does); `Picker` and Select take paths under « Parts ».
 - **Drawing**: the highlight goes per path — the selection's marks and boxes per path, the
   original hidden while moved, the eraser's and the rectangle's parts and guides
-  (`Preview::hover_guide`, `erasing_guides`, `Marquee::guides`); the navigator lights the rows
+  (`Preview::hover_guide`, `erasing_guides`, `Marquee::guides`) — the parts the rectangle
+  would take marked as selected already (its guides as hovered); the navigator lights the rows
   of the paths; the entity info shows one part, or one guide of an assembly, as in its
   assembly.
 

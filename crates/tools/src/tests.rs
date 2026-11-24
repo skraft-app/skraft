@@ -722,7 +722,9 @@ fn rectangle_selection_window_or_crossing_by_direction() {
     e.input(ToolInput::Drag { px: px(&e, DVec3::new(250.0, -50.0, 0.0)) });
     let v = e.view();
     assert!(v.marquee.as_ref().is_some_and(|m| m.crossing && m.hits == [b]));
-    assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Hover).count(), 1);
+    // Marked as selected (docs/tools/selection.md): `b` with `a`, selected.
+    assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Selected).count(), 2);
+    assert_eq!(v.highlights.iter().filter(|h| h.mark == Mark::Hover).count(), 0);
     e.input(ToolInput::Key { key: Key::Escape, mods: none });
     e.input(ToolInput::DragEnd { px: px(&e, DVec3::new(250.0, -50.0, 0.0)), mods: none });
     assert_eq!(e.selection(), &[a]);
@@ -908,10 +910,10 @@ fn navigator_hover_marks_in_view() {
     // One inside an assembly not entered, too.
     e.set_navigator_hover(Some(EntityPath::new(vec![g], a)));
     assert_eq!(hovered(&e), 1);
-    // Selected: marked so only.
+    // Selected: hovered too, over its selection mark (docs/render/look.md).
     e.select(vec![g]);
     e.set_navigator_hover(Some(EntityPath::new(vec![], g)));
-    assert_eq!(hovered(&e), 0);
+    assert_eq!(hovered(&e), 1);
     assert!(e.set_navigator_hover(None));
     assert_eq!(hovered(&e), 0);
     // Inside `g`: `b`, outside it, hovered but still faded; `a`, inside, plainly hovered.

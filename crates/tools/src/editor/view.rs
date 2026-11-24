@@ -717,14 +717,14 @@ impl Editor {
             d.pen(pen).guide(&g.shape);
         }
         let listed = self.listed_hover.filter(|_| recipe.is_some());
-        if let Some(h) = listed.or(preview.hover).filter(|h| !selected.contains(h)) {
+        // Selected too: its faces tinted, its edges the selection's.
+        if let Some(h) = listed.or(preview.hover) {
             mark(&mut v.highlights, &self.context, h, Mark::Hover, DAffine3::IDENTITY);
         }
         // The occurrence hovered in the navigator, in any context, as if hovered in the view —
-        // unless selected or open (already marked so) —, still faded outside the active path.
+        // unless open (already marked so) —, still faded outside the active path.
         if let Some(p) = &self.navigator_hover
             && open.as_ref() != Some(p)
-            && !(p.instances == self.context && selected.contains(&p.entity))
             && let hovered = p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>()
             // Hidden (it or an assembly above it, out of the active path): not marked, unless
             // the hidden are shown. What is hidden below it, `solids_under` leaves out.
@@ -753,17 +753,17 @@ impl Editor {
                 });
             }
         }
-        // What the selection rectangle would take, as if hovered.
+        // What the selection rectangle would take, as if selected (docs/tools/selection.md).
         for h in preview.marquee.iter().flat_map(|m| &m.hits).filter(|h| !selected.contains(h)) {
-            mark(&mut v.highlights, &self.context, *h, Mark::Hover, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &self.context, *h, Mark::Selected, DAffine3::IDENTITY);
         }
         // The row hovered in the tree drop-up (docs/tools/selection.md).
         if let Some(p) = self.tree_hovered() {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
-        // The parts at any depth it would take (« Parts », docs/tools/selection.md).
+        // The parts at any depth it would take (« Parts », docs/tools/selection.md), as if selected.
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
-            mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &p.instances, p.entity, Mark::Selected, DAffine3::IDENTITY);
         }
         let picked = preview.picked_solids.iter().map(|p| (p, Mark::Picked));
         for (p, m) in preview.hover_solid.iter().map(|p| (p, Mark::Hover)).chain(picked) {

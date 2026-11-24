@@ -842,22 +842,20 @@ impl Viewport {
         };
         out.push(&view.drawing, |c| theme_color(theme, c));
         // The section's cut lines, bold in the edges' ink (docs/render/look.md): a highlighted part's in
-        // its mark's edge colour, a faded part's faded.
+        // its mark's edge colour, a faded part's faded. A mark with no edge colour (hovered) leaves
+        // them as drawn under it, as its edges.
         let [er, eg, eb, _] = theme.edge;
-        lines.extend(view.section_cuts.iter().map(|c| render::Line {
-            a: c.a,
-            b: c.b,
-            color: match c.mark {
+        lines.extend(view.section_cuts.iter().filter_map(|c| {
+            let color = match c.mark {
                 // Over the ink, as a highlight's edges.
-                Some(m) => {
-                    let [r, g, b, a] = mark_colors(theme, m, fade).edge;
-                    [er + (r - er) * a, eg + (g - eg) * a, eb + (b - eb) * a, 1.0]
-                }
+                Some(m) => match mark_colors(theme, m, fade).edge {
+                    [_, _, _, a] if a <= 0.0 => return None,
+                    [r, g, b, a] => [er + (r - er) * a, eg + (g - eg) * a, eb + (b - eb) * a, 1.0],
+                },
                 None if c.faded => [er, eg, eb, 1.0 - theme.fade],
                 None => [er, eg, eb, 1.0],
-            },
-            dash: None,
-            width: render::BOLD_WIDTH,
+            };
+            Some(render::Line { a: c.a, b: c.b, color, dash: None, width: render::BOLD_WIDTH })
         }));
 
         let aspect = size[0] as f64 / size[1] as f64;
@@ -1224,8 +1222,9 @@ fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
 fn mark_colors(theme: &Theme, mark: Mark, fade: render::Tint) -> skraft_theme::MarkColors {
     match mark {
         Mark::Selected => theme.selected,
-        Mark::Hover => theme.hover,
-        Mark::HoverFaded => skraft_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) },
+        // Hovered: its faces tinted, its edges left as they are (a selection's stay blue).
+        Mark::Hover => skraft_theme::MarkColors { face: theme.hover.face, edge: [0.0; 4] },
+        Mark::HoverFaded => skraft_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: [0.0; 4] },
         Mark::Picked => theme.picked,
         Mark::PickedRelated => theme.picked_related,
         Mark::Ghost => theme.ghost,

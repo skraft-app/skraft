@@ -133,6 +133,8 @@ pub struct Highlight {
     pub part: u64,
     pub transform: DMat4,
     pub face_tint: Tint,
+    /// Its edges' tint; a transparent one leaves them as drawn under it (another highlight's,
+    /// a hovered selection's): not drawn again.
     pub edge_tint: Tint,
     /// The placement's palette entry (its faces keep their colour under the tint).
     pub material: u32,
@@ -1717,7 +1719,7 @@ impl Renderer {
             }));
             let edges = raw.len() as u32;
             raw.extend(
-                chunk.iter().zip(&mvs).map(|(h, mv)| {
+                chunk.iter().zip(&mvs).filter(|(h, _)| h.edge_tint[3] > 0.0).map(|(h, mv)| {
                     InstanceRaw::new(mv, h.edge_tint, h.material, 0.0, h.key, texture_axes(h.texture.as_ref(), origin(h.key)))
                 }),
             );
