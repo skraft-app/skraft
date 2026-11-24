@@ -18,7 +18,7 @@ pub(super) struct ViewData {
     pub(super) bx3: Option<(DVec3, DVec3)>,
     /// Per part (its definition): its placements in the subject's axes and their materials.
     pub(super) parts: Vec<(Id, Vec<Placed>)>,
-    pub(super) lines: Option<Arc<crate::drawing::view_lines::LinesJob>>,
+    pub(super) lines: Option<Arc<crate::workspaces::drawing::sheet::lines::LinesJob>>,
     /// The parts it shows, placed in its subject's axes.
     pub(super) placed: Vec<skraft_model::PlacedPart>,
     /// Stands for how its parts look: their meshes, faces' paint and materials.
@@ -120,7 +120,7 @@ impl ViewsCache {
                     looks: looks_of(e, &parts),
                     images: images_of(e, &parts),
                     parts,
-                    lines: crate::drawing::view_lines::LinesJob::of(e, r, &placed).map(Arc::new),
+                    lines: crate::workspaces::drawing::sheet::lines::LinesJob::of(e, r, &placed).map(Arc::new),
                     placed,
                     snaps: std::sync::OnceLock::new(),
                 })

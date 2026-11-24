@@ -1,6 +1,6 @@
 //! The « Mise en plan » workspace's stage (docs/ui/drawing.md, decisions 0048 and 0050): the
 //! board of every sheet of the document's drawing, panned and zoomed, one of them active with its
-//! views' frames and its elements to edit; the navigator (`sheet_tree`) choosing it.
+//! views' frames and its elements to edit; the navigator (`drawing::cards::navigator`) choosing it.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -15,10 +15,10 @@ use skraft_model::{
 use skraft_theme::{Inks, Theme};
 use skraft_tools::Editor;
 
-use crate::drawing::sheet_board::{Board, Column};
-use crate::drawing::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::kit::overlay;
 use crate::workspaces::common::viewport;
+use crate::workspaces::drawing::dialogs::view_picker::{Purpose, ViewPicker, subject_of_paths};
+use crate::workspaces::drawing::sheet::board::{Board, Column};
 
 /// A document's sheet shown and how it is seen (the sheet and the camera kept in its file,
 /// [`skraft_model::SeenBoard`]).
@@ -85,7 +85,7 @@ pub struct SheetState {
     /// editor, and the pointer in the level open).
     pub asked: Option<SheetAsk>,
     /// The « Compositions » card's search, rows and outlines.
-    pub library: crate::drawing::sheet_library::CompositionsState,
+    pub library: crate::workspaces::drawing::cards::library::CompositionsState,
     /// The composition being dragged from that card, placed where it is let go.
     pub carried: Option<Id>,
     /// The dialog choosing what a view shows, while open.
@@ -93,7 +93,7 @@ pub struct SheetState {
     /// The view being placed by [`SheetTool::Place`].
     placing: Option<Placing>,
     /// The view being framed (« Cadrer la vue »), over the stage.
-    pub framer: Option<crate::drawing::view_framer::ViewFramer>,
+    pub framer: Option<crate::workspaces::drawing::dialogs::view_framer::ViewFramer>,
     /// What the entity info shows while nothing is picked.
     pub info: InfoOn,
     /// What each view shows, for the document's revision and the meshes' generation.
@@ -829,7 +829,7 @@ pub fn selected_view<'a>(e: &'a Editor, st: &SheetState) -> Option<(Id, &'a View
 /// « Cadrer la vue » on the view picked.
 pub fn frame_view(e: &Editor, st: &mut SheetState) -> Result<(), String> {
     let id = selected_view(e, st).map(|(id, _)| id).ok_or_else(|| t!("drawing.no_view_selected"))?;
-    crate::drawing::view_framer::open(e, st, id)
+    crate::workspaces::drawing::dialogs::view_framer::open(e, st, id)
 }
 
 /// Can a view be projected from the view picked (a parallel one)?
@@ -1691,15 +1691,17 @@ mod tests {
     }
 }
 
+mod board;
 mod compositions;
 mod dimensions;
 mod fields;
 mod grips;
+pub(crate) mod lines;
 mod paint;
 mod pictures;
 mod snap;
 mod stage;
-mod views;
+mod view_cache;
 
 pub(crate) use compositions::*;
 pub(crate) use dimensions::*;
@@ -1709,4 +1711,4 @@ use paint::*;
 pub(crate) use pictures::*;
 use snap::*;
 pub(crate) use stage::*;
-pub(crate) use views::*;
+pub(crate) use view_cache::*;

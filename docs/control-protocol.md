@@ -247,7 +247,7 @@ doing from the pilot's.
   loopback server and a client, the recording written as a test. No UI toolkit. The handlers
   that need only an `Editor` (`model.*`, `tool.*`, `view.*`, `journal.*`) live there
   (`editor.rs`) so that both the app and the headless backend call them.
-- `apps/skraft/src/system/control.rs`, `driving.rs`, `handles.rs`, `web.rs`: what the window adds —
-  documents, registry commands, `ui.*`, screenshots, the title bar's mark — and the web's
-  `window.skraft`.
+- `apps/skraft/src/system/control.rs`, `driving.rs`, `web.rs` and `apps/skraft/src/kit/handles.rs`:
+  what the window adds — documents, registry commands, `ui.*`, screenshots, the title bar's
+  mark — and the web's `window.skraft`.
 - `apps/skraft-mcp`: the MCP server and its two backends.

@@ -13,7 +13,7 @@ use krilla::{Data, Document};
 use skraft_model::{ElementKind, View, ViewKind, ViewStyle};
 use skraft_tools::Editor;
 
-use crate::drawing::sheet::{Fields, Wanted};
+use crate::workspaces::drawing::sheet::{Fields, Wanted};
 
 /// The pictures' resolution, dots per inch.
 pub const DPI: f64 = 200.0;
@@ -87,7 +87,7 @@ pub fn drawing_pdf(
                 match &el.kind {
                     ElementKind::View(v) => {
                         let Some(r) = d.resolve_as(el.id, shown.projection) else { break 'element };
-                        let Some(p) = crate::drawing::sheet::printed(e, el.id, v.style, &r, DPI) else { break 'element };
+                        let Some(p) = crate::workspaces::drawing::sheet::printed(e, el.id, v.style, &r, DPI) else { break 'element };
                         let (lo, hi) = p.frame;
                         // Its picture under its lines.
                         if let Some(w) = &p.picture
@@ -136,7 +136,7 @@ pub fn drawing_pdf(
                         circle(&mut surface, *center, *radius, |q| at(*q), stroke(THIN_MM, 30, None));
                     }
                     ElementKind::Dimension(dim) => {
-                        let Some(s) = crate::drawing::sheet::dim_shape(e, dim, shown.projection) else { break 'element };
+                        let Some(s) = crate::workspaces::drawing::sheet::dim_shape(e, dim, shown.projection) else { break 'element };
                         let grey = if s.orphan { 0 } else { 25 };
                         let lines: Vec<Vec<DVec2>> = s.lines.iter().map(|[a, b]| vec![*a, *b]).collect();
                         polylines(&mut surface, &lines, |q| at(*q), stroke(HIDDEN_MM, grey, None));
@@ -155,7 +155,7 @@ pub fn drawing_pdf(
                             surface.draw_path(&path);
                         }
                         // The text about its middle, turned (the page's y down).
-                        let size = (crate::drawing::dims::TEXT_MM * PT) as f32;
+                        let size = (crate::workspaces::drawing::dims::TEXT_MM * PT) as f32;
                         let width = s.text.chars().count() as f32 * size * 0.55;
                         let c = at(s.text_at);
                         surface.push_transform(&Transform::from_row(1.0, 0.0, 0.0, 1.0, c.x, c.y));
@@ -206,7 +206,10 @@ pub fn missing_fields(e: &Editor, presentation: skraft_model::Id) -> Vec<String>
         for p in d.placed(s.id).iter().filter(|p| !p.hidden) {
             let ElementKind::Text { text, .. } = &p.element.kind else { continue };
             for name in skraft_model::text_fields(text) {
-                if !crate::drawing::sheet::FIELDS.contains(&name) && !name.trim().is_empty() && doc.field(s.id, &p.path, name).is_none() {
+                if !crate::workspaces::drawing::sheet::FIELDS.contains(&name)
+                    && !name.trim().is_empty()
+                    && doc.field(s.id, &p.path, name).is_none()
+                {
                     out.insert(name.to_owned());
                 }
             }
@@ -435,7 +438,7 @@ mod tests {
         let id = e.apply(Operation::AddElement { to: Container::Sheet(sheet), element }).unwrap().unwrap().element.unwrap();
         settle(&mut e, &hold);
         let r = e.document().drawing().resolve(id).unwrap();
-        let p = crate::drawing::sheet::printed(&e, id, ViewStyle::Lines, &r, super::DPI).unwrap();
+        let p = crate::workspaces::drawing::sheet::printed(&e, id, ViewStyle::Lines, &r, super::DPI).unwrap();
         let lines = p.lines.as_ref().unwrap();
         let on_paper: Vec<DVec2> = lines.visible.iter().flatten().map(|q| r.at + (*q - p.centre) * p.to_paper).collect();
         assert!(on_paper.len() >= 9, "a box's seen edges");

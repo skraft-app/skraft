@@ -1,6 +1,6 @@
 ---
 status: under way
-code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/drawing/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/drawing/view_lines.rs, apps/skraft/src/drawing/sheet.rs, apps/skraft/src/drawing/sheet/, apps/skraft/src/drawing/sheet_board.rs, apps/skraft/src/drawing/sheet_tree.rs, apps/skraft/src/drawing/sheet_library.rs, apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/cards/panels/, apps/skraft/src/drawing/templates.rs, apps/skraft/src/drawing/pdf.rs, apps/skraft/src/workspaces.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
+code: [crates/model/src/drawing.rs, crates/model/src/drawing/ops.rs, crates/model/src/drawing/template.rs, crates/model/src/drawing/view.rs, crates/model/src/dimensions.rs, crates/kernel/src/topo.rs, apps/skraft/src/workspaces/drawing/dims.rs, crates/tools/src/hidden_lines.rs, crates/kernel/src/drawing.rs, apps/skraft/src/workspaces/drawing/sheet/lines.rs, apps/skraft/src/workspaces/drawing/sheet.rs, apps/skraft/src/workspaces/drawing/sheet/, apps/skraft/src/workspaces/drawing/sheet/board.rs, apps/skraft/src/workspaces/drawing/cards/navigator.rs, apps/skraft/src/workspaces/drawing/cards/library.rs, apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/workspaces/drawing/templates.rs, apps/skraft/src/workspaces/drawing/pdf.rs, apps/skraft/src/workspaces.rs, apps/skraft/src/app.rs, apps/skraft/src/app/]
 ---
 
 # Drawing
@@ -151,7 +151,7 @@ along its frame, split where faces hide them, visible or hidden; polylines in it
 model units (`skraft_tools::hidden_lines::ViewLines`). They are computed off the UI thread
 through a **queue**, a bounded number at once, the active sheet's views first, then the others on
 screen (on the web on the UI thread, one a frame), and kept per view and, for a projected view,
-per projection of its presentation (`view_lines::LinesCache`, `sheet::ViewSlot`: a composition's
+per projection of its presentation (`sheet::lines::LinesCache`, `sheet::ViewSlot`: a composition's
 projected view may look two ways on the board at once), asked for by what they depend on — the frame's axes, the parts' meshes and places, the
 part's shape — so that moving a view or changing its scale computes nothing; the last ones are
 shown while new ones are on their way.
@@ -298,7 +298,7 @@ an A3 sheet, in one step, and shows it. Its PDF is a file of its own ([PDF](#pdf
 ## Navigator
 
 The « Navigateur » card (`PanelId::Outliner`, `view.outliner`): on a sheet it shows the drawing's
-tree instead of the model's (`sheet_tree::navigator`), as the entity info shows the sheet's; each
+tree instead of the model's (`drawing::cards::navigator`), as the entity info shows the sheet's; each
 workspace keeps its own place for it. The cards are placed as in Modelling: the entity info keeps its height, the navigator fills the
 column. Rows, unfolded by their
 chevron, the active sheet and its presentation unfolding when another becomes active:
@@ -399,7 +399,7 @@ instances, as an empty assembly, as a step of its own.
 
 ### The compositions card
 
-The card « Compositions » (`PanelId::Compositions`, `view.compositions`, `sheet_library`) is to
+The card « Compositions » (`PanelId::Compositions`, `view.compositions`, `drawing::cards::library`) is to
 the drawing what [« Composants »](components-library.md) is to the model. It exists only in a
 workspace of sheets, and is shown there at first, under the navigator.
 
@@ -641,7 +641,7 @@ application for PDFs opens it (`Act::Open`: `open`, `explorer`, `xdg-open`; desk
 
 ## Entity info
 
-In « Mise en plan », the entity info panel shows (`panels::drawing_info`):
+In « Mise en plan », the entity info panel shows (`drawing::cards::info`):
 
 - **the view picked**: its type (view, projected view), name (edited), what it shows (the
   model, a component's name, n occurrences); a base view its direction — the standard ones, or

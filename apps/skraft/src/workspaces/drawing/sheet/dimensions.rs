@@ -3,11 +3,11 @@
 use super::*;
 
 /// Dimension `dim` as drawn now, its view's box computed afresh (the PDF's).
-pub fn dim_shape(e: &Editor, dim: &Dimension, projection: skraft_model::Projection) -> Option<crate::drawing::dims::DimShape> {
+pub fn dim_shape(e: &Editor, dim: &Dimension, projection: skraft_model::Projection) -> Option<crate::workspaces::drawing::dims::DimShape> {
     let d = e.document().drawing();
     let r = d.resolve_as(dim.view, projection).filter(|r| r.perspective.is_none())?;
     let (lo, hi) = subject_box3(e, &r)?;
-    Some(crate::drawing::dims::shape(e.document(), &r, ((lo + hi) / 2.0).truncate(), dim))
+    Some(crate::workspaces::drawing::dims::shape(e.document(), &r, ((lo + hi) / 2.0).truncate(), dim))
 }
 
 /// How a view maps its model onto the sheet: its resolution and its box's centre.
@@ -171,7 +171,7 @@ pub(super) fn picks_needed(tool: SheetTool) -> usize {
 
 /// A dimension's shape drawn on the sheet: its lines, arrows and text (red when an orphan);
 /// its box on screen.
-pub(super) fn draw_dim(painter: &egui::Painter, pv: &Paperview, s: &crate::drawing::dims::DimShape) -> egui::Rect {
+pub(super) fn draw_dim(painter: &egui::Painter, pv: &Paperview, s: &crate::workspaces::drawing::dims::DimShape) -> egui::Rect {
     let color = if s.orphan { PAPER_ERROR } else { egui::Color32::from_gray(25) };
     let stroke = egui::Stroke::new((0.18 * pv.zoom).max(1.0) as f32, color);
     for [a, b] in &s.lines {
@@ -180,7 +180,7 @@ pub(super) fn draw_dim(painter: &egui::Painter, pv: &Paperview, s: &crate::drawi
     for tri in &s.arrows {
         painter.add(egui::Shape::convex_polygon(tri.iter().map(|q| pv.to_screen(*q)).collect(), color, egui::Stroke::NONE));
     }
-    let font = egui::FontId::proportional((crate::drawing::dims::TEXT_MM * pv.zoom).max(1.0) as f32);
+    let font = egui::FontId::proportional((crate::workspaces::drawing::dims::TEXT_MM * pv.zoom).max(1.0) as f32);
     let galley = painter.layout_no_wrap(s.text.clone(), font, color);
     // Turned about its middle, with what places it; the screen's y down.
     let angle = -s.text_angle as f32 + pv.angle();

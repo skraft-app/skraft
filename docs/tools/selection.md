@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/cards/panels/, apps/skraft/src/workspaces/common/viewport/drop_up.rs, apps/skraft/src/workspaces/common/instance_name.rs]
+code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/workspaces/common/viewport/drop_up.rs, apps/skraft/src/workspaces/common/instance_name.rs]
 ---
 
 # Select first, and a selection scope
@@ -163,7 +163,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
 
 A part reached through an assembly placed several times: changing it changes every copy of that
 assembly. **Making unique is the « Portée » option** (« all » / « only this one »), shown only
-when a selected path goes through an assembly placed more than once (`panels::deep_scope`, for
+when a selected path goes through an assembly placed more than once (`viewport::options::deep_scope`, for
 Select, Move, Rotate, Erase, Paint, the copy tools and Distribute — « Tous » without a count);
 « only this one » makes the assemblies along it unique when the tool acts, in the same undo
 step (OCL's `_make_unique_groups_in_path`; `Operation::At::unique`, `MakeUnique` alone goes one

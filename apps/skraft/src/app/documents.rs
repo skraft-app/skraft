@@ -292,10 +292,10 @@ impl SkraftApp {
         let Some(d) = docs.active() else { return };
         let title = d.name();
         // The pictures' lines and edges about as wide as on screen at their resolution.
-        let ppp = (crate::drawing::pdf::DPI / 150.0) as f32;
+        let ppp = (crate::workspaces::drawing::pdf::DPI / 150.0) as f32;
         let drawing = d.editor.document().drawing();
         let Some(presentation) = d.sheet.presentation(drawing) else { return };
-        let bytes = crate::drawing::pdf::drawing_pdf(&d.editor, &title, presentation.id, |w| {
+        let bytes = crate::workspaces::drawing::pdf::drawing_pdf(&d.editor, &title, presentation.id, |w| {
             viewport.picture_rgba(frame, d.id, &d.editor, &theme, w, ppp)
         });
         match bytes {
@@ -307,7 +307,7 @@ impl SkraftApp {
                 };
                 file::export_file(bytes, &name, "PDF", "pdf", &self.inbox, &self.ctx);
                 // What would go out as `{client}` is said (docs/ui/drawing.md#pdf).
-                let missing = crate::drawing::pdf::missing_fields(&d.editor, presentation.id);
+                let missing = crate::workspaces::drawing::pdf::missing_fields(&d.editor, presentation.id);
                 if !missing.is_empty() {
                     let fields = missing.iter().map(|f| format!("{{{f}}}")).collect::<Vec<_>>().join(", ");
                     self.toasts.push(Note::new(crate::window::toasts::Level::Warning, t!("toast.pdf_missing_fields"), Some(fields)));

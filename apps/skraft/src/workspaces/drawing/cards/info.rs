@@ -1,11 +1,17 @@
 //! The entity info of the drawing (docs/ui/drawing.md).
 
+use skraft_i18n::{t, tp};
 use skraft_model::{
     Border, Corner, Direction, Drawing, Element, ElementKind, Instance, Look, Paper, Place, Sheet, Side, Subject, Value, View, ViewKind,
     ViewStyle,
 };
+use skraft_model::{Document, Id, Operation, Units};
+use skraft_tools::Editor;
 
-use super::*;
+use crate::commands::Action;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{Field, OPTION_HEIGHT, framed_field};
+use crate::workspaces::common::cards::{field_label, info_field_width, info_grid, info_label_width, text_field};
 
 /// What the rows of the drawing's entity info read.
 #[derive(Clone, Copy)]
@@ -29,16 +35,16 @@ fn info_combo(field: f32, salt: (&str, u64)) -> egui::ComboBox<'_> {
 pub fn drawing_info(
     ui: &mut egui::Ui,
     editor: &Editor,
-    st: &mut crate::drawing::sheet::SheetState,
+    st: &mut crate::workspaces::drawing::sheet::SheetState,
     title: &str,
     actions: &mut Vec<Action>,
 ) {
-    use crate::drawing::sheet::InfoOn;
+    use crate::workspaces::drawing::sheet::InfoOn;
     let doc = editor.document();
     let d = doc.drawing();
     let field = info_field_width(ui);
     // Several picked: how many.
-    let many = crate::drawing::sheet::selection(editor, st).len();
+    let many = crate::workspaces::drawing::sheet::selection(editor, st).len();
     if many > 1 {
         ui.label(tp!("panel.entity_info.selected", many));
         return;
@@ -61,11 +67,12 @@ pub fn drawing_info(
     };
     let cx = DrawingCx { editor, doc, d, units: &doc.settings().units, field };
     // A free element picked: its kind; a text its words and size; an instance its place.
-    if let Some(el) = crate::drawing::sheet::selected_element(editor, st).filter(|el| !matches!(el.kind, ElementKind::View(_))) {
+    if let Some(el) = crate::workspaces::drawing::sheet::selected_element(editor, st).filter(|el| !matches!(el.kind, ElementKind::View(_)))
+    {
         info_grid(ui).show(ui, |ui| element_rows(ui, cx, el, sheet, &st.open, actions));
         return;
     }
-    if let Some((id, view)) = crate::drawing::sheet::selected_view(editor, st) {
+    if let Some((id, view)) = crate::workspaces::drawing::sheet::selected_view(editor, st) {
         info_grid(ui).show(ui, |ui| view_rows(ui, cx, id, view, st, actions));
         return;
     }
@@ -101,7 +108,7 @@ fn element_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, el: &Element, sheet: &Shee
     ui.end_row();
     // A dimension's value as the model is now, or why it has none.
     if let ElementKind::Dimension(dim) = &el.kind
-        && let Some(s) = crate::drawing::sheet::dim_shape(editor, dim, d.projection_of(dim.view))
+        && let Some(s) = crate::workspaces::drawing::sheet::dim_shape(editor, dim, d.projection_of(dim.view))
     {
         ui.label(t!("panel.entity_info.value"));
         if s.orphan {
@@ -160,8 +167,8 @@ fn field_menu(ui: &mut egui::Ui, d: &Drawing, id: Id, append: &dyn Fn(&str) -> A
     let menu = egui::Popup::menu(&button).style(crate::kit::style::menu);
     menu.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         // Skraft's own, those the drawing's texts already name, a new one.
-        let custom = crate::drawing::sheet::custom_fields(d.all_field_names());
-        let own = crate::drawing::sheet::FIELDS.iter().map(|f| (*f, field_name(f)));
+        let custom = crate::workspaces::drawing::sheet::custom_fields(d.all_field_names());
+        let own = crate::workspaces::drawing::sheet::FIELDS.iter().map(|f| (*f, field_name(f)));
         for (f, label) in own.chain(custom.iter().map(|f| (f.as_str(), f.clone()))) {
             let item = ui.add(crate::kit::style::menu_item(label, None, false));
             crate::kit::handles::publish(|| format!("drawing_field:{f}"), item.rect);
@@ -242,7 +249,7 @@ fn view_rows(
     cx: DrawingCx<'_>,
     id: Id,
     view: &View,
-    st: &mut crate::drawing::sheet::SheetState,
+    st: &mut crate::workspaces::drawing::sheet::SheetState,
     actions: &mut Vec<Action>,
 ) {
     let DrawingCx { d, field, .. } = cx;
@@ -285,7 +292,14 @@ fn view_rows(
 }
 
 /// What a view shows, changed in the dialog a new view is chosen in.
-fn view_subject_row(ui: &mut egui::Ui, doc: &Document, st: &mut crate::drawing::sheet::SheetState, id: Id, subject: &Subject, field: f32) {
+fn view_subject_row(
+    ui: &mut egui::Ui,
+    doc: &Document,
+    st: &mut crate::workspaces::drawing::sheet::SheetState,
+    id: Id,
+    subject: &Subject,
+    field: f32,
+) {
     ui.label(t!("panel.entity_info.subject"));
     let shows = match subject {
         Subject::Model => t!("drawing.subject.model"),
@@ -296,8 +310,8 @@ fn view_subject_row(ui: &mut egui::Ui, doc: &Document, st: &mut crate::drawing::
     let change = ui.add_sized([field, ui.spacing().interact_size.y], egui::Button::new(shows).truncate());
     crate::kit::handles::publish(|| "view_subject".into(), change.rect);
     if change.tip(t!("drawing.picker.change_tip")).clicked() {
-        let purpose = crate::drawing::view_picker::Purpose::Change(id);
-        st.picker = Some(crate::drawing::view_picker::ViewPicker::new(doc, purpose, subject.clone()));
+        let purpose = crate::workspaces::drawing::dialogs::view_picker::Purpose::Change(id);
+        st.picker = Some(crate::workspaces::drawing::dialogs::view_picker::ViewPicker::new(doc, purpose, subject.clone()));
     }
     ui.end_row();
 }
@@ -308,7 +322,7 @@ fn base_view_rows(
     cx: DrawingCx<'_>,
     id: Id,
     view: &View,
-    st: &mut crate::drawing::sheet::SheetState,
+    st: &mut crate::workspaces::drawing::sheet::SheetState,
     actions: &mut Vec<Action>,
 ) {
     let DrawingCx { editor, doc, d, field, .. } = cx;
@@ -338,10 +352,10 @@ fn base_view_rows(
         if ui.selectable_label(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")).clicked() {
             // A perspective keeps the frame the view has now.
             let size = d.resolve(id).map_or(glam::DVec2::splat(100.0), |r| {
-                let (lo, hi) = crate::drawing::sheet::view_frame(editor, &r);
+                let (lo, hi) = crate::workspaces::drawing::sheet::view_frame(editor, &r);
                 (hi - lo).max(glam::DVec2::splat(10.0))
             });
-            let look = crate::drawing::view_framer::camera_look(doc, subject, &editor.camera, size);
+            let look = crate::workspaces::drawing::dialogs::view_framer::camera_look(doc, subject, &editor.camera, size);
             actions.push(set(base(look, *scale)));
         }
     });
@@ -361,13 +375,16 @@ fn base_view_rows(
         }
     } else {
         field_label(ui, t!("panel.entity_info.scale"));
-        info_combo(field, ("drawing_scale", id.0)).selected_text(crate::drawing::sheet::scale_label(*scale)).show_ui(ui, |ui| {
-            for s in crate::drawing::sheet::SCALES {
-                if ui.selectable_label((s - scale).abs() < 1e-12, crate::drawing::sheet::scale_label(*s)).clicked() {
-                    actions.push(set(base(look.clone(), *s)));
+        info_combo(field, ("drawing_scale", id.0)).selected_text(crate::workspaces::drawing::sheet::scale_label(*scale)).show_ui(
+            ui,
+            |ui| {
+                for s in crate::workspaces::drawing::sheet::SCALES {
+                    if ui.selectable_label((s - scale).abs() < 1e-12, crate::workspaces::drawing::sheet::scale_label(*s)).clicked() {
+                        actions.push(set(base(look.clone(), *s)));
+                    }
                 }
-            }
-        });
+            },
+        );
         ui.end_row();
     }
 }
@@ -392,7 +409,7 @@ fn projected_view_rows(ui: &mut egui::Ui, d: &Drawing, id: Id, view: &View) {
     ui.label(format!("{base_name}, {side}"));
     ui.end_row();
     ui.label(t!("panel.entity_info.scale"));
-    ui.label(d.resolve(id).map_or_else(String::new, |r| crate::drawing::sheet::scale_label(r.scale)));
+    ui.label(d.resolve(id).map_or_else(String::new, |r| crate::workspaces::drawing::sheet::scale_label(r.scale)));
     ui.end_row();
 }
 
@@ -545,7 +562,7 @@ pub(super) enum ValuesOn<'a> {
 fn field_rows(names: std::collections::BTreeSet<String>, props: Option<&skraft_model::Props>) -> Vec<String> {
     let held = props.into_iter().flat_map(|p| p.iter()).map(|(k, _)| k.strip_prefix("user.").unwrap_or(k).to_owned());
     let all: std::collections::BTreeSet<String> = names.into_iter().chain(held).collect();
-    crate::drawing::sheet::custom_fields(all)
+    crate::workspaces::drawing::sheet::custom_fields(all)
 }
 
 /// The fields `names`, a row each: the value set on `on`, typed over or emptied; while it has
@@ -627,7 +644,7 @@ fn document_info(ui: &mut egui::Ui, doc: &Document, title: &str, field: f32, act
         ui.label(t!("panel.entity_info.name"));
         ui.label(title);
         ui.end_row();
-        let names = crate::drawing::sheet::custom_fields(doc.drawing().all_field_names());
+        let names = crate::workspaces::drawing::sheet::custom_fields(doc.drawing().all_field_names());
         value_rows(ui, doc, &ValuesOn::Document, names, field, actions);
     });
 }

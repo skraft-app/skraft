@@ -5,7 +5,7 @@ use super::*;
 /// A name, in a [`framed_field`] applied by a click away too. `width` is fixed by the caller:
 /// an infinite width inside a `Grid` feeds back on the column width of the previous frame and
 /// widens the side panel at every relayout.
-pub(super) fn text_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32) -> Option<String> {
+pub(crate) fn text_field(ui: &mut egui::Ui, key: (Id, u8), current: &str, width: f32) -> Option<String> {
     name_field(ui, key, current, width, false)
 }
 
@@ -35,7 +35,7 @@ const INFO_SPACING: egui::Vec2 = egui::vec2(8.0, 6.0);
 /// the entity. Its grids share one id and an egui `Grid` lays a frame out with the column widths
 /// of the frame before: sized by its own labels, the column took another entity's width for one
 /// frame when the selection changed kind (or a row came or went), the values sliding sideways.
-pub(super) fn info_label_width(ui: &egui::Ui) -> f32 {
+pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
     const LABELS: &[&str] = &[
         "panel.entity_info.type",
         "panel.entity_info.name",
@@ -87,17 +87,17 @@ pub(super) fn info_label_width(ui: &egui::Ui) -> f32 {
 
 /// An entity info's grid: label and value columns, the labels' as wide whatever the entity
 /// ([`info_label_width`]; the value column is always wider).
-pub(super) fn info_grid(ui: &egui::Ui) -> egui::Grid {
+pub(crate) fn info_grid(ui: &egui::Ui) -> egui::Grid {
     egui::Grid::new("info").num_columns(2).spacing(INFO_SPACING).min_col_width(info_label_width(ui))
 }
 
 /// The width of a field in an entity info's value column: the room left by the labels.
-pub(super) fn info_field_width(ui: &egui::Ui) -> f32 {
+pub(crate) fn info_field_width(ui: &egui::Ui) -> f32 {
     (ui.available_width() - info_label_width(ui) - INFO_SPACING.x).max(60.0)
 }
 
 /// A grid row's label, level with the [`framed_field`] beside it (or the first one, on top).
-pub(super) fn field_label(ui: &mut egui::Ui, text: String) {
+pub(crate) fn field_label(ui: &mut egui::Ui, text: String) {
     ui.vertical(|ui| {
         let size = egui::vec2(0.0, OPTION_HEIGHT);
         ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {

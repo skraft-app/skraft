@@ -272,7 +272,13 @@ impl SkraftApp {
                             area.id_salt("entity_info").show(ui, |ui| {
                                 ui.push_id(doc_id, |ui| {
                                     if sheet {
-                                        cards::drawing_info(ui, &doc.editor, &mut doc.sheet, &name, actions)
+                                        crate::workspaces::drawing::cards::info::drawing_info(
+                                            ui,
+                                            &doc.editor,
+                                            &mut doc.sheet,
+                                            &name,
+                                            actions,
+                                        )
                                     } else {
                                         cards::info(ui, &doc.editor, &name, actions)
                                     }
@@ -320,7 +326,7 @@ impl SkraftApp {
                             let (doc_id, list) = (doc.id, self.prefs.compositions_list);
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::drawing::sheet_library::compositions(
+                                crate::workspaces::drawing::cards::library::compositions(
                                     ui,
                                     editor,
                                     st,
@@ -336,7 +342,14 @@ impl SkraftApp {
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::drawing::sheet_tree::navigator(ui, editor, st, &name, actions, area.id_salt("sheet_tree"))
+                                crate::workspaces::drawing::cards::navigator::navigator(
+                                    ui,
+                                    editor,
+                                    st,
+                                    &name,
+                                    actions,
+                                    area.id_salt("sheet_tree"),
+                                )
                             });
                         }
                         PanelId::Outliner => {
@@ -664,7 +677,7 @@ impl SkraftApp {
                         // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).
                         let ready = viewport.sheet_textures(d.id);
                         let title = d.name();
-                        let wanted = crate::drawing::sheet::ui(
+                        let wanted = crate::workspaces::drawing::sheet::ui(
                             ui,
                             view,
                             sheet_room,

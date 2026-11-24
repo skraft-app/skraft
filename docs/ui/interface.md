@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/dialogs/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/window/dock.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/cards/panels/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/window/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
+code: [apps/skraft/src/dialogs/about.rs, apps/skraft/src/app.rs, apps/skraft/src/app/, apps/skraft/src/window/dock.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/kit/widgets.rs, apps/skraft/src/kit/widgets/, apps/skraft/src/kit/style.rs, apps/skraft/src/window/toasts.rs, apps/skraft/src/prefs.rs, apps/skraft/src/kit/icons.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/selection.rs]
 ---
 
 # Application interface
@@ -108,7 +108,7 @@ stay, to look into an assembly or a part without entering it.
   salted with their births, nothing salted while no undo gave an id back. A step redone opens
   folded as well.
 - **The folds are the document's**: the rows unfolded, the births and the active path last seen
-  are kept in the document (`panels::OutlinerState`, in `docs::Doc`), dropped with it, never on
+  are kept in the document (`cards::OutlinerState`, in `docs::Doc`), dropped with it, never on
   disk. A row's fold is written only when it changes (its chevron clicked, the active path
   reaching or leaving it); a frame reads one hash set per row.
   **Why:** every document numbers its things from 1, so fold states keyed by ids alone and
@@ -132,7 +132,7 @@ gives the topology.
 ### Properties
 
 Under those rows, the entity's **properties** ([Properties](../model/properties.md),
-`panels/props.rs`): « Propriétés » for a part or an assembly, a body's definition, a guide, the
+`cards/props.rs`): « Propriétés » for a part or an assembly, a body's definition, a guide, the
 model; « Propriétés de l'exemplaire » for the occurrence, or the body, selected. A row per
 definition applying to the entity, in its keys' order — its value, else its default greyed —,
 then the values without a definition, their key greyed (the tooltip says so); a value set has a
@@ -347,7 +347,7 @@ scope](../tools/selection.md#selection-scope), the tools that pick parts, no par
 **« Portée »**, which copies a change reaches (the open part's scope, [Opening a
 part](../model/opening-a-part.md), or the parts selected at any depth through a shared
 assembly). The two cards are centered together under the ribbon, between the dock's columns
-(`App` lays them out, `panels::context_options` and `panels::tool_options` fill them, in `style::option_card`: 3 pt
+(`App` lays them out, `viewport::options::context_options` and `tool_options` fill them, in `style::option_card`: 3 pt
 above and below the buttons, as the view bar, 6 on the sides), each translucent at rest and
 nearly opaque under the pointer or while a field of it is typed in, as the view bar
 (`style::hover_card`). The open

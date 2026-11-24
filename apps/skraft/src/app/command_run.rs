@@ -64,13 +64,13 @@ impl SkraftApp {
         }
         let section = e.document().settings().display.section.is_some();
         match id {
-            "drawing.frame_view" => crate::drawing::sheet::selected_view(e, &d.sheet).is_some(),
+            "drawing.frame_view" => crate::workspaces::drawing::sheet::selected_view(e, &d.sheet).is_some(),
             "edit.undo" => e.history().can_undo(),
             "edit.redo" => e.history().can_redo(),
             // « Pièces » too (docs/tools/selection.md): its selection at any depth.
             // On a sheet, the view picked (docs/ui/drawing.md).
-            "edit.erase" if d.workspace.stage == Stage::Sheet => !crate::drawing::sheet::selection(e, &d.sheet).is_empty(),
-            id if crate::drawing::sheet::SheetTool::of(id).is_some() => d.sheet.shown(e.document().drawing()).is_some(),
+            "edit.erase" if d.workspace.stage == Stage::Sheet => !crate::workspaces::drawing::sheet::selection(e, &d.sheet).is_empty(),
+            id if crate::workspaces::drawing::sheet::SheetTool::of(id).is_some() => d.sheet.shown(e.document().drawing()).is_some(),
             "edit.erase" | "edit.make_assembly" => e.anything_selected(),
             "edit.explode" => e.can_explode(),
             "edit.make_unique" => e.can_make_unique(),
@@ -78,7 +78,9 @@ impl SkraftApp {
             "edit.move_out" => e.can_move_out(),
             "edit.imprint" => e.can_imprint(),
             // On a sheet, what is picked there: the 3D selection is not what is seen.
-            "edit.cut" | "edit.copy" if d.workspace.stage == Stage::Sheet => !crate::drawing::sheet::selection(e, &d.sheet).is_empty(),
+            "edit.cut" | "edit.copy" if d.workspace.stage == Stage::Sheet => {
+                !crate::workspaces::drawing::sheet::selection(e, &d.sheet).is_empty()
+            }
             "edit.paste" | "edit.paste_in_place" if d.workspace.stage == Stage::Sheet => {
                 d.sheet.shown(e.document().drawing()).is_some()
                     && self.clipboard.as_ref().is_some_and(|c| matches!(c.content, Copied::Sheet { .. }))
@@ -93,12 +95,14 @@ impl SkraftApp {
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "components.purge" => !e.library_disabled() && !e.unused_components().is_empty(),
             "drawing.add_view" | "drawing.export_pdf" => d.sheet.shown(e.document().drawing()).is_some(),
-            "drawing.project_view" => crate::drawing::sheet::can_project(e, &d.sheet),
-            "drawing.make_composition" => !crate::drawing::sheet::selection(e, &d.sheet).is_empty(),
+            "drawing.project_view" => crate::workspaces::drawing::sheet::can_project(e, &d.sheet),
+            "drawing.make_composition" => !crate::workspaces::drawing::sheet::selection(e, &d.sheet).is_empty(),
             "drawing.explode" | "drawing.make_unique" | "drawing.edit_composition" => {
-                !crate::drawing::sheet::selected_instances(e, &d.sheet).is_empty()
+                !crate::workspaces::drawing::sheet::selected_instances(e, &d.sheet).is_empty()
             }
-            id if crate::drawing::sheet::style_of(id).is_some() => !crate::drawing::sheet::selected_views(e, &d.sheet).is_empty(),
+            id if crate::workspaces::drawing::sheet::style_of(id).is_some() => {
+                !crate::workspaces::drawing::sheet::selected_views(e, &d.sheet).is_empty()
+            }
             "debug.crash_kernel" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
             "view.home" => true,
@@ -119,20 +123,22 @@ impl SkraftApp {
         match id {
             id if let Some(p) = PanelId::from_command(id) => return Some(self.prefs.layout(self.workspace().id).is_shown(p)),
             "view.render_stats" => return Some(self.prefs.show_render_stats),
-            id if let Some(style) = crate::drawing::sheet::style_of(id) => {
+            id if let Some(style) = crate::workspaces::drawing::sheet::style_of(id) => {
                 let d = self.docs.active()?;
-                let views = crate::drawing::sheet::selected_views(&d.editor, &d.sheet);
+                let views = crate::workspaces::drawing::sheet::selected_views(&d.editor, &d.sheet);
                 return Some(!views.is_empty() && views.iter().all(|(_, v)| v.style == style));
             }
             // On the sheet, Select is the sheet's tool.
             "tool.select" if self.docs.active().is_some_and(|d| d.workspace.stage == Stage::Sheet) => {
-                return Some(self.docs.active()?.sheet.tool == crate::drawing::sheet::SheetTool::Select);
+                return Some(self.docs.active()?.sheet.tool == crate::workspaces::drawing::sheet::SheetTool::Select);
             }
             "drawing.project_view" => {
                 let d = self.docs.active()?;
-                return Some(matches!(d.sheet.tool, crate::drawing::sheet::SheetTool::Project { .. }));
+                return Some(matches!(d.sheet.tool, crate::workspaces::drawing::sheet::SheetTool::Project { .. }));
             }
-            id if let Some(tool) = crate::drawing::sheet::SheetTool::of(id) => return Some(self.docs.active()?.sheet.tool == tool),
+            id if let Some(tool) = crate::workspaces::drawing::sheet::SheetTool::of(id) => {
+                return Some(self.docs.active()?.sheet.tool == tool);
+            }
             "app.journal" => return Some(self.journal_window.is_some()),
             #[cfg(not(target_arch = "wasm32"))]
             "app.remote_control" => return Some(self.remote.is_on()),
@@ -311,7 +317,7 @@ impl SkraftApp {
         };
         // On a sheet, Select (Space) is the sheet's tool (docs/ui/drawing.md#placing-views).
         if id == "tool.select" && doc.workspace.stage == Stage::Sheet {
-            doc.sheet.set_tool(crate::drawing::sheet::SheetTool::Select);
+            doc.sheet.set_tool(crate::workspaces::drawing::sheet::SheetTool::Select);
             return Ok(());
         }
         if let Some(k) = tool_of(id) {
@@ -349,7 +355,8 @@ impl SkraftApp {
             let bytes = d.template_file(p.id).map_err(|e| Note::error(t!("toast.template_failed"), e))?;
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let path = crate::drawing::templates::install(&name, &bytes).map_err(|e| Note::error(t!("toast.template_failed"), e))?;
+                let path = crate::workspaces::drawing::templates::install(&name, &bytes)
+                    .map_err(|e| Note::error(t!("toast.template_failed"), e))?;
                 self.toasts.push(Note::success(t!("toast.template_saved", file = path.display().to_string())));
                 return Ok(());
             }
@@ -362,35 +369,43 @@ impl SkraftApp {
         // The drawing's (docs/ui/drawing.md); zoom extents on a sheet frames the whole board.
         match id {
             "drawing.new_sheet" => {
-                crate::drawing::sheet::new_sheet(&mut doc.editor, &mut doc.sheet);
+                crate::workspaces::drawing::sheet::new_sheet(&mut doc.editor, &mut doc.sheet);
                 return Ok(());
             }
             "edit.select_all" if doc.workspace.stage == Stage::Sheet => {
-                crate::drawing::sheet::select_all(&doc.editor, &mut doc.sheet);
+                crate::workspaces::drawing::sheet::select_all(&doc.editor, &mut doc.sheet);
                 return Ok(());
             }
             "drawing.new_presentation" => {
-                crate::drawing::sheet::new_presentation(&mut doc.editor, &mut doc.sheet);
+                crate::workspaces::drawing::sheet::new_presentation(&mut doc.editor, &mut doc.sheet);
                 return Ok(());
             }
-            "drawing.add_view" => return crate::drawing::sheet::add_view(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
-            "drawing.project_view" => return crate::drawing::sheet::project_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
-            "drawing.frame_view" => return crate::drawing::sheet::frame_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.add_view" => return crate::workspaces::drawing::sheet::add_view(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.project_view" => {
+                return crate::workspaces::drawing::sheet::project_view(&doc.editor, &mut doc.sheet).map_err(Note::info);
+            }
+            "drawing.frame_view" => return crate::workspaces::drawing::sheet::frame_view(&doc.editor, &mut doc.sheet).map_err(Note::info),
             "drawing.make_composition" => {
-                return crate::drawing::sheet::compose_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
+                return crate::workspaces::drawing::sheet::compose_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
             }
-            "drawing.explode" => return crate::drawing::sheet::explode_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info),
-            "drawing.make_unique" => return crate::drawing::sheet::unique_selected(&mut doc.editor, &doc.sheet).map_err(Note::info),
-            "drawing.edit_composition" => return crate::drawing::sheet::edit_selected(&doc.editor, &mut doc.sheet).map_err(Note::info),
+            "drawing.explode" => {
+                return crate::workspaces::drawing::sheet::explode_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
+            }
+            "drawing.make_unique" => {
+                return crate::workspaces::drawing::sheet::unique_selected(&mut doc.editor, &doc.sheet).map_err(Note::info);
+            }
+            "drawing.edit_composition" => {
+                return crate::workspaces::drawing::sheet::edit_selected(&doc.editor, &mut doc.sheet).map_err(Note::info);
+            }
             "edit.erase" if doc.workspace.stage == Stage::Sheet => {
-                return crate::drawing::sheet::delete_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
+                return crate::workspaces::drawing::sheet::delete_selected(&mut doc.editor, &mut doc.sheet).map_err(Note::info);
             }
-            id if let Some(tool) = crate::drawing::sheet::SheetTool::of(id) => {
+            id if let Some(tool) = crate::workspaces::drawing::sheet::SheetTool::of(id) => {
                 doc.sheet.set_tool(tool);
                 return Ok(());
             }
-            id if let Some(style) = crate::drawing::sheet::style_of(id) => {
-                return crate::drawing::sheet::set_style(&mut doc.editor, &doc.sheet, style).map_err(Note::info);
+            id if let Some(style) = crate::workspaces::drawing::sheet::style_of(id) => {
+                return crate::workspaces::drawing::sheet::set_style(&mut doc.editor, &doc.sheet, style).map_err(Note::info);
             }
             "view.zoom_extents" if doc.workspace.stage == Stage::Sheet => {
                 doc.sheet.refit();
@@ -464,9 +479,9 @@ impl SkraftApp {
         // The state copied from: the one before the erase, for a cut.
         let revision = d.editor.history().revision();
         let content = if d.workspace.stage == Stage::Sheet {
-            let Some((fragment, bounds)) = crate::drawing::sheet::copy_selected(&d.editor, &d.sheet) else { return };
+            let Some((fragment, bounds)) = crate::workspaces::drawing::sheet::copy_selected(&d.editor, &d.sheet) else { return };
             if cut {
-                let _ = crate::drawing::sheet::delete_selected(&mut d.editor, &mut d.sheet);
+                let _ = crate::workspaces::drawing::sheet::delete_selected(&mut d.editor, &mut d.sheet);
             }
             Copied::Sheet { fragment, bounds }
         } else {
@@ -488,8 +503,12 @@ impl SkraftApp {
         match &c.content {
             // At the sheet's next frame, where the pointer is known in the level open.
             Copied::Sheet { fragment, bounds } if d.workspace.stage == Stage::Sheet => {
-                d.sheet.asked =
-                    Some(crate::drawing::sheet::SheetAsk::Paste { fragment: fragment.clone(), bounds: *bounds, in_place, linked: reuse });
+                d.sheet.asked = Some(crate::workspaces::drawing::sheet::SheetAsk::Paste {
+                    fragment: fragment.clone(),
+                    bounds: *bounds,
+                    in_place,
+                    linked: reuse,
+                });
             }
             Copied::Model(clip) if d.workspace.stage != Stage::Sheet => {
                 if in_place {

@@ -109,14 +109,12 @@ mod tests {
 }
 
 pub(crate) mod catalog;
-mod drawing_info;
 mod info;
 pub(crate) mod library;
 mod material;
 pub(crate) mod materials;
 mod navigator;
 
-pub(crate) use drawing_info::*;
 pub(crate) use info::*;
 pub(crate) use material::*;
 pub(crate) use navigator::*;

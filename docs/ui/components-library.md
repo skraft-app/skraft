@@ -1,6 +1,6 @@
 ---
 status: built
-code: [apps/skraft/src/workspaces/common/cards/library.rs, apps/skraft/src/kit/search.rs, crates/tools/src/search.rs, apps/skraft/src/system/thumbnails.rs, apps/skraft/src/workspaces/common/viewport.rs, crates/render/src/lib.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/cards/panels/, apps/skraft/src/window/dock.rs, crates/tools/src/editor/library.rs, crates/model/src/ops.rs, crates/model/src/document.rs]
+code: [apps/skraft/src/workspaces/common/cards/library.rs, apps/skraft/src/kit/search.rs, crates/tools/src/search.rs, apps/skraft/src/system/thumbnails.rs, apps/skraft/src/workspaces/common/viewport.rs, crates/render/src/lib.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/window/dock.rs, crates/tools/src/editor/library.rs, crates/model/src/ops.rs, crates/model/src/document.rs]
 ---
 
 # Components library
@@ -186,7 +186,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
 - **What the search does**: the « Composants » card shows only what matches, in both tabs
   (the sections kept; the tabs' counts those it lets through; « Rien ne correspond » in a tab
   where nothing does), its rows made again when the document or the search changes. The
-  navigator shows the rows that match and the rows above them (`panels::Filtered`): those that
+  navigator shows the rows that match and the rows above them (`cards::Filtered`): those that
   do not match themselves attenuated; no fold arrows meanwhile — what holds a match is shown
   open, the rest closed —, the folds left as they are ([Folds](interface.md#folds)), the
   active path not restricting the rows. Whether a definition holds a match is found once per

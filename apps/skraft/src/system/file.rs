@@ -129,7 +129,7 @@ enum Dropped {
 fn dropped_kind(path: &std::path::Path) -> Option<Dropped> {
     let ext = path.extension()?.to_str()?;
     let among = |list: &[&str]| list.iter().any(|e| e.eq_ignore_ascii_case(ext));
-    if among(&[EXTENSION, MATERIALS_EXTENSION, crate::drawing::templates::EXTENSION]) {
+    if among(&[EXTENSION, MATERIALS_EXTENSION, crate::workspaces::drawing::templates::EXTENSION]) {
         Some(Dropped::Open)
     } else if among(IMPORT_EXTENSIONS) {
         Some(Dropped::Import)

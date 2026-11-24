@@ -209,8 +209,11 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         let size = [px(frame.1.x - frame.0.x), px(frame.1.y - frame.0.y)];
         Wanted { slot: (id, None), size, camera: picture_camera(r, b), parts, lines: None, images: Arc::default(), stamp: 0 }
     });
-    let lines =
-        if style == ViewStyle::Rendered { None } else { crate::drawing::view_lines::LinesJob::of(e, r, &placed).map(|job| job.run()) };
+    let lines = if style == ViewStyle::Rendered {
+        None
+    } else {
+        crate::workspaces::drawing::sheet::lines::LinesJob::of(e, r, &placed).map(|job| job.run())
+    };
     // A perspective's lines are tangents about its axis, on the frame's height.
     let (centre, to_paper) = match r.perspective {
         Some(p) => (DVec2::ZERO, p.size.y / (2.0 * (p.fov_y / 2.0).tan())),

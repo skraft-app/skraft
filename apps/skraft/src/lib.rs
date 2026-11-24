@@ -5,7 +5,6 @@ mod app;
 mod commands;
 mod dialogs;
 mod docs;
-mod drawing;
 mod kit;
 mod prefs;
 pub mod system;

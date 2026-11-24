@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/model/src/document.rs, crates/model/src/ops.rs, crates/model/src/weld.rs, crates/model/src/stretch.rs, crates/model/src/clipboard.rs, crates/kernel/src/engine.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/scene.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/cards/panels/]
+code: [crates/model/src/document.rs, crates/model/src/ops.rs, crates/model/src/weld.rs, crates/model/src/stretch.rs, crates/model/src/clipboard.rs, crates/kernel/src/engine.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/scene.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/]
 ---
 
 # Bodies: a part as positive and negative solids
@@ -620,7 +620,7 @@ part, at its level `path.group`).
 - **« Sortir du groupe »** (`edit.move_out`, Assembler › Composants, after « Grouper les corps »): the
   bodies selected one level up — out of the group or node open into its parent; at the part's
   root, out of the part —; that level then open, what moved selected (`Editor::move_out`).
-- **The navigator's drag and drop** (`panels::BodiesDrag`, its part open or not): a body's
+- **The navigator's drag and drop** (`cards::BodiesDrag`, its part open or not): a body's
   row dragged — the selected siblings with it when it is selected —, dropped on a group's or
   node's row (its middle half) goes into it; on its edges, or on a leaf's row, beside it, in
   its level (a line above or under the row); on its part's row, to its root (the row framed).

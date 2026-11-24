@@ -32,9 +32,9 @@ pub struct Doc {
     /// Its parts list's sort and rows (docs/ui/parts-list.md).
     pub parts_list: crate::workspaces::parts::table::PartsListState,
     /// Its drawing's sheet shown and how (docs/ui/drawing.md).
-    pub sheet: crate::drawing::sheet::SheetState,
+    pub sheet: crate::workspaces::drawing::sheet::SheetState,
     /// Its drawing's views' lines, computed off the UI thread (docs/ui/drawing.md#lines).
-    pub lines: crate::drawing::view_lines::LinesCache,
+    pub lines: crate::workspaces::drawing::sheet::lines::LinesCache,
     /// The workspace it is shown in (decision 0047): kept in its file ([`skraft_model::FileView`]).
     pub workspace: &'static crate::workspaces::Workspace,
     /// When it was last shown ([`Docs::cap_histories`]'s tick).

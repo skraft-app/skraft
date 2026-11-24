@@ -1,7 +1,7 @@
 //! The navigator on a drawing's sheet (docs/ui/drawing.md#navigator, decision 0049): the
 //! presentations, their sheets and what these hold, the topmost first, an instance unfolding on
 //! what its composition holds. Each element right on a sheet is picked, hidden, locked and put
-//! over or under the others here; the compositions themselves have their card (`sheet_library`).
+//! over or under the others here; the compositions themselves have their card (`drawing::cards::library`).
 
 use egui::ImageSource;
 use skraft_i18n::t;
@@ -9,10 +9,10 @@ use skraft_model::{DimKind, Drawing, Element, ElementKind, FastSet, Id, Operatio
 use skraft_tools::Editor;
 
 use crate::commands::Action;
-use crate::drawing::sheet::{InfoOn, SheetAsk, SheetState};
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::{self, Fold, IconButton};
+use crate::workspaces::drawing::sheet::{InfoOn, SheetAsk, SheetState};
 
 /// The side of a row's small buttons.
 const BUTTON: f32 = 18.0;
@@ -382,7 +382,7 @@ fn presentation_menu(button: &egui::Response, st: &mut SheetState, actions: &mut
             ui.close();
         }
         ui.separator();
-        for (k, tpl) in crate::drawing::templates::all().into_iter().enumerate() {
+        for (k, tpl) in crate::workspaces::drawing::templates::all().into_iter().enumerate() {
             let item = ui.add(crate::kit::style::menu_item(&tpl.name, None, false));
             crate::kit::handles::publish(|| format!("sheet_presentation:template:{k}"), item.rect);
             if item.clicked() {
@@ -404,7 +404,7 @@ fn sheet_menu(button: &egui::Response, st: &mut SheetState, presentation: Id) {
             ui.close();
         }
         ui.separator();
-        for (k, tpl) in crate::drawing::templates::all().into_iter().enumerate() {
+        for (k, tpl) in crate::workspaces::drawing::templates::all().into_iter().enumerate() {
             let of: Vec<(Id, String)> = tpl.document.drawing().sheets().map(|s| (s.id, s.name.clone())).collect();
             if of.len() > 1 {
                 let sub = ui.menu_button(&tpl.name, |ui| {

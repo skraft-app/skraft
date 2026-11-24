@@ -17,7 +17,7 @@ use skraft_model::{Id, Resolved};
 use skraft_tools::Editor;
 use skraft_tools::hidden_lines::{Lens, Look, ViewLines};
 
-use crate::drawing::sheet::ViewSlot;
+use crate::workspaces::drawing::sheet::ViewSlot;
 
 /// What a view's lines are computed from.
 #[derive(Clone)]

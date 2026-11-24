@@ -13,9 +13,9 @@ use skraft_model::{Crop, Direction, Document, ElementKind, Frame, Id, Look, Oper
 use skraft_tools::Editor;
 use skraft_tools::camera::{Camera, Projection};
 
-use crate::drawing::sheet::{Placed, SCALES, SheetState, ViewSlot, Wanted, nearest_scale, scale_label, window_matrix};
-use crate::drawing::view_picker::first_path;
 use crate::kit::widgets::{Confirm, confirm_buttons};
+use crate::workspaces::drawing::dialogs::view_picker::first_path;
+use crate::workspaces::drawing::sheet::{Placed, SCALES, SheetState, ViewSlot, Wanted, nearest_scale, scale_label, window_matrix};
 
 /// The picture's slot: no view has this id, so the view's own picture stays as it is.
 const SLOT: ViewSlot = (Id(u64::MAX), None);
@@ -120,7 +120,7 @@ pub fn open(e: &Editor, st: &mut SheetState, id: Id) -> Result<(), String> {
     };
     let mut parts: Vec<_> = by_part.into_iter().collect();
     parts.sort_by_key(|(p, _)| *p);
-    let images = crate::drawing::sheet::images_of(e, &parts);
+    let images = crate::workspaces::drawing::sheet::images_of(e, &parts);
     let mut f = ViewFramer {
         view,
         look: look.clone(),
@@ -724,7 +724,7 @@ pub fn ui(
                     for (d, key) in DIRECTIONS {
                         let along = Frame::of(d).forward;
                         let on = f.look == Look::Standard(d) || (lens.is_some() && (frame.forward - along).length() < 1e-6);
-                        let b = ui.selectable_label(on, crate::workspaces::common::cards::direction_label(d));
+                        let b = ui.selectable_label(on, crate::workspaces::drawing::cards::info::direction_label(d));
                         crate::kit::handles::publish(|| format!("view_framer.dir:{key}"), b.rect);
                         if b.clicked() {
                             f.look_along(d);
