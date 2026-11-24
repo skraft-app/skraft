@@ -361,7 +361,7 @@ pub enum Action {
     /// view follows the drag, docs/ui/components-library.md#placing).
     PlaceComponent(Id),
     /// A card of definitions as a list (true) or a grid (docs/ui/catalog.md).
-    CardList(crate::cards::catalog::Card, bool),
+    CardList(crate::workspaces::common::cards::catalog::Card, bool),
     /// The library's menu: its occurrences selected, the selection replaced by it, deleted.
     SelectOccurrences(Id),
     ReplaceSelection(Id),
@@ -477,7 +477,7 @@ mod tests {
         let keymap = Keymap::new(&BTreeMap::new());
         for c in COMMANDS {
             if let Some(s) = keymap.get(c.id) {
-                assert!(keymap.conflicts(c.id, s, crate::workspace::share).is_empty(), "{} shares {}", c.id, s.text());
+                assert!(keymap.conflicts(c.id, s, crate::workspaces::share).is_empty(), "{} shares {}", c.id, s.text());
             }
         }
     }

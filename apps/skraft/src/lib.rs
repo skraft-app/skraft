@@ -7,13 +7,11 @@ mod commands;
 mod dialogs;
 mod docs;
 mod drawing;
-mod instance_name;
 mod kit;
 mod prefs;
 pub mod system;
-mod viewport;
 mod window;
-mod workspace;
+mod workspaces;
 
 pub use app::SkraftApp;
 

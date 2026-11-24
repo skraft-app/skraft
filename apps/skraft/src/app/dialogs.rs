@@ -26,7 +26,7 @@ impl SkraftApp {
             if let Some(n) = d.editor.take_naming()
                 && self.naming.is_none()
             {
-                self.naming = Some(crate::dialogs::naming::Dialog::new(d.id, n));
+                self.naming = Some(crate::workspaces::common::dialogs::naming::Dialog::new(d.id, n));
             }
         }
         let Some(dialog) = &mut self.naming else { return };
@@ -37,9 +37,9 @@ impl SkraftApp {
         let editor = &mut d.editor;
         let naming = dialog.naming.clone();
         match dialog.show(ctx, |name| editor.name_refusal(&naming, name)) {
-            crate::dialogs::naming::Answer::Open => {}
-            crate::dialogs::naming::Answer::Cancel => self.naming = None,
-            crate::dialogs::naming::Answer::Name(name) => {
+            crate::workspaces::common::dialogs::naming::Answer::Open => {}
+            crate::workspaces::common::dialogs::naming::Answer::Cancel => self.naming = None,
+            crate::workspaces::common::dialogs::naming::Answer::Name(name) => {
                 if let Err(e) = editor.give_name(&naming, &name) {
                     self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.rename")), e));
                 }

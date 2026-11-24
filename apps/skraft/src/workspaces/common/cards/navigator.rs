@@ -7,7 +7,7 @@ fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static>
 }
 
 /// The name of an instance — an occurrence, a body — in its navigator row, its colour `color`,
-/// on `back`, as [`crate::instance_name`] writes it (own name, then the definition's — `def`:
+/// on `back`, as [`crate::workspaces::common::instance_name`] writes it (own name, then the definition's — `def`:
 /// its component's, its body definition's — between brackets; automatic, `auto`, attenuated
 /// unless the row is selected). Its response, and where its own name ends and the
 /// definition's starts (halfway across the space between them) where it has one.
@@ -22,9 +22,14 @@ fn instance_label(
 ) -> (egui::Response, Option<f32>) {
     let weak = if selected { color } else { color.lerp_to_gamma(back, weak_share(ui.visuals())) };
     let size = egui::TextStyle::Body.resolve(ui.style()).size;
-    let job = crate::instance_name::job(own, def, auto, crate::instance_name::NameInk { size, ink: color, weak });
+    let job = crate::workspaces::common::instance_name::job(
+        own,
+        def,
+        auto,
+        crate::workspaces::common::instance_name::NameInk { size, ink: color, weak },
+    );
     let r = ui.add(egui::Label::new(job).selectable(false).truncate());
-    let split = (!own.is_empty()).then(|| r.rect.min.x + crate::instance_name::split(ui, own, size));
+    let split = (!own.is_empty()).then(|| r.rect.min.x + crate::workspaces::common::instance_name::split(ui, own, size));
     (r, split)
 }
 
@@ -1132,7 +1137,7 @@ pub(super) enum Mark {
 /// row shows where it would go and the operation (given whether the platform's copy key is
 /// held), none when it may not go there — marked, the cursor; dropped, the operation.
 fn drop_on_row(ui: &egui::Ui, response: &egui::Response, indent: f32, target: DropTarget<'_>, actions: &mut Vec<Action>) {
-    let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+    let copy = crate::workspaces::common::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
     let Some((mark, op)) = target else {
         ui.ctx().set_cursor_icon(egui::CursorIcon::NoDrop);
         return;

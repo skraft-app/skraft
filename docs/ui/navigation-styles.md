@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/navigation.rs, crates/tools/src/editor/navigation.rs, crates/tools/src/camera.rs, apps/skraft/src/viewport.rs, apps/skraft/src/dialogs/nav_prefs.rs, apps/skraft/src/prefs.rs]
+code: [crates/tools/src/navigation.rs, crates/tools/src/editor/navigation.rs, crates/tools/src/camera.rs, apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/dialogs/nav_prefs.rs, apps/skraft/src/prefs.rs]
 ---
 
 # Navigation styles
@@ -169,7 +169,7 @@ section, each section a semibold title and a thin line (`style::settings_section
   any camera move: gesture, standard view, zoom extents, projection, recentre, a wheel or pinch
   burst; `previous_view`, `next_view`). The view a move ends on is recorded lazily, at the next
   move or at « previous view ». A new or replaced document starts with no history.
-- `apps/skraft/src/viewport.rs`: a gesture state (`Gesture`: its button, the press point,
+- `apps/skraft/src/workspaces/common/viewport.rs`: a gesture state (`Gesture`: its button, the press point,
   the pointer, its action, the modifiers the tool had) resolved at every frame; the tool's
   modifiers (`Viewport::tool_modifiers`); the zoom window's dashed rectangle; the cursor (a hand
   for orbit and pan, a magnifier for the zooms). `Viewport::navigating` tells the modifier taps

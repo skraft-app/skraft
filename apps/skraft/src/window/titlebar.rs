@@ -2,7 +2,7 @@
 //! the app's mark and name, the File menu, undo and redo, the file tabs (docs/ui/file-tabs.md,
 //! [`crate::window::tabs`]), the command search and the preferences, every button a command of the
 //! registry. The other menus are not in the bar: their commands are in the ribbon, the view bar
-//! ([`crate::window::view_bar`]), the command search and the shortcuts.
+//! ([`crate::workspaces::common::viewport::view_bar`]), the command search and the shortcuts.
 //!
 //! On the macOS desktop this band stands in for the system's title bar, which
 //! [`native_options`](crate::native_options) hides while letting the content reach the window's

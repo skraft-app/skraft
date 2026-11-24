@@ -214,7 +214,7 @@ impl SkraftApp {
                     ui.label((c.label)()).tip(c.id);
                     let current = self.keymap.get(c.id);
                     let text = current.map_or("—".to_owned(), |s| s.display(mac));
-                    let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s, workspace::share).is_empty());
+                    let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s, workspaces::share).is_empty());
                     if self.capturing == Some(c.id) {
                         ui.strong("…");
                     } else {
@@ -369,7 +369,7 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &st
         ui.end_row();
         ui.label(t!("prefs.interface.panels"));
         ui.vertical(|ui| {
-            for id in PanelId::ALL.into_iter().filter(|id| workspace::find(Some(workspace)).has(id.command())) {
+            for id in PanelId::ALL.into_iter().filter(|id| workspaces::find(Some(workspace)).has(id.command())) {
                 let mut shown = prefs.layout(workspace).is_shown(id);
                 if ui.checkbox(&mut shown, panel_title(id)).changed() {
                     prefs.layout_mut(workspace).toggle(id);

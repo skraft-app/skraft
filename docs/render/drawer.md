@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/viewport.rs, apps/skraft/src/kit/overlay.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
+code: [crates/tools/src/draw.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/view.rs, crates/tools/src/guides.rs, apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/kit/overlay.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl]
 ---
 
 # Drawing helpers

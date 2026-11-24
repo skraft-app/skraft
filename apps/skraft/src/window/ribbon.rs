@@ -1,10 +1,10 @@
 //! The ribbon, whose first cell switches the workspace (docs/ui/ribbon.md).
 //!
-//! The ribbon is data: [`crate::workspace::WORKSPACES`] → tabs → groups → command ids of the registry
+//! The ribbon is data: [`crate::workspaces::WORKSPACES`] → tabs → groups → command ids of the registry
 //! (docs/ui/commands.md), each group with its default pins. A group shows its pinned commands as buttons;
 //! its label (▾) opens its menu, which lists every command of the group with a pin. The user's
 //! pins, the tab shown per workspace and the labels' switch are a preference ([`Prefs`]); the
-//! workspace shown is the document's ([`crate::workspace`]).
+//! workspace shown is the document's ([`crate::workspaces`]).
 //! When the ribbon is too narrow, [`arrange`] decides what gives way. Drawing only reads: what the
 //! user chose comes back as actions ([`Change`] for the ribbon's own state).
 
@@ -20,7 +20,7 @@ use crate::commands::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::style::menu_item;
-use crate::workspace::{self, Workspace};
+use crate::workspaces::{self, Workspace};
 
 // ---- the description -------------------------------------------------------------------------
 
@@ -356,7 +356,7 @@ fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, 
     chevron(ui, pos2(full.center().x, line + GROUP_LABEL_HEIGHT / 2.0), chevron_ink);
     let response = response.tip(t!("ribbon.workspace.tip"));
     Popup::menu(&response).style(crate::kit::style::menu).show(|ui| {
-        let rows: Vec<_> = workspace::listed().map(|w| WorkspaceRow::new(ui, w)).collect();
+        let rows: Vec<_> = workspaces::listed().map(|w| WorkspaceRow::new(ui, w)).collect();
         let width = rows.iter().map(WorkspaceRow::width).fold(WORKSPACE_ROW_MIN_WIDTH, f32::max);
         for row in rows {
             let w = row.workspace;
@@ -878,7 +878,7 @@ pub(crate) fn chevron(ui: &egui::Ui, at: egui::Pos2, ink: Color32) {
 mod tests {
     use super::*;
     use crate::commands;
-    use crate::workspace::WORKSPACES;
+    use crate::workspaces::WORKSPACES;
 
     fn every_group() -> Vec<(String, &'static Group)> {
         let mut out = Vec::new();
@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn pins_toggle_in_the_groups_order_and_reset() {
         let mut p = Prefs::default();
-        let w = workspace::find(None);
+        let w = workspaces::find(None);
         let tab = p.tab(w);
         let create = &tab.groups[0];
         let k = key(w, Some(tab), create);
@@ -938,7 +938,7 @@ mod tests {
             r#"{"workspace":"gone","tabs":{"modelling":"gone"},"pins":{"modelling/selection":["tool.select","nope"]}}"#,
         )
         .unwrap();
-        let w = workspace::find(None);
+        let w = workspaces::find(None);
         assert_eq!(p.tab(w).id, "build");
         assert_eq!(p.pinned(&key(w, None, &w.fixed), &w.fixed), ["tool.select"]);
         assert!(!p.labels);

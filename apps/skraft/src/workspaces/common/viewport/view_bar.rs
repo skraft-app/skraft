@@ -43,15 +43,15 @@ const MORE: f32 = 16.0;
 const GRIP: f32 = 10.0;
 
 pub fn pinned(pins: &Option<Vec<String>>) -> Vec<&'static str> {
-    crate::window::pins::pinned(COMMANDS, DEFAULT, pins)
+    crate::workspaces::common::viewport::pins::pinned(COMMANDS, DEFAULT, pins)
 }
 
 pub fn toggle(pins: &mut Option<Vec<String>>, id: &'static str) {
-    crate::window::pins::toggle(COMMANDS, DEFAULT, pins, id);
+    crate::workspaces::common::viewport::pins::toggle(COMMANDS, DEFAULT, pins, id);
 }
 
 pub fn move_to(pins: &mut Option<Vec<String>>, id: &'static str, before: Option<&'static str>) {
-    crate::window::pins::move_to(COMMANDS, DEFAULT, pins, id, before);
+    crate::workspaces::common::viewport::pins::move_to(COMMANDS, DEFAULT, pins, id, before);
 }
 
 /// The bar's width, frame included, as [`bar`] draws it.
@@ -149,7 +149,9 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
                     }
                 }
                 // A button dragged along the column moves it.
-                if let Some((id, before)) = crate::window::pins::reorder(ui, egui::Id::unique("view_bar_drag"), true, &items) {
+                if let Some((id, before)) =
+                    crate::workspaces::common::viewport::pins::reorder(ui, egui::Id::unique("view_bar_drag"), true, &items)
+                {
                     actions.push(Action::ViewMove(id, before));
                 }
                 menu_open |= more(ui, side, &pinned, views, actions);
@@ -179,7 +181,7 @@ fn icon_button(ui: &mut egui::Ui, handle: &str, icon: egui::ImageSource<'static>
 
 /// A command's button: lit while on (perspective: while not parallel), its name in the tip;
 /// right click unpins it, a drag moves it.
-fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::window::pins::Item> {
+fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::workspaces::common::viewport::pins::Item> {
     let icon = icons::command(c.id)?;
     let tip = if c.id == "view.parallel" { t!("toolbar.perspective") } else { c.tip() };
     let response = icon_button(ui, c.id, icon.clone(), lit(c), c.enabled).tip(tip);
@@ -187,7 +189,7 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Opti
         actions.push(Action::Command(c.id));
     }
     unpin_menu(&response, c.id, actions);
-    Some(crate::window::pins::Item { id: c.id, rect: response.rect, response, icon })
+    Some(crate::workspaces::common::viewport::pins::Item { id: c.id, rect: response.rect, response, icon })
 }
 
 /// A toggle's button is lit while it is on; perspective / parallel's while in perspective
@@ -229,7 +231,12 @@ fn inward(side: Dock) -> RectAlign {
 }
 
 /// The standard views' button and its menu, opening towards the view; whether it is open.
-fn views_button(ui: &mut egui::Ui, side: Dock, views: &[CommandView], actions: &mut Vec<Action>) -> (crate::window::pins::Item, bool) {
+fn views_button(
+    ui: &mut egui::Ui,
+    side: Dock,
+    views: &[CommandView],
+    actions: &mut Vec<Action>,
+) -> (crate::workspaces::common::viewport::pins::Item, bool) {
     let open = Popup::is_id_open(ui.ctx(), egui::Id::unique("view_bar_views_menu"));
     let response = icon_button(ui, VIEWS, icons::VIEWS, open, true);
     let response = if open { response } else { response.tip(t!("view_bar.views")) };
@@ -252,7 +259,7 @@ fn views_button(ui: &mut egui::Ui, side: Dock, views: &[CommandView], actions: &
         }
     });
     unpin_menu(&response, VIEWS, actions);
-    (crate::window::pins::Item { id: VIEWS, rect: response.rect, response, icon: icons::VIEWS }, open)
+    (crate::workspaces::common::viewport::pins::Item { id: VIEWS, rect: response.rect, response, icon: icons::VIEWS }, open)
 }
 
 /// A command's row in the ▾ menu: its label, whether it can run, a toggle's state (its check

@@ -1751,3 +1751,9 @@ mod tests {
         assert_eq!(place(size, a, b, &[all]).center(), pos2(100.0, 100.0));
     }
 }
+
+pub(crate) mod drop_up;
+pub(crate) mod options;
+pub(crate) mod pins;
+pub(crate) mod steps;
+pub(crate) mod view_bar;

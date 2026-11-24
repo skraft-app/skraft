@@ -2,7 +2,7 @@
 //! assembly, drawn off screen by the viewport's renderer ([`skraft_render::Renderer::render_picture`]),
 //! kept per document under a key of what it shows. The « Composants » card asks for the ones it
 //! shows ([`Thumbnails::get`]); the viewport draws those asked for at its next frame, a few
-//! within a time budget ([`crate::viewport::Viewport`]), the nature's icon standing in meanwhile.
+//! within a time budget ([`crate::workspaces::common::viewport::Viewport`]), the nature's icon standing in meanwhile.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

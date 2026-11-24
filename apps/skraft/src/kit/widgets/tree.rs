@@ -6,7 +6,7 @@ use skraft_model::FastSet;
 use crate::kit::icons;
 use crate::kit::style::CARD_MARGIN;
 
-/// A row's fold: its key in its document's [`OutlinerState`](crate::cards::panels::OutlinerState), open or not.
+/// A row's fold: its key in its document's [`OutlinerState`](crate::workspaces::common::cards::OutlinerState), open or not.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Fold {
     pub(crate) key: egui::Id,

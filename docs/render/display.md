@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/scene.rs, crates/tools/src/bvh.rs, crates/tools/src/editor/view.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/fast_hash.rs, apps/skraft/src/viewport.rs, apps/skraft/src/lib.rs]
+code: [crates/tools/src/scene.rs, crates/tools/src/bvh.rs, crates/tools/src/editor/view.rs, crates/render/src/lib.rs, crates/render/src/shader.wgsl, crates/model/src/fast_hash.rs, apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/lib.rs]
 ---
 
 # Display

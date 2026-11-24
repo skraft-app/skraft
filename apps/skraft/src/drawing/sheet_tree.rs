@@ -476,7 +476,7 @@ fn presentation_row(
     }
     // A sheet dragged onto it goes to its end.
     if let Some(drag) = response.dnd_hover_payload::<SheetOrderDrag>() {
-        let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+        let copy = crate::workspaces::common::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
         sheet_drop_on_row(ui, &response, st, None, sheet_drop(d, drag.sheet, p, None, copy), actions);
     }
     if response.clicked() {
@@ -534,14 +534,14 @@ fn sheet_row(
     if let Some(drag) = response.dnd_hover_payload::<SheetOrderDrag>() {
         let lower = ui.ctx().pointer_interact_pos().is_some_and(|p| p.y > response.rect.center().y);
         let after = lower && !fold.is_some_and(|f| f.open);
-        let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+        let copy = crate::workspaces::common::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
         let op = d.presentation_of(s.id).and_then(|p| sheet_drop(d, drag.sheet, p, Some((s.id, after)), copy));
         sheet_drop_on_row(ui, &response, st, Some(!after), op, actions);
     }
     // Elements dragged from the rows below: moved onto it, or copied with the copy modifier
     // (docs/ui/drawing.md#navigator).
     if let Some(drag) = response.dnd_hover_payload::<SheetDrag>() {
-        let copy = crate::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
+        let copy = crate::workspaces::common::viewport::modifiers(ui.ctx(), ui.input(|i| i.modifiers)).copy;
         if drag.sheet != s.id || copy {
             let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
             ui.painter().rect_stroke(response.rect.shrink(1.0), 3.0, stroke, egui::StrokeKind::Inside);

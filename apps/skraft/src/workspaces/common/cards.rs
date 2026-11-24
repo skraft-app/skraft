@@ -1,6 +1,6 @@
-//! Side panels: the entity info, the materials and the outliner, the tool option bar and the
-//! menu items, all drawn from the command registry's state
-//! (docs/ui/commands.md).
+//! The document's cards, for any workspace (docs/ui/interface.md): the navigator's tree of the
+//! model, the entity info and its properties, the components and materials cards and what they
+//! share.
 
 use glam::{DAffine3, DVec3};
 use skraft_i18n::{t, tp};
@@ -8,13 +8,13 @@ use skraft_model::{
     BodiesTo, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, PropTarget, Scope,
     Sign, Units, measure,
 };
-use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
+use skraft_tools::Editor;
 
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::{
-    Field, Fold, OPTION_HEIGHT, RENAMING, Segment, TreeLine, band_color, cut_label, field_stroke, framed_field, hidden_color, linked_mark,
-    option_button, paint_drag_ghost, rename_field, segmented, set_drag_ghost, start_rename, tree_line, tree_row, warning,
+    Field, Fold, OPTION_HEIGHT, RENAMING, TreeLine, band_color, cut_label, field_stroke, framed_field, hidden_color, linked_mark,
+    paint_drag_ghost, rename_field, set_drag_ghost, start_rename, tree_line, tree_row, warning,
 };
 
 mod props;
@@ -108,14 +108,15 @@ mod tests {
     }
 }
 
+pub(crate) mod catalog;
 mod drawing_info;
 mod info;
+pub(crate) mod library;
 mod material;
-mod options;
-mod outliner;
+pub(crate) mod materials;
+mod navigator;
 
 pub(crate) use drawing_info::*;
 pub(crate) use info::*;
 pub(crate) use material::*;
-pub(crate) use options::*;
-pub(crate) use outliner::*;
+pub(crate) use navigator::*;

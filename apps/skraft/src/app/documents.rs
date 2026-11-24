@@ -67,7 +67,7 @@ impl SkraftApp {
                     self.viewport.drop_document(replaced);
                 }
                 if let Some(d) = self.docs.active_mut() {
-                    d.workspace = workspace::find(view.workspace.as_deref());
+                    d.workspace = workspaces::find(view.workspace.as_deref());
                     if let Some(camera) = view.camera.as_ref().and_then(skraft_tools::Camera::from_seen) {
                         d.editor.camera = camera;
                     }
@@ -82,14 +82,14 @@ impl SkraftApp {
 
     /// The shown document's workspace; the first one on the start page.
     pub(super) fn workspace(&self) -> &'static Workspace {
-        self.docs.active().map_or_else(|| workspace::find(None), |d| d.workspace)
+        self.docs.active().map_or_else(|| workspaces::find(None), |d| d.workspace)
     }
 
     /// Shows the shown document in workspace `id` (decision 0047): the running tool cancelled,
     /// the selection and the level open kept. Not a change of the document: nothing modified,
     /// nothing to undo; its file keeps it at the next save.
     pub(super) fn set_workspace(&mut self, id: &str) -> Result<(), String> {
-        let w = workspace::listed().find(|w| w.id == id).ok_or_else(|| format!("no workspace {id}"))?;
+        let w = workspaces::listed().find(|w| w.id == id).ok_or_else(|| format!("no workspace {id}"))?;
         let Some(d) = self.docs.active_mut() else { return Err("no document".into()) };
         if d.workspace.id != w.id {
             d.vcb.clear();

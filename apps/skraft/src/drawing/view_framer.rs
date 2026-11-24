@@ -724,7 +724,7 @@ pub fn ui(
                     for (d, key) in DIRECTIONS {
                         let along = Frame::of(d).forward;
                         let on = f.look == Look::Standard(d) || (lens.is_some() && (frame.forward - along).length() < 1e-6);
-                        let b = ui.selectable_label(on, crate::cards::panels::direction_label(d));
+                        let b = ui.selectable_label(on, crate::workspaces::common::cards::direction_label(d));
                         crate::kit::handles::publish(|| format!("view_framer.dir:{key}"), b.rect);
                         if b.clicked() {
                             f.look_along(d);

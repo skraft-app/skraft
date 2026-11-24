@@ -11,7 +11,6 @@ use skraft_model::{Boolean, Document, FileView, LengthUnit, Operation, Settings}
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
-use crate::cards::panels;
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::commands::{Action, CommandView};
 use crate::docs::{DocId, Docs, file_name};
@@ -19,7 +18,6 @@ use crate::kit::style::{CARD_MARGIN, Tip, card_frame, option_card};
 use crate::prefs::Preferences;
 use crate::system::clipboard::{Clipboard, Copied};
 use crate::system::file::{self, Inbox};
-use crate::viewport::{self, Viewport};
 use crate::window::dock::{self, Dock, PanelId};
 #[cfg(all(target_os = "macos", not(target_arch = "wasm32")))]
 use crate::window::native_menu::NativeMenu;
@@ -27,7 +25,10 @@ use crate::window::ribbon;
 use crate::window::tabs::{MenuRow, Tab, TabAction};
 use crate::window::titlebar;
 use crate::window::toasts::{Act, Note, Toasts};
-use crate::workspace::{self, Stage, Workspace};
+use crate::workspaces::common::cards;
+use crate::workspaces::common::viewport::options;
+use crate::workspaces::common::viewport::{self, Viewport};
+use crate::workspaces::{self, Stage, Workspace};
 
 pub struct SkraftApp {
     ctx: egui::Context,
@@ -49,7 +50,7 @@ pub struct SkraftApp {
     /// tools' hints.
     toasts: Toasts,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
-    naming: Option<crate::dialogs::naming::Dialog>,
+    naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Imprimer » (decision 0055).
     imprint: Option<crate::dialogs::imprint::Dialog>,
     prefs: Preferences,

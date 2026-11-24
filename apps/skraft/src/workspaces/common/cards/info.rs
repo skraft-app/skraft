@@ -237,7 +237,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                         let letter = ["X", "Y", "Z"][k];
                         let shown = units.format(*v);
                         let exact = format!("{}{}", units.exact_number(*v), units.suffix());
-                        let addon = Some((letter, crate::viewport::color(axis)));
+                        let addon = Some((letter, crate::workspaces::common::viewport::color(axis)));
                         let f = Field {
                             hint: None,
                             tip: None,

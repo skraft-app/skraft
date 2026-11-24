@@ -4,7 +4,7 @@
 
 use skraft_theme::Theme;
 
-use crate::viewport::color;
+use crate::workspaces::common::viewport::color;
 
 /// A dash pattern, in points.
 #[derive(Clone, Copy, Debug, PartialEq)]

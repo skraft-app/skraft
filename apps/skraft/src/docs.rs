@@ -25,10 +25,10 @@ pub struct Doc {
     /// What is being typed into the measurements box.
     pub vcb: String,
     /// Its outliner's rows unfolded, and what they are kept by.
-    pub outliner: crate::cards::panels::OutlinerState,
+    pub outliner: crate::workspaces::common::cards::OutlinerState,
     /// Its « Composants » card's rows (docs/ui/components-library.md).
-    pub library: crate::cards::library::LibraryState,
-    pub materials: crate::cards::materials::MaterialsState,
+    pub library: crate::workspaces::common::cards::library::LibraryState,
+    pub materials: crate::workspaces::common::cards::materials::MaterialsState,
     /// Its parts list's sort and rows (docs/ui/parts-list.md).
     pub parts_list: crate::cards::parts_table::PartsListState,
     /// Its drawing's sheet shown and how (docs/ui/drawing.md).
@@ -36,7 +36,7 @@ pub struct Doc {
     /// Its drawing's views' lines, computed off the UI thread (docs/ui/drawing.md#lines).
     pub lines: crate::drawing::view_lines::LinesCache,
     /// The workspace it is shown in (decision 0047): kept in its file ([`skraft_model::FileView`]).
-    pub workspace: &'static crate::workspace::Workspace,
+    pub workspace: &'static crate::workspaces::Workspace,
     /// When it was last shown ([`Docs::cap_histories`]'s tick).
     shown_at: u64,
 }
@@ -156,7 +156,7 @@ impl Docs {
             parts_list: Default::default(),
             sheet: Default::default(),
             lines: Default::default(),
-            workspace: crate::workspace::find(None),
+            workspace: crate::workspaces::find(None),
             shown_at: 0,
         };
         Ok(match replaced {

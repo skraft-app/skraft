@@ -19,24 +19,24 @@ pub const DEFAULT: &[&str] = &["tool.copy_line", "tool.copy_grid", "tool.distrib
 
 // A button's side and its icon's, and the card's frame: the view bar's, the floating bars of the
 // view all as thick (docs/tools/quick-tools.md).
-use crate::window::view_bar::{BUTTON, ICON};
+use crate::workspaces::common::viewport::view_bar::{BUTTON, ICON};
 /// The ▾ button's width.
 const MORE: f32 = 16.0;
 
 /// The pinned commands, in the user's order: `pins` as they left them (unknown ids ignored),
 /// else the defaults.
 pub fn pinned(pins: &Option<Vec<String>>) -> Vec<&'static str> {
-    crate::window::pins::pinned(COMMANDS, DEFAULT, pins)
+    crate::workspaces::common::viewport::pins::pinned(COMMANDS, DEFAULT, pins)
 }
 
 /// Pins `id` (at the end), or unpins it; back to the defaults, nothing kept.
 pub fn toggle(pins: &mut Option<Vec<String>>, id: &'static str) {
-    crate::window::pins::toggle(COMMANDS, DEFAULT, pins, id);
+    crate::workspaces::common::viewport::pins::toggle(COMMANDS, DEFAULT, pins, id);
 }
 
 /// Moves the pinned `id` before `before` (none: at the end).
 pub fn move_to(pins: &mut Option<Vec<String>>, id: &'static str, before: Option<&'static str>) {
-    crate::window::pins::move_to(COMMANDS, DEFAULT, pins, id, before);
+    crate::workspaces::common::viewport::pins::move_to(COMMANDS, DEFAULT, pins, id, before);
 }
 
 /// The card, centred on `at` (screen points), kept inside `view`.
@@ -52,13 +52,15 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
         .show(ctx, |ui| {
             // Translucent, as OCL's: the part stays visible behind it; nearly opaque under the
             // pointer, to read and click.
-            crate::kit::style::translucent(crate::window::view_bar::frame(ui.style()), hovered).show(ui, |ui| {
+            crate::kit::style::translucent(crate::workspaces::common::viewport::view_bar::frame(ui.style()), hovered).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.horizontal(|ui| {
                     let items: Vec<_> =
                         pinned.iter().filter_map(|&id| views.iter().find(|v| v.id == id)).filter_map(|c| button(ui, c, actions)).collect();
                     // A button dragged along the row moves it (docs/tools/quick-tools.md).
-                    if let Some((id, before)) = crate::window::pins::reorder(ui, egui::Id::unique("quick_tools_drag"), false, &items) {
+                    if let Some((id, before)) =
+                        crate::workspaces::common::viewport::pins::reorder(ui, egui::Id::unique("quick_tools_drag"), false, &items)
+                    {
                         actions.push(Action::QuickMove(id, before));
                     }
                     more(ui, &pinned, views, actions);
@@ -73,7 +75,7 @@ pub fn card(ctx: &egui::Context, view: Rect, at: egui::Pos2, pins: &Option<Vec<S
 }
 
 /// A command's button: its icon, its name in the tip; right click unpins it, a drag moves it.
-fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::window::pins::Item> {
+fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Option<crate::workspaces::common::viewport::pins::Item> {
     let icon = icons::command(c.id)?;
     let response = IconButton::new(icon.clone(), BUTTON, ICON).look(Look::Bar).enabled(c.enabled).show(ui);
     let rect = response.rect;
@@ -87,7 +89,7 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Opti
             actions.push(Action::QuickPin(c.id));
         }
     });
-    Some(crate::window::pins::Item { id: c.id, rect, response, icon })
+    Some(crate::workspaces::common::viewport::pins::Item { id: c.id, rect, response, icon })
 }
 
 /// The ▾ button: every command the card can show, each with its pin.

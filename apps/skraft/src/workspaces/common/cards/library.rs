@@ -10,12 +10,12 @@ use skraft_model::{Document, Id};
 use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
-use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 use crate::commands::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::system::thumbnails::Thumbnails;
 use crate::window::ribbon::Corners;
+use crate::workspaces::common::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 
 /// What the card keeps of a document between frames, in the document itself (never on disk):
 /// its search, its tab, its rows — made again when the document (its history's revision) or

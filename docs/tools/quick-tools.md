@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/editor/quick.rs, apps/skraft/src/window/quick.rs, crates/tools/src/editor/naming.rs, apps/skraft/src/dialogs/naming.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/tools/shapes.rs]
+code: [crates/tools/src/editor/quick.rs, apps/skraft/src/window/quick.rs, crates/tools/src/editor/naming.rs, apps/skraft/src/workspaces/common/dialogs/naming.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/tools/shapes.rs]
 ---
 
 # Quick tools after a creation, naming what was just made
@@ -105,7 +105,7 @@ After OpenCutList's Smart Draw tool (`tool/smart_draw_tool.rb`, `fn_ask_name`, t
 offers a « Renommer » button that asks it. Skraft offers the same toast after the commands that
 make a new definition (an assembly, a group of bodies, one made unique), which OCL does not. The
 editor says when, checks the name and names it (`editor/naming.rs`: `Naming` on a `NameTarget`,
-a component or a body definition); the dialog is the app's (`apps/skraft/src/dialogs/naming.rs`).
+a component or a body definition); the dialog is the app's (`apps/skraft/src/workspaces/common/dialogs/naming.rs`).
 
 - **When**: a creation tool (Box, Cylinder, Prism, Turn) has made a part (`AddPrimitive`), not
   a body in an open part (`AddBody`: no new part), nor a copy or a paste (the same parts).

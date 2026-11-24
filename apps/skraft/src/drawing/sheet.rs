@@ -18,7 +18,7 @@ use skraft_tools::Editor;
 use crate::drawing::sheet_board::{Board, Column};
 use crate::drawing::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::kit::overlay;
-use crate::viewport;
+use crate::workspaces::common::viewport;
 
 /// A document's sheet shown and how it is seen (the sheet and the camera kept in its file,
 /// [`skraft_model::SeenBoard`]).

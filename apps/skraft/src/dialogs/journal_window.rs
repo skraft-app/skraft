@@ -295,7 +295,7 @@ fn describe(e: &Event) -> (String, String, bool) {
         Event::Redo => (t!("journal.event.redo"), String::new(), false),
         Event::Forgotten { steps, bytes } => (
             t!("journal.event.forgotten"),
-            tp!("journal.forgotten", *steps as usize, steps = steps, bytes = crate::viewport::bytes(*bytes)),
+            tp!("journal.forgotten", *steps as usize, steps = steps, bytes = crate::workspaces::common::viewport::bytes(*bytes)),
             false,
         ),
     }

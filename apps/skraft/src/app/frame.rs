@@ -263,7 +263,7 @@ impl SkraftApp {
                     if self.naming.is_none()
                         && let Some(n) = self.docs.by_id_mut(doc).and_then(|d| d.editor.naming_of(target))
                     {
-                        self.naming = Some(crate::dialogs::naming::Dialog::new(doc, n));
+                        self.naming = Some(crate::workspaces::common::dialogs::naming::Dialog::new(doc, n));
                     }
                 }
             }

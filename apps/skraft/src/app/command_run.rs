@@ -526,17 +526,19 @@ impl SkraftApp {
                 return;
             }
             Action::QuickPin(id) => return crate::window::quick::toggle(&mut self.prefs.quick_tools, id),
-            Action::ViewPin(id) => return crate::window::view_bar::toggle(&mut self.prefs.view_bar, id),
+            Action::ViewPin(id) => return crate::workspaces::common::viewport::view_bar::toggle(&mut self.prefs.view_bar, id),
             Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
             Action::CardList(card, list) => {
                 let pref = match card {
-                    crate::cards::catalog::Card::Components => &mut self.prefs.components_list,
-                    crate::cards::catalog::Card::Compositions => &mut self.prefs.compositions_list,
-                    crate::cards::catalog::Card::Materials => &mut self.prefs.materials_list,
+                    crate::workspaces::common::cards::catalog::Card::Components => &mut self.prefs.components_list,
+                    crate::workspaces::common::cards::catalog::Card::Compositions => &mut self.prefs.compositions_list,
+                    crate::workspaces::common::cards::catalog::Card::Materials => &mut self.prefs.materials_list,
                 };
                 return *pref = list;
             }
-            Action::ViewMove(id, before) => return crate::window::view_bar::move_to(&mut self.prefs.view_bar, id, before),
+            Action::ViewMove(id, before) => {
+                return crate::workspaces::common::viewport::view_bar::move_to(&mut self.prefs.view_bar, id, before);
+            }
             Action::QuickMove(id, before) => return crate::window::quick::move_to(&mut self.prefs.quick_tools, id, before),
             Action::QuickTool(id) => {
                 if let (Some(k), Some(d)) = (tool_of(id), self.docs.active_mut()) {

@@ -1,6 +1,12 @@
 //! The tool option bar and the context card (docs/ui/interface.md#tool-option-bar).
 
-use super::*;
+use skraft_i18n::t;
+use skraft_model::{Scope, Sign, Units};
+use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
+
+use crate::commands::Action;
+use crate::kit::style::Tip;
+use crate::kit::widgets::{Field, OPTION_HEIGHT, Segment, framed_field, option_button, segmented};
 
 /// Whether the context card has anything to show (docs/ui/interface.md#context-card): the
 /// selection's scope of a tool that picks parts, or the open part's scope.

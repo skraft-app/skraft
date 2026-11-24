@@ -192,7 +192,7 @@ impl Preferences {
                     p.panels.normalize();
                     // A panel new to a workspace's layout shown if the workspace shows it at first.
                     for (id, l) in p.workspace_panels.iter_mut() {
-                        l.normalize_with(crate::workspace::WORKSPACES.iter().find(|w| w.id == id).and_then(|w| w.panels));
+                        l.normalize_with(crate::workspaces::WORKSPACES.iter().find(|w| w.id == id).and_then(|w| w.panels));
                     }
                     (Preferences { version: VERSION, ..p }, None)
                 }
@@ -206,7 +206,7 @@ impl Preferences {
     /// The side panels of workspace `id`: a workspace never arranged has its first layout
     /// ([`Preferences::first_layout`]).
     pub fn layout(&self, id: &str) -> std::borrow::Cow<'_, Layout> {
-        if id == crate::workspace::WORKSPACES[0].id {
+        if id == crate::workspaces::WORKSPACES[0].id {
             return std::borrow::Cow::Borrowed(&self.panels);
         }
         match self.workspace_panels.get(id) {
@@ -217,7 +217,7 @@ impl Preferences {
 
     /// The same, to arrange them: kept from then on.
     pub fn layout_mut(&mut self, id: &str) -> &mut Layout {
-        if id == crate::workspace::WORKSPACES[0].id {
+        if id == crate::workspaces::WORKSPACES[0].id {
             return &mut self.panels;
         }
         if !self.workspace_panels.contains_key(id) {
@@ -228,10 +228,10 @@ impl Preferences {
     }
 
     /// The layout of workspace `id` until it is arranged: the first workspace's, the panels
-    /// shown those it says ([`crate::workspace::Workspace::panels`]), each keeping its place.
+    /// shown those it says ([`crate::workspaces::Workspace::panels`]), each keeping its place.
     fn first_layout(&self, id: &str) -> Layout {
         let mut layout = self.panels.clone();
-        if let Some(shown) = crate::workspace::WORKSPACES.iter().find(|w| w.id == id).and_then(|w| w.panels) {
+        if let Some(shown) = crate::workspaces::WORKSPACES.iter().find(|w| w.id == id).and_then(|w| w.panels) {
             for c in layout.left.cards.iter_mut().chain(layout.right.cards.iter_mut()) {
                 c.shown = shown.contains(&c.id);
             }
@@ -318,7 +318,7 @@ mod tests {
     fn each_workspace_arranges_its_panels_from_the_first_ones() {
         use crate::window::dock::PanelId;
         let mut p = Preferences::default();
-        let first = crate::workspace::WORKSPACES[0].id;
+        let first = crate::workspaces::WORKSPACES[0].id;
         p.layout_mut(first).toggle(PanelId::Materials);
         assert!(!p.layout(first).is_shown(PanelId::Materials));
         assert!(p.workspace_panels.is_empty(), "the first workspace's are `panels`");

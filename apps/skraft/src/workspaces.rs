@@ -322,3 +322,5 @@ mod tests {
         assert!(!m.has("nope"));
     }
 }
+
+pub(crate) mod common;
