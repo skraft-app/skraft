@@ -588,11 +588,12 @@ fn the_link_map_says_who_shapes_whom() {
     let body = link(&mut h, rail, leg);
     let (rail_part, leg_part) = (part_of(&h, rail), part_of(&h, leg));
     let map = h.document().link_map();
-    assert_eq!(map.source_of(leg_part, body), Some(rail_part));
-    assert_eq!(map.receivers_of(rail_part).unwrap().iter().copied().collect::<Vec<_>>(), vec![leg_part]);
-    assert!(map.receivers_of(leg_part).is_none());
-
     let root = h.document().root();
+    let occurrence = |o| LinkSource { assembly: root, occurrence: o };
+    assert_eq!(map.source_of(leg_part, body), Some(rail_part));
+    assert_eq!(map.receivers_of(occurrence(rail)).unwrap().iter().copied().collect::<Vec<_>>(), vec![leg_part]);
+    assert!(map.receivers_of(occurrence(leg)).is_none());
+
     h.apply(Operation::Delete { context: root, entities: vec![rail] }).unwrap();
     assert_eq!(h.document().link_map(), LinkMap::default());
 }

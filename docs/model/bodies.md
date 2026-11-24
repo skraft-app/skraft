@@ -131,8 +131,9 @@ Link     { id, source: path, receiver: path, body, seat: T }
   file): renaming the part renames it; a body that lost its source keeps the last name.
 - **Told in the navigator** (`Document::link_map`): the icon of « Empreindre » and a chain on its
   row, whose tip names the source and says how to change it (no chain once its link is broken); a
-  chain on the source's row, whose tip names the
-  parts it shapes. The
+  chain on the row of each occurrence imprinting, whose tip names the parts it shapes — per
+  occurrence, not per part: of two copies of a source, the one whose link was broken or removed
+  shows none. The
   entity info gives « Lié à » in place of its name.
 - **Held by the assembly** `context`, by occurrence paths relative to it: placing that assembly
   again keeps its links, and a copy into another document follows the ids drawn afresh.

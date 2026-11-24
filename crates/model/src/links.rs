@@ -94,8 +94,9 @@ impl LinkStatus {
 pub struct LinkMap {
     /// Each linked body with a source, by part and id: the part it takes its shape from.
     sources: BTreeMap<(Id, Id), Id>,
-    /// Each part imprinting: the parts it shapes.
-    receivers: BTreeMap<Id, BTreeSet<Id>>,
+    /// Each occurrence imprinting: the parts it shapes. Per occurrence, not per part: of two
+    /// copies of a part, the one whose link was broken or removed shapes nothing more.
+    receivers: BTreeMap<LinkSource, BTreeSet<Id>>,
 }
 
 impl LinkMap {
@@ -104,9 +105,9 @@ impl LinkMap {
         self.sources.get(&(part, body)).copied()
     }
 
-    /// The parts `part` shapes.
-    pub fn receivers_of(&self, part: Id) -> Option<&BTreeSet<Id>> {
-        self.receivers.get(&part)
+    /// The parts the occurrence `source` shapes.
+    pub fn receivers_of(&self, source: LinkSource) -> Option<&BTreeSet<Id>> {
+        self.receivers.get(&source)
     }
 }
 
@@ -280,7 +281,9 @@ impl Document {
                 let Ok((from, to, _)) = self.link_pose(holder, l) else { continue };
                 if self.part(to).is_ok_and(|q| q.body(l.body).is_some_and(|b| q.def_of(b).source == BodySource::Linked)) {
                     map.sources.entry((to, l.body)).or_insert(from);
-                    map.receivers.entry(from).or_default().insert(to);
+                    if let Some(source) = self.link_source(holder, l) {
+                        map.receivers.entry(source).or_default().insert(to);
+                    }
                 }
             }
         }

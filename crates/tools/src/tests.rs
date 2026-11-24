@@ -8218,3 +8218,39 @@ fn a_direction_takes_the_ink_of_the_axis_it_runs_along() {
     assert_eq!(ink_along(axes, nearly, 1e-9), None);
     assert_eq!(ink_along(axes, nearly, 1e-3), Some(RED), "within a wider tolerance");
 }
+
+#[test]
+fn a_copy_whose_link_is_broken_no_longer_shows_it_imprints() {
+    use skraft_model::{BodySource, LinkSource};
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let shift = glam::DAffine3::from_translation;
+    let add = |e: &mut Editor, size, at| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement: shift(at), material: None }).unwrap().unwrap().created[0]
+    };
+    // A board and two copies of one dowel going into it.
+    let board = add(&mut e, DVec3::new(300.0, 100.0, 20.0), DVec3::ZERO);
+    let dowel = add(&mut e, DVec3::new(10.0, 10.0, 40.0), DVec3::new(50.0, 50.0, -10.0));
+    let part = |e: &Editor, id| e.document().resolve(&EntityPath::root(id)).unwrap().component;
+    let (board_part, dowel_part) = (part(&e, board), part(&e, dowel));
+    let place = Operation::PlaceOccurrence { context: root, component: dowel_part, transform: shift(DVec3::new(200.0, 50.0, -10.0)) };
+    let dowel2 = e.apply(place).unwrap().unwrap().created[0];
+    e.ask_imprint(vec![vec![dowel], vec![dowel2]], vec![vec![board]]);
+    let plan = e.take_imprint_plan().unwrap();
+    e.imprint(&plan, 0.0, 0.0);
+    let linked = |e: &Editor| {
+        let p = e.document().part(board_part).unwrap();
+        p.bodies.iter().filter(|b| p.def_of(b).source == BodySource::Linked).map(|b| b.id).collect::<Vec<_>>()
+    };
+    let shapes = |e: &Editor, o| e.link_map().receivers_of(LinkSource { assembly: root, occurrence: o }).is_some();
+    let bodies = linked(&e);
+    assert_eq!((bodies.len(), shapes(&e, dowel), shapes(&e, dowel2)), (2, true, true));
+    // One link broken: that copy shapes nothing more, the other still does.
+    let first = e.link_map().source_of(board_part, bodies[0]).map(|_| bodies[0]).unwrap();
+    e.apply(Operation::Unlink { part: board_part, bodies: vec![first] }).unwrap().unwrap();
+    assert_eq!([shapes(&e, dowel), shapes(&e, dowel2)].iter().filter(|s| **s).count(), 1);
+    // The other removed: neither does.
+    e.apply(Operation::RemoveLinked { bodies: vec![(board_part, bodies[1])] }).unwrap().unwrap();
+    assert!(!shapes(&e, dowel) && !shapes(&e, dowel2));
+}
