@@ -1632,6 +1632,7 @@ impl Editor {
             Command::SetOption { key, value } => self.set_tool_option(key, value),
             Command::RememberHeight(h) => self.last_height = Some(h),
             Command::Enter(id) => self.enter(id),
+            Command::SelectPath(path) => self.select_path(&path),
             Command::EditProfile(body) => {
                 self.set_tool(ToolKind::Profile);
                 self.tool = Box::new(tools::profile::ProfileTool::of_body(body));

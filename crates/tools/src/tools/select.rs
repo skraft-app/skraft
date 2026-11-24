@@ -106,6 +106,8 @@ impl Tool for SelectTool {
             // (docs/model/bodies.md).
             ToolInput::DoubleClick { px, .. } => match cx.profiled_body_at(*px) {
                 Some(body) => vec![Command::EditProfile(body)],
+                // On a linked body: its source, where it is changed (docs/model/bodies.md#links).
+                None if let Some(source) = cx.linked_source_at(*px) => vec![Command::SelectPath(source)],
                 // On a group of bodies: opened (docs/model/bodies.md#body-groups).
                 None if let Some(group) = cx.group_body_at(*px) => vec![Command::Enter(group)],
                 None => match cx.pick(*px).and_then(|h| cx.selectable(&h.path)) {

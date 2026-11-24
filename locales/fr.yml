@@ -1184,6 +1184,9 @@ tool:
       origin_tip: "Déplacer l'origine des axes"
   # Added to a hint while the tool copies.
   copying: "(copie)"
+  # A tool picking what it moves or copies, over a linked body (docs/model/bodies.md#links).
+  pick:
+    linked_body: "Usinage lié à %{source} : modifiez %{source}, ou rompez le lien\nDouble-clic avec Sélectionner : aller à %{source}"
   select:
     name: "Sélectionner"
     hint:
@@ -1457,6 +1460,8 @@ tool:
       pick: "Cliquer les arêtes à chanfreiner, d'un corps de la pièce ouverte ou d'une pièce · double-clic : toute la chaîne tangente · taper la distance"
   # Both, Arrondir and Chanfreiner.
   blend:
+    # Over a linked body's edge (docs/model/bodies.md#links).
+    linked_body: "Usinage lié à %{source} : ses arêtes suivent %{source}, rompez le lien pour les modifier"
     step:
       edges: "Choisir les arêtes"
     hint:

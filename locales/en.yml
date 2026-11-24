@@ -1075,6 +1075,8 @@ tool:
       origin: "Origin"
       origin_tip: "Move the origin of the axes"
   copying: "(copy)"
+  pick:
+    linked_body: "Machining linked to %{source}: change %{source}, or break the link\nDouble-click with Select: go to %{source}"
   select:
     name: "Select"
     hint:
@@ -1338,6 +1340,7 @@ tool:
       pick: "Click the edges to chamfer, of a body of the open part or of a part · double-click: the whole tangent chain · type the distance"
   # Both, Round and Chamfer.
   blend:
+    linked_body: "Machining linked to %{source}: its edges follow %{source}, break the link to change them"
     step:
       edges: "Pick the edges"
     hint:

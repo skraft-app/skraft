@@ -129,6 +129,11 @@ Link     { id, source: path, receiver: path, body, seat: T }
   « Rompre le lien », which makes it a plain body.
 - **A machining, always** (`−`): `+` and `∩` had no case; a file with another sign on it is
   refused.
+- **Told in the open part**: drawn as a machining with its edges dashed; Select takes it (its
+  clearance, its name, deleting it), and a double-click on it selects its source
+  (`Document::link_source_path`), where it is changed. The tools that pick what they move or copy
+  (`Picker`: Move, Rotate, the copy tools) do not take it, nor Round and Chamfer its edges:
+  over it, the cursor `select-refused` and a tip naming its source.
 - **Named after its source** (`Document::settle_link_names`, after each operation and on reading a
   file): renaming the part renames it; a body that lost its source keeps the last name.
 - **Told in the navigator** (`Document::link_map`): the icon of « Empreindre », and a chain on the

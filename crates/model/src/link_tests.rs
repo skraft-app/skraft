@@ -233,6 +233,26 @@ fn a_file_with_a_malformed_link_is_refused() {
 }
 
 #[test]
+fn a_linked_body_leads_to_its_source() {
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let body = link(&mut h, rail, leg);
+    let doc = h.document();
+    assert_eq!(doc.link_source_path(&[leg], body), Some(EntityPath::root(rail)));
+    assert_eq!(doc.link_source_path(&[rail], body), None);
+
+    // Held by an assembly below the model: the path from the model, through it.
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let root = h.document().root();
+    let cabinet = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, leg], name: None }).unwrap().created[0];
+    let assembly = h.document().root_assembly().occurrence(cabinet).unwrap().component;
+    h.apply(Operation::Imprint { context: assembly, pairs: vec![pair(rail, leg)], around: 0.0, deep: 0.0 }).unwrap();
+    let body = h.document().assembly(assembly).unwrap().links()[0].body;
+    assert_eq!(h.document().link_source_path(&[cabinet, leg], body), Some(EntityPath::new(vec![cabinet], rail)));
+}
+
+#[test]
 fn a_copied_assembly_keeps_its_links() {
     let mut h = History::new(Document::new());
     let (rail, leg) = rail_and_leg(&mut h);
