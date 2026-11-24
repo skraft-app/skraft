@@ -424,7 +424,7 @@ impl Viewport {
         let visuals = ui.visuals();
         let font = egui::FontId::monospace(11.0);
         let galley = ui.painter().layout_no_wrap(text.join("\n"), font, visuals.text_color());
-        let margin = 8.0;
+        let margin = crate::style::FLOAT_GAP;
         let pad = egui::vec2(8.0, 6.0);
         let size = galley.size() + 2.0 * pad;
         // Under the ribbon, beside the docked cards (as the last frame left them).

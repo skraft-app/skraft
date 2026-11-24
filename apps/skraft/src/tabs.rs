@@ -24,6 +24,11 @@ pub struct Tab {
 }
 
 impl Tab {
+    /// Its name, with a bullet when it is modified.
+    fn title(&self) -> String {
+        format!("{}{}", self.name, if self.modified { " •" } else { "" })
+    }
+
     /// Its hover text: its full name when cut short, where it is saved, whether it is modified.
     fn tip(&self, cut: bool) -> String {
         let mut lines = Vec::new();
@@ -164,6 +169,7 @@ pub fn show(
     let on_top = lifted.or(shown.filter(|i| drawn.contains(i)));
     let order: Vec<usize> = drawn.clone().filter(|&i| Some(i) != on_top).chain(on_top).collect();
     let dt = ui.input(|i| i.stable_dt).min(0.1);
+    let strip = Strip { id, tabs, shown, ground, reveal, visuals: &visuals, font, carrying };
 
     for i in order {
         let tab = &tabs[i];
@@ -173,101 +179,9 @@ pub fn show(
             Some((left, _)) if dragged => left,
             _ => rect.left() + slot as f32 * width,
         };
-        let key = id.with(("x", tab.id));
-        let x = match ui.data(|d| d.get_temp::<f32>(key)) {
-            Some(prev) if !dragged && (prev - target).abs() > 0.5 => {
-                ui.ctx().request_repaint();
-                prev + (target - prev) * (1.0 - (-dt * 18.0).exp())
-            }
-            _ => target,
-        };
-        ui.data_mut(|d| d.insert_temp(key, x));
+        let x = slide(ui, id.with(("x", tab.id)), target, dragged, dt);
         let r = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width - 2.0, HEIGHT));
-        let resp = ui.interact(r, id.with(("tab", i)), egui::Sense::click_and_drag());
-        crate::handles::publish(|| format!("tab:{i}"), r);
-        let active = shown == Some(i);
-        let hovered = resp.hovered();
-        let ink = match ground {
-            Some(g) if active && !dragged => g.ink,
-            _ => visuals.text_color(),
-        };
-        if dragged {
-            // Lifted: a shadow, the panels' fill and the accent's outline, unlike any tab at rest
-            // (the shown one opens onto the view).
-            let shadow = egui::epaint::Shadow { offset: [0, 3], blur: 12, spread: 0, color: egui::Color32::from_black_alpha(90) };
-            ui.painter().add(shadow.as_shape(r, 6.0));
-            ui.painter().rect(
-                r,
-                6.0,
-                visuals.window_fill,
-                egui::Stroke::new(1.5, visuals.selection.stroke.color),
-                egui::StrokeKind::Inside,
-            );
-        } else if let Some(g) = ground.filter(|_| active) {
-            open_tab(ui.painter(), egui::Rect::from_x_y_ranges(r.x_range(), r.top()..=g.bottom), g.fill);
-        } else {
-            let fill = if active {
-                visuals.widgets.active.weak_bg_fill
-            } else if hovered && !carrying {
-                visuals.widgets.hovered.weak_bg_fill
-            } else {
-                egui::Color32::TRANSPARENT
-            };
-            ui.painter().rect_filled(r, 6.0, fill);
-        }
-
-        // The × on the lit tab and the hovered one.
-        let close = egui::Rect::from_center_size(egui::pos2(r.right() - 12.0, r.center().y), egui::vec2(16.0, 16.0));
-        let show_close = active || hovered || ui.rect_contains_pointer(close);
-        let text_right = if show_close { close.left() - 4.0 } else { r.right() - 8.0 };
-        let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
-        let color = if active && ground.is_some() && !dragged {
-            ink
-        } else if active || dragged {
-            visuals.strong_text_color()
-        } else {
-            visuals.text_color()
-        };
-        // Its colour given to the text: the bar's style overrides the text's colour.
-        let galley = egui::WidgetText::from(egui::RichText::new(label).color(color)).into_galley(
-            ui,
-            Some(egui::TextWrapMode::Truncate),
-            (text_right - r.left() - 10.0).max(0.0),
-            font.clone(),
-        );
-        let cut = galley.elided;
-        ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
-        if show_close && !carrying {
-            let x = IconButton::new(icons::CLOSE, close.width(), 12.0).ink(ink).show_at(ui, close, id.with(("close", i)));
-            crate::handles::publish(|| format!("tab_close:{i}"), close);
-            if x.tip(t!("tabs.close_tip")).clicked() {
-                out.push(TabAction::Close(i));
-            }
-        }
-
-        let resp = if carrying { resp } else { resp.tip(tab.tip(cut)) };
-        if resp.clicked() {
-            out.push(TabAction::Select(i));
-        }
-        if resp.middle_clicked() {
-            out.push(TabAction::Close(i));
-        }
-        egui::Popup::context_menu(&resp).style(crate::style::menu).show(|ui| {
-            let mut row = |ui: &mut egui::Ui, row: MenuRow, label: String, enabled: bool| {
-                if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
-                    out.push(TabAction::Menu(i, row));
-                }
-            };
-            row(ui, MenuRow::Close, t!("tabs.close"), true);
-            row(ui, MenuRow::CloseOthers, t!("tabs.close_others"), n > 1);
-            row(ui, MenuRow::CloseAll, t!("tabs.close_all"), true);
-            if reveal {
-                ui.separator();
-                let label = if ui.ctx().os() == egui::os::OperatingSystem::Mac { t!("tabs.reveal_finder") } else { t!("tabs.reveal") };
-                row(ui, MenuRow::Reveal, label, tab.path.is_some());
-            }
-        });
-
+        let resp = draw_tab(ui, &strip, i, r, dragged, &mut out);
         if resp.drag_started_by(egui::PointerButton::Primary) {
             let origin = ui.input(|input| input.pointer.press_origin());
             let moved = origin.zip(pointer).map_or(egui::Vec2::ZERO, |(o, p)| p - o);
@@ -296,11 +210,16 @@ pub fn show(
         }
         None => ui.data_mut(|d| d.remove::<CarriedTab>(carried_key)),
     }
+    end_buttons(ui, &strip, rect.left() + count as f32 * width, rect.center().y, count < n, &mut out);
+    out
+}
 
-    // `+`, then » when tabs are left out.
-    let mut x = rect.left() + count as f32 * width;
-    let button = |x: f32| egui::Rect::from_min_size(egui::pos2(x, rect.center().y - BUTTON / 2.0), egui::vec2(BUTTON, BUTTON));
-    if count < n {
+/// After the tabs, from `x` on the line `y`: » listing them all when some are left out
+/// (`more`), then `+`.
+fn end_buttons(ui: &mut egui::Ui, s: &Strip<'_>, mut x: f32, y: f32, more: bool, out: &mut Vec<TabAction>) {
+    let Strip { id, tabs, shown, visuals, .. } = *s;
+    let button = |x: f32| egui::Rect::from_min_size(egui::pos2(x, y - BUTTON / 2.0), egui::vec2(BUTTON, BUTTON));
+    if more {
         let r = button(x);
         let mut chosen = None;
         let more = IconButton::new(icons::MORE, r.width(), 14.0)
@@ -309,8 +228,7 @@ pub fn show(
             .tip(t!("tabs.more_tip"));
         egui::Popup::menu(&more).style(crate::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
-                let label = format!("{}{}", tab.name, if tab.modified { " •" } else { "" });
-                if ui.selectable_label(shown == Some(i), label).clicked() {
+                if ui.selectable_label(shown == Some(i), tab.title()).clicked() {
                     chosen = Some(i);
                 }
             }
@@ -330,7 +248,131 @@ pub fn show(
     {
         out.push(TabAction::New);
     }
-    out
+}
+
+/// What the tabs drawn in one frame share.
+struct Strip<'a> {
+    id: egui::Id,
+    tabs: &'a [Tab],
+    shown: Option<usize>,
+    ground: Option<Ground>,
+    reveal: bool,
+    visuals: &'a egui::Visuals,
+    font: egui::FontId,
+    /// A tab is carried: the others neither light up nor show their × or tip.
+    carrying: bool,
+}
+
+/// A tab's left edge on its way to `target`, kept under `key` from one frame to the next;
+/// the dragged one follows the pointer at once.
+fn slide(ui: &egui::Ui, key: egui::Id, target: f32, dragged: bool, dt: f32) -> f32 {
+    let x = match ui.data(|d| d.get_temp::<f32>(key)) {
+        Some(prev) if !dragged && (prev - target).abs() > 0.5 => {
+            ui.ctx().request_repaint();
+            prev + (target - prev) * (1.0 - (-dt * 18.0).exp())
+        }
+        _ => target,
+    };
+    ui.data_mut(|d| d.insert_temp(key, x));
+    x
+}
+
+/// Draws the tab `i` in `r`: its ground, its name, its ×, its tip and menu; what is clicked
+/// goes to `out`.
+fn draw_tab(ui: &mut egui::Ui, s: &Strip<'_>, i: usize, r: egui::Rect, dragged: bool, out: &mut Vec<TabAction>) -> egui::Response {
+    let Strip { id, tabs, shown, ground, carrying, visuals, .. } = *s;
+    let tab = &tabs[i];
+    let resp = ui.interact(r, id.with(("tab", i)), egui::Sense::click_and_drag());
+    crate::handles::publish(|| format!("tab:{i}"), r);
+    let active = shown == Some(i);
+    let hovered = resp.hovered();
+    let ink = match ground {
+        Some(g) if active && !dragged => g.ink,
+        _ => visuals.text_color(),
+    };
+    tab_ground(ui, s, r, active, hovered, dragged);
+
+    // The × on the lit tab and the hovered one.
+    let close = egui::Rect::from_center_size(egui::pos2(r.right() - 12.0, r.center().y), egui::vec2(16.0, 16.0));
+    let show_close = active || hovered || ui.rect_contains_pointer(close);
+    let text_right = if show_close { close.left() - 4.0 } else { r.right() - 8.0 };
+    let color = if active && ground.is_some() && !dragged {
+        ink
+    } else if active || dragged {
+        visuals.strong_text_color()
+    } else {
+        visuals.text_color()
+    };
+    // Its colour given to the text: the bar's style overrides the text's colour.
+    let galley = egui::WidgetText::from(egui::RichText::new(tab.title()).color(color)).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (text_right - r.left() - 10.0).max(0.0),
+        s.font.clone(),
+    );
+    let cut = galley.elided;
+    ui.painter().galley(egui::pos2(r.left() + 10.0, r.center().y - galley.size().y / 2.0), galley, color);
+    if show_close && !carrying {
+        let x = IconButton::new(icons::CLOSE, close.width(), 12.0).ink(ink).show_at(ui, close, id.with(("close", i)));
+        crate::handles::publish(|| format!("tab_close:{i}"), close);
+        if x.tip(t!("tabs.close_tip")).clicked() {
+            out.push(TabAction::Close(i));
+        }
+    }
+
+    let resp = if carrying { resp } else { resp.tip(tab.tip(cut)) };
+    if resp.clicked() {
+        out.push(TabAction::Select(i));
+    }
+    if resp.middle_clicked() {
+        out.push(TabAction::Close(i));
+    }
+    tab_menu(&resp, s, i, out);
+    resp
+}
+
+/// A tab's ground: lifted when dragged, opening onto the view when shown, else lit while
+/// hovered.
+fn tab_ground(ui: &egui::Ui, s: &Strip<'_>, r: egui::Rect, active: bool, hovered: bool, dragged: bool) {
+    let visuals = s.visuals;
+    if dragged {
+        // Lifted: a shadow, the panels' fill and the accent's outline, unlike any tab at rest
+        // (the shown one opens onto the view).
+        let shadow = egui::epaint::Shadow { offset: [0, 3], blur: 12, spread: 0, color: egui::Color32::from_black_alpha(90) };
+        ui.painter().add(shadow.as_shape(r, 6.0));
+        ui.painter().rect(r, 6.0, visuals.window_fill, egui::Stroke::new(1.5, visuals.selection.stroke.color), egui::StrokeKind::Inside);
+    } else if let Some(g) = s.ground.filter(|_| active) {
+        open_tab(ui.painter(), egui::Rect::from_x_y_ranges(r.x_range(), r.top()..=g.bottom), g.fill);
+    } else {
+        let fill = if active {
+            visuals.widgets.active.weak_bg_fill
+        } else if hovered && !s.carrying {
+            visuals.widgets.hovered.weak_bg_fill
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(r, 6.0, fill);
+    }
+}
+
+/// The tab `i`'s right-click menu.
+fn tab_menu(resp: &egui::Response, s: &Strip<'_>, i: usize, out: &mut Vec<TabAction>) {
+    let tab = &s.tabs[i];
+    egui::Popup::context_menu(resp).style(crate::style::menu).show(|ui| {
+        let mut row = |ui: &mut egui::Ui, row: MenuRow, label: String, enabled: bool| {
+            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                out.push(TabAction::Menu(i, row));
+            }
+        };
+        row(ui, MenuRow::Close, t!("tabs.close"), true);
+        row(ui, MenuRow::CloseOthers, t!("tabs.close_others"), s.tabs.len() > 1);
+        row(ui, MenuRow::CloseAll, t!("tabs.close_all"), true);
+        if s.reveal {
+            ui.separator();
+            let label = if ui.ctx().os() == egui::os::OperatingSystem::Mac { t!("tabs.reveal_finder") } else { t!("tabs.reveal") };
+            row(ui, MenuRow::Reveal, label, tab.path.is_some());
+        }
+    });
 }
 
 /// The shown tab, `rect` down to the bar's edge, filled with `fill`: rounded at the top, and

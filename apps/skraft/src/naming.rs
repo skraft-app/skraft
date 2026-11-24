@@ -43,11 +43,7 @@ impl Dialog {
     pub fn show(&mut self, ctx: &egui::Context, refusal: impl Fn(&str) -> Option<String>) -> Answer {
         let mut answer = Answer::Open;
         let why = refusal(&self.text);
-        let modal = egui::Modal::new(egui::Id::unique("naming")).frame(crate::app::modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(340.0);
-            ui.spacing_mut().button_padding = crate::app::MODAL_BUTTON_PADDING;
-            ui.heading(&self.naming.title);
-            ui.add_space(8.0);
+        let modal = crate::app::modal(ctx, egui::Id::unique("naming"), 340.0, self.naming.title.clone(), |ui| {
             let id = egui::Id::unique("naming.field");
             // Its own margin: not the modal's roomy button padding, which it would take.
             let edit = egui::TextEdit::singleline(&mut self.text).id(id).desired_width(f32::INFINITY).margin(egui::vec2(6.0, 5.0));

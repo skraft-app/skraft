@@ -184,24 +184,21 @@ impl ViewPicker {
         let typing = ctx.memory(|m| m.focused().is_some());
         let revision = e.history().revision();
         let mut answer = Answer::Open;
-        let modal = egui::Modal::new(egui::Id::unique("view_picker")).frame(crate::app::modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(WIDTH);
-            ui.spacing_mut().button_padding = crate::app::MODAL_BUTTON_PADDING;
-            ui.heading(match self.purpose {
-                Purpose::New => t!("drawing.picker.title_new"),
-                Purpose::Change(_) => t!("drawing.picker.title_change"),
-            });
-            ui.add_space(8.0);
+        let title = match self.purpose {
+            Purpose::New => t!("drawing.picker.title_new"),
+            Purpose::Change(_) => t!("drawing.picker.title_change"),
+        };
+        let modal = crate::app::modal(ctx, egui::Id::unique("view_picker"), WIDTH, title, |ui| {
             let salt = ui.make_persistent_id("view_picker_search");
             crate::search::field(ui, salt, "view_picker", &mut self.search, |_, _| {});
             ui.add_space(6.0);
-            if self.rows.as_ref().is_none_or(|(r, s, _)| *r != revision || *s != self.search) {
+            let rows = crate::search::listed(&mut self.rows, revision, &self.search, || {
                 let mut rows = Vec::new();
                 walk(doc, doc.root(), &self.unfolded, &Matcher::new(&self.search), &mut Vec::new(), &mut rows);
-                self.rows = Some((revision, self.search.clone(), rows));
-            }
+                rows
+            })
+            .clone();
             let searching = !self.search.trim().is_empty();
-            let rows = self.rows.as_ref().map_or_else(Vec::new, |(_, _, r)| r.clone());
             // The whole model, above the tree.
             let (whole, ()) = tree_row(ui, LIST_ROW, self.checked.is_empty(), false, false, |ui| {
                 paint_tick(ui, if self.checked.is_empty() { Tick::Yes } else { Tick::No });

@@ -267,11 +267,7 @@ impl SkraftApp {
             return;
         }
         let mut cancel = false;
-        let modal = egui::Modal::new(egui::Id::unique("pdf_waiting")).frame(modal_frame(ctx)).show(ctx, |ui| {
-            ui.set_width(380.0);
-            ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
-            ui.heading(t!("loading.pdf"));
-            ui.add_space(8.0);
+        let modal = modal(ctx, egui::Id::unique("pdf_waiting"), 380.0, t!("loading.pdf"), |ui| {
             ui.horizontal(|ui| {
                 ui.label(t!("loading.textures"));
                 let fraction = ready as f32 / total as f32;
