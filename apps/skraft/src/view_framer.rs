@@ -267,7 +267,7 @@ impl Stage {
     }
 
     /// A point on screen, in paper millimetres from the point the subject hangs on.
-    fn to_paper(&self, p: egui::Pos2) -> DVec2 {
+    fn to_paper(self, p: egui::Pos2) -> DVec2 {
         let c = self.window.center();
         self.mid + DVec2::new((p.x - c.x) as f64, (c.y - p.y) as f64) / self.per_mm
     }
@@ -551,7 +551,7 @@ impl ViewFramer {
     }
 
     /// To perspective, its frame the one the view has now, the subject filling it.
-    fn to_perspective(&mut self) {
+    fn switch_to_perspective(&mut self) {
         let (frame, lens) = self.look.frame();
         if lens.is_some() {
             return;
@@ -567,7 +567,7 @@ impl ViewFramer {
     }
 
     /// Back to parallel, with the frame it had before perspective; else the same frame, centred.
-    fn to_parallel(&mut self) {
+    fn switch_to_parallel(&mut self) {
         let frame = self.look.frame().0;
         let size = self.crop.size();
         self.look = Look::Camera { forward: frame.forward, up: frame.up, perspective: None };
@@ -733,13 +733,13 @@ pub fn ui(
                     let parallel = ui.selectable_label(lens.is_none(), t!("drawing.framer.parallel"));
                     crate::handles::publish(|| "view_framer.parallel".into(), parallel.rect);
                     if parallel.clicked() && lens.is_some() {
-                        f.to_parallel();
+                        f.switch_to_parallel();
                     }
                     let label = egui::Button::selectable(lens.is_some(), t!("drawing.framer.perspective"));
                     let perspective = ui.add_enabled(!f.projected, label).on_disabled_hover_text(t!("drawing.framer.has_projections"));
                     crate::handles::publish_enabled(|| "view_framer.perspective".into(), perspective.rect, !f.projected);
                     if perspective.clicked() {
-                        f.to_perspective();
+                        f.switch_to_perspective();
                     }
                 });
                 ui.horizontal(|ui| {
@@ -913,7 +913,7 @@ mod tests {
         assert!((in_frame(&f) - before).length() < 1e-9);
         // In perspective: its place seen from the eye.
         let mut f = cube_framer(Look::Standard(Direction::Front));
-        f.to_perspective();
+        f.switch_to_perspective();
         f.pivot = Some(pivot);
         let seen = |f: &ViewFramer| {
             let (frame, lens) = f.look.frame();

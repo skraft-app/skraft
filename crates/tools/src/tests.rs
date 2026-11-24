@@ -6627,7 +6627,7 @@ fn a_part_selected_at_any_depth_is_made_unique_alone() {
     parts_scope(&mut e);
     click(&mut e, DVec3::new(50.0, 50.0, 50.0));
     let path = EntityPath::new(vec![g], a);
-    assert_eq!(e.deep_selection(), [path.clone()]);
+    assert_eq!(e.deep_selection(), std::slice::from_ref(&path));
     assert!(e.selection().is_empty() && e.can_make_unique());
     e.take_notices();
     let revision = e.history().revision();
