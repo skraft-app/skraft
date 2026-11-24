@@ -62,7 +62,7 @@ impl SkraftApp {
             if plan.link_count() == 0 {
                 self.toasts.push(Note::info(t!("error.model.nothing_to_imprint")));
             } else if self.imprint.is_none() {
-                self.imprint = Some(crate::dialogs::imprint::Dialog::new(d.id, d.editor.document(), plan));
+                self.imprint = Some(crate::workspaces::modelling::dialogs::imprint::Dialog::new(d.id, d.editor.document(), plan));
             }
         }
         let Some(dialog) = &mut self.imprint else { return };
@@ -72,9 +72,9 @@ impl SkraftApp {
         };
         let units = d.editor.document().settings().units.clone();
         match dialog.show(ctx, &units) {
-            crate::dialogs::imprint::Answer::Open => {}
-            crate::dialogs::imprint::Answer::Cancel => self.imprint = None,
-            crate::dialogs::imprint::Answer::Imprint(around, deep) => {
+            crate::workspaces::modelling::dialogs::imprint::Answer::Open => {}
+            crate::workspaces::modelling::dialogs::imprint::Answer::Cancel => self.imprint = None,
+            crate::workspaces::modelling::dialogs::imprint::Answer::Imprint(around, deep) => {
                 d.editor.imprint(&dialog.plan, around, deep);
                 self.imprint = None;
             }

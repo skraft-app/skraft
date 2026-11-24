@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/editor/quick.rs, apps/skraft/src/window/quick.rs, crates/tools/src/editor/naming.rs, apps/skraft/src/workspaces/common/dialogs/naming.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/tools/shapes.rs]
+code: [crates/tools/src/editor/quick.rs, apps/skraft/src/workspaces/modelling/quick.rs, crates/tools/src/editor/naming.rs, apps/skraft/src/workspaces/common/dialogs/naming.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/tools/shapes.rs]
 ---
 
 # Quick tools after a creation, naming what was just made
@@ -84,7 +84,7 @@ while the kernel works or the tool is busy, and let go when the tool gets busy, 
 a tool chosen (`Editor::dismiss_quick_card`). `start_quick_tool` takes it: what it was offered on
 becomes the selection.
 
-In the app (`apps/skraft/src/window/quick.rs`): an `egui::Area` centred on `quick_card()`, kept inside
+In the app (`apps/skraft/src/workspaces/modelling/quick.rs`): an `egui::Area` centred on `quick_card()`, kept inside
 the view, drawn after the docked cards; a window frame at 35 % opacity at rest (its
 border and shadow faded alike, the icons not) and 92 % under the pointer (`style::translucent`,
 hover of the last frame kept in egui's temp data), icon buttons 34 pt (icon 22, the name in the tip), then a

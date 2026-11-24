@@ -632,7 +632,7 @@ impl SkraftApp {
         // The quick tools' card, at the centre of what was just made (docs/tools/quick-tools.md).
         if let Some(at) = doc.editor.quick_card() {
             let at = view.min + egui::vec2(at.x as f32, at.y as f32);
-            crate::window::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
+            crate::workspaces::modelling::quick::card(ctx, view, at, &self.prefs.quick_tools, views, actions);
         }
         // What zoom extents frames: below the ribbon (and the options), beside the side panels,
         // in viewport pixels.

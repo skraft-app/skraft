@@ -52,7 +52,7 @@ pub struct SkraftApp {
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Imprimer » (decision 0055).
-    imprint: Option<crate::dialogs::imprint::Dialog>,
+    imprint: Option<crate::workspaces::modelling::dialogs::imprint::Dialog>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
