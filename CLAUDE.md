@@ -26,6 +26,10 @@ A simple, intuitive 3D modeller on real solids: exact B-reps computed by the Sol
 kernel in a web worker), `apps/import` (a `.skp` or STEP file to a `.skraft` file),
 `apps/skraft-mcp` (MCP server over the control protocol).
 
+`apps/skraft/src`: the app's layer (`kit/`, `window/`, `dialogs/`, `system/`) and the
+workspaces' (`workspaces/common/`, then one folder per workspace, each with `cards/` and
+`dialogs/`); where a new file goes: [docs/ui/interface.md](docs/ui/interface.md#the-apps-code).
+
 ## Conventions
 
 - **Docs and code comments in English.** User-facing texts only in the catalogs,

@@ -150,6 +150,31 @@ propriété » adds `user.property_<n>`, a text. Rows are laid at widths fixed f
 room (`Rows`), not in a `Grid`: a label wider than planned would widen the card at every
 relayout.
 
+## The app's code
+
+`apps/skraft/src` holds two layers.
+
+- **The app's**, which knows no workspace: `kit/` (the parts every screen builds with, knowing
+  nothing of the document: [Widgets](#widgets)), `window/` (the window's frame: title bar, file
+  tabs, ribbon, toasts, the docked columns), `dialogs/` (the app's own boxes: About, updates,
+  the journal, the navigation preferences), `system/` (files, the platform, the process), and
+  at the root the app itself (`app/`), its commands and actions (`commands.rs`), the documents
+  open (`docs.rs`), the preferences.
+- **The workspaces'**: `workspaces.rs` (their definitions) and `workspaces/`, holding `common/`,
+  what every workspace may show, and one folder per workspace (`modelling/`, `parts/`,
+  `drawing/`). Every one of these folders, `common/` included, has the same shape: `cards/`,
+  `dialogs/`, then its stage's own files (`common/viewport`, the 3D view and what floats over
+  it; `drawing/sheet`).
+
+An element goes to the most specific folder covering all its users, and moves down to
+`common/` when a second workspace needs it. What belongs to the document (the materials, the
+components, the model's tree, a part's properties) is in `common/`, whatever workspace shows it
+today. A workspace depends on `common/` and on the app's layer, never on another workspace; a
+workspace's folder is born when it has code of its own.
+
+*Why:* workspaces will come that share cards (the parts list may need the materials); one shape
+at every level tells where a card or a box lives.
+
 ## Widgets
 
 An element of the interface is built once, where every screen finds it: a screen takes its
@@ -189,11 +214,13 @@ Elsewhere:
   (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
   sections and grids, the hover texts (`Tip`).
 - **`app::modal`**: a modal box (its frame, its buttons' padding, its title).
+- **The shared slots**: the « Navigateur » and « Infos sur l'entité » cards take their content
+  from the workspace shown (`workspaces::common::cards`, `workspaces::drawing::cards`).
 - **`ribbon::tab_strip`**: a band of tabs (the ribbon's, the Preferences', the journal's, the
   « Composants » card's).
 - **`search::field`** and **`search::listed`**: a search line, and what it lets through as
-  last listed; **`catalog`**: the cards listing definitions as tiles or rows
-  ([Catalog cards](catalog.md)).
+  last listed; **`workspaces::common::cards::catalog`**: the cards listing definitions as
+  tiles or rows ([Catalog cards](catalog.md)).
 - **`overlay.rs`**: what is drawn over the 3D view and the sheet, dashes, the selection
   rectangle, grips ([Screen overlays](../render/drawer.md#screen-overlays)).
 
