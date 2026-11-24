@@ -31,6 +31,9 @@ pub struct BlendTool {
     /// The radius or the distance (mm).
     size: f64,
     hover: Option<EdgeHit>,
+    /// Why the edge under the cursor is not taken: a linked body's, its source named
+    /// (docs/model/bodies.md#links).
+    refused: Option<String>,
     /// The edges picked, all of one body or one part (in a node opened, of its children's
     /// result).
     picks: Vec<EdgeHit>,
@@ -53,7 +56,17 @@ const SIZE: f64 = 2.0;
 
 impl BlendTool {
     pub fn new(blend: Blend) -> Self {
-        BlendTool { blend, size: SIZE, hover: None, picks: Vec::new(), loaded: None, changed: false, raw_loaded: false, size_typed: false }
+        BlendTool {
+            blend,
+            size: SIZE,
+            hover: None,
+            refused: None,
+            picks: Vec::new(),
+            loaded: None,
+            changed: false,
+            raw_loaded: false,
+            size_typed: false,
+        }
     }
 
     /// The body node open (the group open is one), a round's or a chamfer's: the path to what
@@ -155,8 +168,33 @@ impl BlendTool {
             return on.at(cx.scene, cx.camera, cx.size, px, &|o| Self::keeps(cx, o));
         }
         let first = self.picks.first().filter(|_| self.loaded.is_none());
-        let keep = |o: &Owner<'_>| Self::keeps(cx, o) && first.is_none_or(|f| *o.path == f.path && o.piece == f.piece);
+        let keep = |o: &Owner<'_>| {
+            Self::keeps(cx, o) && Self::linked(cx, o).is_none() && first.is_none_or(|f| *o.path == f.path && o.piece == f.piece)
+        };
         edge_at(cx.scene, cx.camera, cx.size, px, &keep, &|o| Self::keeps(cx, o))
+    }
+
+    /// The source's name, if `o` is a linked body of the open part: its edges follow their
+    /// source, never rounded (docs/model/bodies.md#links).
+    fn linked(cx: &Cx<'_>, o: &Owner<'_>) -> Option<String> {
+        match o.piece {
+            Piece::Blank(id) | Piece::Tool(id) => cx.linked_body(id),
+            _ => None,
+        }
+    }
+
+    /// Why no edge is taken at `px`: the linked body whose edge is there, its source named.
+    fn refusal(cx: &Cx<'_>, px: glam::DVec2) -> Option<String> {
+        if Self::node(cx).is_some() {
+            return None;
+        }
+        let mut name = None;
+        let keep = |o: &Owner<'_>| Self::keeps(cx, o) && Self::linked(cx, o).is_some();
+        let hit = edge_at(cx.scene, cx.camera, cx.size, px, &keep, &|o| Self::keeps(cx, o))?;
+        if let Piece::Blank(id) | Piece::Tool(id) = hit.piece {
+            name = cx.linked_body(id);
+        }
+        Some(t!("tool.blend.linked_body", source = name?))
     }
 
     /// The edges running on from `e` tangentially, among those it was picked from.
@@ -271,6 +309,7 @@ impl Tool for BlendTool {
                     self.size = Self::size(cx);
                 }
                 self.hover = self.edge(cx, *px);
+                self.refused = if self.hover.is_none() { Self::refusal(cx, *px) } else { None };
             }
             ToolInput::Click { px, .. } => {
                 if let Some(e) = self.edge(cx, *px) {
@@ -352,7 +391,12 @@ impl Tool for BlendTool {
             }
         }
         preview.blend = self.operation(cx);
+        preview.tip = self.refused.clone();
         preview
+    }
+
+    fn cursor(&self, _: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        self.refused.as_ref().map(|_| crate::tools::Cursor::Refused)
     }
 
     fn status(&self) -> String {
@@ -426,6 +470,7 @@ impl Tool for BlendTool {
 
     fn leave(&mut self) {
         self.hover = None;
+        self.refused = None;
     }
 
     /// Every edge let go; a node's, its own taken again (its changes undone): it stays the one

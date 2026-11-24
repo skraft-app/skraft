@@ -995,7 +995,7 @@ panel:
     rename: "Renommer"
     rename_instance: "Renommer l'exemplaire"
     rename_definition: "Renommer la définition"
-    # A body's sign toggle, at the right end of its row.
+    # A body's sign toggle, at the right end of its row (a linked body's tip is `linked`).
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
     sign_negative: "Usinage : enlève de la matière à la pièce. Cliquer pour en faire une intersection"
     sign_intersect: "Intersection : la pièce ne garde que ce qui est dedans. Cliquer pour en faire un brut"
@@ -1184,6 +1184,9 @@ tool:
       origin_tip: "Déplacer l'origine des axes"
   # Added to a hint while the tool copies.
   copying: "(copie)"
+  # A tool picking what it moves or copies, over a linked body (docs/model/bodies.md#links).
+  pick:
+    linked_body: "Usinage lié à %{source} : modifiez %{source}, ou rompez le lien\nDouble-clic avec Sélectionner : aller à %{source}"
   select:
     name: "Sélectionner"
     hint:
@@ -1457,6 +1460,8 @@ tool:
       pick: "Cliquer les arêtes à chanfreiner, d'un corps de la pièce ouverte ou d'une pièce · double-clic : toute la chaîne tangente · taper la distance"
   # Both, Arrondir and Chanfreiner.
   blend:
+    # Over a linked body's edge (docs/model/bodies.md#links).
+    linked_body: "Usinage lié à %{source} : ses arêtes suivent %{source}, rompez le lien pour les modifier"
     step:
       edges: "Choisir les arêtes"
     hint:

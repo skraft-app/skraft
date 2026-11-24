@@ -43,8 +43,10 @@ and [Body groups](bodies.md#body-groups).
 - **The open part shows its bodies**, always ([Edit levels](bodies.md#edit-levels)): **the
   blanks as ghosts** (very light faces, sharp edges and silhouettes, drawn after the opaque
   pass, depth tested without writing) and **the machinings as ghosts too**, red and a little
-  more opaque, the intersections (∩ bodies) likewise in a blue-green of their own; one that failed
-  stays opaque, in its own colour
+  more opaque, the intersections (∩ bodies) likewise in a blue-green of their own, a linked
+  machining with its edges and silhouettes dashed (`Look::LinkedTool`, `Batch::dashed_edges`:
+  laid along the edge in model units, a power of two near ten half widths on screen; a
+  silhouette's on screen); one that failed stays opaque, in its own colour
   ([The interface of bodies](bodies.md#the-interface-of-bodies)). The machinings are picked
   first. Once the part is closed, its shape alone is seen.
 - **How**: the display scene meshes the recipe of the part shown — one mesh per body

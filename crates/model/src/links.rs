@@ -8,7 +8,7 @@ use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_kernel::Solid;
 
-use crate::document::{BodySource, ComponentKind, Document, Id};
+use crate::document::{BodySource, ComponentKind, Document, EntityPath, Id};
 use crate::ops::{Outcome, Solver};
 use crate::{Error, FastMap, FastSet, Refusal, Result, Warning};
 
@@ -213,6 +213,25 @@ impl Document {
         let (assembly, _) = self.assembly_through(holder, above)?;
         self.assembly(assembly).ok()?.occurrence(*last)?;
         Some(LinkSource { assembly, occurrence: *last })
+    }
+
+    /// The source occurrence of the linked body `body` of the part `receiver` leads to (occurrences
+    /// from the model), by its path from the model: the link held lowest above the receiver.
+    /// `None` without one (the body not linked, its link gone or broken).
+    pub fn link_source_path(&self, receiver: &[Id], body: Id) -> Option<EntityPath> {
+        // The assembly each prefix of `receiver` leads to, the model first.
+        let mut holders = vec![self.root()];
+        for &i in &receiver[..receiver.len().saturating_sub(1)] {
+            let next = self.assembly(*holders.last()?).ok()?.occurrence(i)?.component;
+            holders.push(next);
+        }
+        holders.iter().enumerate().rev().find_map(|(k, &holder)| {
+            let a = self.assembly(holder).ok()?;
+            let l = a.links().iter().find(|l| l.body == body && l.receiver == receiver[k..])?;
+            self.link_source(holder, l)?;
+            let (last, above) = l.source.split_last()?;
+            Some(EntityPath::new(receiver[..k].iter().chain(above).copied().collect(), *last))
+        })
     }
 
     /// The assembly `path` leads to from `holder`, and its axes in `holder`'s.

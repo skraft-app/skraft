@@ -8028,6 +8028,62 @@ fn the_move_tool_carries_a_linked_body_in_one_step() {
 }
 
 #[test]
+fn a_linked_body_is_refused_by_move_and_leads_to_its_source() {
+    use skraft_model::{Scope, Sign};
+
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let part = |e: &mut Editor, size: DVec3, at: DVec3| {
+        let primitive = Primitive::Box { origin: DVec3::ZERO, size };
+        let placement = glam::DAffine3::from_translation(at);
+        e.apply(Operation::AddPrimitive { context: root, primitive, placement, material: None }).unwrap().unwrap().created[0]
+    };
+    let rail = part(&mut e, DVec3::new(100.0, 20.0, 20.0), DVec3::ZERO);
+    let leg = part(&mut e, DVec3::new(40.0, 40.0, 100.0), DVec3::new(100.0, -10.0, -40.0));
+    let primitive = Primitive::Box { origin: DVec3::new(100.0, 5.0, 5.0), size: DVec3::splat(10.0) };
+    let add = Operation::AddBody {
+        target: EntityPath::root(rail),
+        primitive,
+        placement: glam::DAffine3::IDENTITY,
+        sign: Sign::Positive,
+        scope: Scope::All,
+    };
+    e.apply(add).unwrap().unwrap();
+    let pairs = vec![skraft_model::ImprintPair { source: vec![rail], receiver: vec![leg] }];
+    e.apply(Operation::Imprint { context: root, pairs, around: 0.0, deep: 0.0 }).unwrap().unwrap();
+    e.enter(leg);
+    assert_eq!(e.open_part(), Some(leg));
+    let mortise = DVec3::new(105.0, 10.0, 15.0);
+
+    // Move does not take it: the cursor and the tip say so, a click takes nothing.
+    e.set_tool(ToolKind::Move);
+    hover(&mut e, mortise);
+    assert_eq!(e.tool_cursor(), Some(Cursor::Refused));
+    let doc = e.document();
+    let name = doc.component(doc.root_assembly().occurrence(rail).unwrap().component).unwrap().name.clone();
+    assert!(e.preview().tip.is_some_and(|t| t.contains(&name)), "{:?}", e.preview().tip);
+    click(&mut e, mortise);
+    assert!(e.selection().is_empty());
+
+    // Round neither, on its edges (seen close, the leg's own out of reach).
+    let size = e.viewport_size();
+    let near = Some((DVec3::new(90.0, -20.0, -50.0), DVec3::new(150.0, 40.0, 70.0)));
+    e.camera.set_standard_view(StandardView::Top, glam::DMat3::IDENTITY, near, crate::camera::ViewArea::full(size));
+    e.set_tool(ToolKind::Round);
+    hover(&mut e, DVec3::new(105.0, 5.0, 15.0));
+    assert_eq!(e.tool_cursor(), Some(Cursor::Refused));
+    assert!(e.preview().tip.is_some_and(|t| t.contains(&name)), "{:?}", e.preview().tip);
+
+    // Select does, and a double-click on it selects its source, the part closed.
+    e.set_tool(ToolKind::Select);
+    hover(&mut e, mortise);
+    assert_ne!(e.tool_cursor(), Some(Cursor::Refused));
+    e.input(ToolInput::DoubleClick { px: px(&e, mortise), mods: Modifiers::default() });
+    assert_eq!(e.open_part(), None);
+    assert_eq!(e.selection(), [rail]);
+}
+
+#[test]
 fn two_parts_overlapping_in_one_part_get_a_toast_once_checked() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();

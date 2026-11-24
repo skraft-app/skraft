@@ -44,6 +44,7 @@ fn source(cursor: Cursor) -> (&'static [u8], &'static str, [u32; 2]) {
         Cursor::PaintPart => svg!("paint-part", 2, 15),
         Cursor::PaintFace => svg!("paint-face-1", 2, 15),
         Cursor::Picker => svg!("picker", 0, 0),
+        Cursor::Refused => svg!("select-refused", 0, 0),
     }
 }
 

@@ -35,6 +35,8 @@ pub(super) struct Picker {
     pub hovered_part: Option<EntityPath>,
     /// The guide a click would take at any depth (« Parts »).
     pub hovered_guide: Option<GuidePath>,
+    /// Why what is under the cursor is not taken (a linked body: its source's name told).
+    refused: Option<String>,
     /// What was taken is let go (the copies made, Esc): the selection, still drawn, is not the
     /// target until something is picked again (the copy tools' OCL restart).
     dropped: bool,
@@ -51,6 +53,7 @@ impl Default for Picker {
             hovered: None,
             hovered_part: None,
             hovered_guide: None,
+            refused: None,
             dropped: false,
             keep: all,
             guides: true,
@@ -64,16 +67,28 @@ impl Picker {
         Picker { keep, guides: false, ..Default::default() }
     }
 
+    /// What the tool takes of `ids`: what `keep` leaves, without the linked bodies, which follow
+    /// their sources (docs/model/bodies.md#links).
+    fn kept(&self, cx: &Cx<'_>, ids: Vec<Id>) -> Vec<Id> {
+        (self.keep)(cx, ids).into_iter().filter(|id| cx.linked_body(*id).is_none()).collect()
+    }
+
     /// The entity a click at `px` takes, if the tool takes it.
     fn under(&self, cx: &Cx<'_>, px: DVec2) -> Option<Id> {
         // A guide near the cursor not taken: the solid under it.
         let solid = || cx.pick(px).and_then(|h| cx.selectable(&h.path));
         let ids: Vec<Id> = cx.entity_at(px).into_iter().chain(solid()).collect();
-        (self.keep)(cx, ids).first().copied()
+        self.kept(cx, ids).first().copied()
+    }
+
+    /// Why a click at `px` takes nothing: the linked body under it, its source named.
+    fn refusal(&self, cx: &Cx<'_>, px: DVec2) -> Option<String> {
+        let name = cx.entity_at(px).and_then(|id| cx.linked_body(id))?;
+        Some(t!("tool.pick.linked_body", source = name))
     }
 
     fn hits(&self, cx: &Cx<'_>, m: &Marquee) -> Vec<Id> {
-        (self.keep)(cx, marquee_hits(cx, m.from, m.to, m.crossing))
+        self.kept(cx, marquee_hits(cx, m.from, m.to, m.crossing))
     }
 
     /// The guide at any depth a click at `px` takes under « Parts », if the tool takes guides.
@@ -115,7 +130,7 @@ impl Picker {
     /// not being gathered)?
     pub fn taken(&self, cx: &Cx<'_>) -> bool {
         !self.gathering
-            && (!cx.deep.is_empty() || (self.guides && !cx.deep_guides.is_empty()) || !(self.keep)(cx, cx.selection.to_vec()).is_empty())
+            && (!cx.deep.is_empty() || (self.guides && !cx.deep_guides.is_empty()) || !self.kept(cx, cx.selection.to_vec()).is_empty())
     }
 
     /// The parts selected at any depth the tool acts on (« Parts »).
@@ -130,7 +145,7 @@ impl Picker {
 
     /// The selection the tool acts on, as it may take it.
     pub fn selection(&self, cx: &Cx<'_>) -> Vec<Id> {
-        if self.gathering { Vec::new() } else { (self.keep)(cx, cx.selection.to_vec()) }
+        if self.gathering { Vec::new() } else { self.kept(cx, cx.selection.to_vec()) }
     }
 
     /// Is a rectangle dragged, or the selection being gathered?
@@ -150,7 +165,10 @@ impl Picker {
     /// [`Picker::input`] under « Context »: the active context's entities.
     fn input_context(&mut self, input: &ToolInput, cx: &Cx<'_>) -> (Vec<Command>, bool) {
         match input {
-            ToolInput::Hover { px } => self.hovered = self.under(cx, *px),
+            ToolInput::Hover { px } => {
+                self.hovered = self.under(cx, *px);
+                self.refused = if self.hovered.is_none() { self.refusal(cx, *px) } else { None };
+            }
             ToolInput::Click { px, mods } if mods.toggle => {
                 if let Some(id) = self.under(cx, *px) {
                     self.gathering = true;
@@ -165,6 +183,7 @@ impl Picker {
             }
             ToolInput::DragStart { px, .. } => {
                 self.hovered = None;
+                self.refused = None;
                 self.marquee = Some(Marquee::new(*px, *px));
             }
             ToolInput::Drag { px } => {
@@ -260,6 +279,9 @@ impl Picker {
         p.hover_solid = self.hovered_part.clone();
         p.hover_guide = self.hovered_guide.clone();
         p.marquee = self.marquee.clone();
+        if self.marquee.is_none() && self.refused.is_some() {
+            p.tip = self.refused.clone();
+        }
     }
 
     /// The status while picking: `pick`, `gather` while the selection is being gathered, the
@@ -278,6 +300,8 @@ impl Picker {
     pub fn cursor(&self, cx: &Cx<'_>, pick: Cursor) -> Cursor {
         if self.marquee.is_some() {
             Cursor::SelectRect
+        } else if self.refused.is_some() {
+            Cursor::Refused
         } else if self.gathering || cx.shift_down {
             Cursor::SelectPlusMinus
         } else {
@@ -293,6 +317,7 @@ impl Picker {
     /// The cursor left the view.
     pub fn leave(&mut self) {
         self.hovered = None;
+        self.refused = None;
         self.hovered_part = None;
         self.hovered_guide = None;
     }

@@ -142,6 +142,9 @@ pub enum Command {
     /// Enters the assembly the occurrence `Id` of the active context places, or opens its
     /// part.
     Enter(Id),
+    /// Selects the entity a path from the model names, editing the context it is in, as a click
+    /// on its navigator's row does.
+    SelectPath(EntityPath),
     /// Edits the profile of the open part's body `Id` (its double-click, docs/model/bodies.md): the Profile
     /// tool on it.
     EditProfile(Id),
@@ -709,6 +712,27 @@ impl Cx<'_> {
         self.scene.pick_body(&self.ray(px), self.axes()).map(|(id, _)| id)
     }
 
+    /// The source's name, if `id` is a linked body of the open part (docs/model/bodies.md#links):
+    /// the tools that change a body's shape or place do not take it.
+    pub fn linked_body(&self, id: Id) -> Option<String> {
+        if !self.machinings_shown() {
+            return None;
+        }
+        let (_, part, _) = self.doc.resolve_container(&self.open_part_path()?).ok()?;
+        let b = part.body(id)?;
+        let d = part.def_of(b);
+        (d.source == skraft_model::BodySource::Linked).then(|| d.name.clone())
+    }
+
+    /// The source of the open part's linked body under `px`, by its path from the model: what a
+    /// double-click selects (docs/model/bodies.md#links).
+    pub fn linked_source_at(&self, px: DVec2) -> Option<EntityPath> {
+        let id = self.pick_body(px)?;
+        self.linked_body(id)?;
+        let receiver: Vec<Id> = self.context.iter().copied().chain(self.open_part).collect();
+        self.doc.link_source_path(&receiver, id)
+    }
+
     /// The body of the open part under `px` that has a profile to edit, while they are shown.
     pub fn profiled_body_at(&self, px: DVec2) -> Option<Id> {
         let id = self.pick_body(px)?;
@@ -1196,11 +1220,13 @@ pub enum Cursor {
     PaintPart,
     PaintFace,
     Picker,
+    /// What is under the pointer is not taken by the tool (a linked body, docs/model/bodies.md#links).
+    Refused,
 }
 
 impl Cursor {
     /// Every cursor.
-    pub const ALL: [Cursor; 23] = [
+    pub const ALL: [Cursor; 24] = [
         Cursor::Select,
         Cursor::SelectPart,
         Cursor::SelectPlusMinus,
@@ -1224,6 +1250,7 @@ impl Cursor {
         Cursor::PaintPart,
         Cursor::PaintFace,
         Cursor::Picker,
+        Cursor::Refused,
     ];
 }
 

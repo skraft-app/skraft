@@ -525,10 +525,20 @@ struct EdgeOut {
     @location(0) tint: vec4<f32>,
     // Where the line is (for the section).
     @location(1) world: vec3<f32>,
+    // How far along its edge (model units, `segment.a.w` to `b.w`), for its dashes.
+    @location(2) along: f32,
+    // Its dashes' period there (model units, a power of two), 0 for a silhouette's segment
+    // (none along it: dashed on screen); on screen, the axis it runs most along (0: x, 1: y).
+    @location(3) @interpolate(flat) dash: vec2<f32>,
 };
 
-// A segment of an edge (lib.rs's `Segment`): its ends, and the outward normals of the two
-// triangles along it (`w`: 1, 0 when there is none).
+// A dashed edge's period on screen, in half widths (`g.viewport.z`), and its dash's share.
+const EDGE_DASH_PERIOD: f32 = 10.0;
+const EDGE_DASH_SHARE: f32 = 0.6;
+
+// A segment of an edge (lib.rs's `Segment`): its ends (`w`: how far along its edge, model
+// units; 0 at both for a silhouette's), and the outward normals of the two triangles along it
+// (`w`: 1, 0 when there is none).
 struct EdgeSegment {
     a: vec4<f32>,
     b: vec4<f32>,
@@ -569,6 +579,16 @@ fn band(vi: u32, inst: Instance, outline: bool, all: bool) -> EdgeOut {
     out.clip = wide(g.proj * pa, g.proj * pb, corner, g.viewport.z, true);
     out.tint = inst.tint;
     out.world = select(pa.xyz, pb.xyz, corner.x > 0.5);
+    // Its dashes: in model units along the edge, a power of two near the period on screen (the
+    // same from one segment to the next), so they follow it as the view turns.
+    out.along = select(seg.a.w, seg.b.w, corner.x > 0.5);
+    let ca = g.proj * pa;
+    let cb = g.proj * pb;
+    let px = screen_length(ca, cb);
+    let span = length(seg.b.xyz - seg.a.xyz);
+    let period = select(0.0, exp2(round(log2(EDGE_DASH_PERIOD * g.viewport.z * span / px))), px > 1e-3 && span > 0.0 && seg.b.w > seg.a.w);
+    let s = (cb.xy / max(cb.w, 1e-4) - ca.xy / max(ca.w, 1e-4)) * g.viewport.xy;
+    out.dash = vec2<f32>(period, select(1.0, 0.0, abs(s.x) >= abs(s.y)));
     return out;
 }
 
@@ -594,6 +614,25 @@ fn vs_silhouette(@builtin(vertex_index) vi: u32, inst: Instance) -> EdgeOut {
 @fragment
 fn fs_edge(in: EdgeOut) -> @location(0) vec4<f32> {
     if (cut(in.world)) {
+        discard;
+    }
+    return vec4<f32>(mix(g.edge.rgb, in.tint.rgb, in.tint.a), 1.0);
+}
+
+// The same, dashed (a linked body's): along the edge, or on screen for a silhouette.
+@fragment
+fn fs_edge_dashed(in: EdgeOut) -> @location(0) vec4<f32> {
+    if (cut(in.world)) {
+        discard;
+    }
+    var t: f32;
+    if (in.dash.x > 0.0) {
+        t = fract(in.along / in.dash.x);
+    } else {
+        let period = EDGE_DASH_PERIOD * g.viewport.z;
+        t = fract(select(in.clip.x, in.clip.y, in.dash.y > 0.5) / period);
+    }
+    if (t > EDGE_DASH_SHARE) {
         discard;
     }
     return vec4<f32>(mix(g.edge.rgb, in.tint.rgb, in.tint.a), 1.0);

@@ -26,7 +26,8 @@ Decision record: [Custom cursors through a winit fork](../decisions/0035-custom-
 - **Picking** ([Select first](../tools/selection.md)): `Picker::cursor(cx, pick)`, OCL's
   `SmartSelectActionHandler` — the selection rectangle's while one is dragged
   (`STATE_SELECT_RECT`), « ± » while Shift is held or the selection gathered
-  (`STATE_SELECT_MULTIPLE`), else the tool's own pick cursor.
+  (`STATE_SELECT_MULTIPLE`), `select-refused` over what it does not take (a linked body,
+  [Links](../model/bodies.md#links)), else the tool's own pick cursor.
 
 | Tool | Cursor |
 |---|---|

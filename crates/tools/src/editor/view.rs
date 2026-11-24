@@ -41,6 +41,8 @@ pub enum Look {
     Blank,
     /// One of its machinings' tools.
     Tool,
+    /// A linked body's (docs/model/bodies.md#links): a machining's look, its edges dashed.
+    LinkedTool,
     /// A tool that failed to cut.
     FailedTool,
     /// One of its intersections (∩ bodies, docs/decisions/0045-intersection-a-third-sign.md).
@@ -555,10 +557,11 @@ impl Editor {
             // A tool moved without a copy is drawn only where it goes.
             for tool in r.tools.iter().filter(|tool| !(hide_original && selected.contains(&tool.body))) {
                 // A ghost, a little more opaque than a blank; one that failed opaque (docs/model/bodies.md).
-                let look = match (tool.failed, tool.intersect) {
-                    (true, _) => Look::FailedTool,
-                    (false, true) => Look::Intersect,
-                    (false, false) => Look::Tool,
+                let look = match (tool.failed, tool.intersect, tool.linked) {
+                    (true, ..) => Look::FailedTool,
+                    (false, true, _) => Look::Intersect,
+                    (false, false, true) => Look::LinkedTool,
+                    (false, false, false) => Look::Tool,
                 };
                 let faint = erasing.contains(&tool.body);
                 let ghost = faint || !tool.failed || self.xray();

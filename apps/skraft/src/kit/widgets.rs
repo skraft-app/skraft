@@ -26,8 +26,19 @@ pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
     egui::Image::new(icons::WARNING).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().error_fg_color)
 }
 
-/// The mark of the two ends of a link: a part shaping others, a body shaped by one.
-pub fn linked_mark(ui: &egui::Ui) -> egui::Image<'static> {
+/// The mark of the two ends of a link: a part shaping others, a body shaped by one; in `ink`,
+/// its row's (the selection's on a selected row).
+pub fn linked_mark(ui: &egui::Ui, ink: egui::Color32) -> egui::Image<'static> {
     let side = ui.text_style_height(&egui::TextStyle::Body) - 2.0;
-    egui::Image::new(icons::LINKED).fit_to_exact_size(egui::vec2(side, side)).tint(ui.visuals().weak_text_color())
+    egui::Image::new(icons::LINKED).fit_to_exact_size(egui::vec2(side, side)).tint(ink)
+}
+
+/// The same chain, small, on the bottom right corner of an icon at `on`: a body shaped by a link,
+/// on its sign. A disc of `ground`, its row's background, cuts the icon under it.
+pub fn linked_badge(ui: &egui::Ui, on: egui::Rect, ink: egui::Color32, ground: egui::Color32) {
+    const SIDE: f32 = 9.0;
+    let center = on.right_bottom() - egui::vec2(SIDE / 2.0 - 2.0, SIDE / 2.0 - 2.0);
+    ui.painter().circle_filled(center, SIDE / 2.0 + 1.0, ground);
+    let rect = egui::Rect::from_center_size(center, egui::vec2(SIDE, SIDE));
+    egui::Image::new(icons::LINKED).tint(ink).paint_at(ui, rect);
 }

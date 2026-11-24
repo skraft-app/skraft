@@ -730,6 +730,51 @@ fn faint_edges_are_see_through() {
     assert!(faint > solid + 70 && faint < 235, "{solid} → {faint}");
 }
 
+#[test]
+fn dashed_edges_leave_gaps() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut r = Renderer::new(&device);
+    let mesh = Solid::new_box(DVec3::splat(-8.0), DVec3::splat(16.0)).unwrap().mesh().unwrap();
+    r.set_mesh(&device, 1, 1, &[Part { id: 1, mesh: &mesh, face_paint: &[] }]);
+    let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.8, SIZE[0] as f32 / SIZE[1] as f32, 1.0);
+    let shoot = |r: &mut Renderer, dashed_edges: bool| {
+        let batches = [Batch { ghost: true, dashed_edges, ..Batch::new(1, vec![Placement::new(DMat4::IDENTITY)]) }];
+        let frame = Frame {
+            view: front_view(),
+            proj,
+            background: [1.0, 1.0, 1.0],
+            style: Style::default(),
+            batches: &batches,
+            highlights: &[],
+            lines: &[],
+            axis_lines: &[],
+            faint_lines: &[],
+            boxes: &[],
+            overlay: &[],
+            hidden_lines: &[],
+            fills: &[],
+            grid: None,
+            axes: false,
+            axes_frame: DMat4::IDENTITY,
+            pixels_per_point: 1.0,
+            model_per_point: 1.0,
+        };
+        draw(r, &device, &queue, SIZE, &frame)
+    };
+    // The edges' pixels: the dark ones.
+    let inked = |px: &[u8]| px.chunks(4).filter(|p| p[..3].iter().all(|c| *c < 100)).count();
+    let solid = inked(&shoot(&mut r, false));
+    let dashed = shoot(&mut r, true);
+    save(&dashed, SIZE, "dashed_edges");
+    let dashed = inked(&dashed);
+    // About their dash's share of the period inked, never none.
+    assert!(solid > 100, "{solid}");
+    assert!(dashed * 10 > solid * 4 && dashed * 10 < solid * 8, "{solid} → {dashed}");
+}
+
 /// A dashed line on screen (a guide's): dashes and gaps as long as asked, the pattern where it
 /// is said to be at the line's start. Where the device clamps depth, past the parallel
 /// projection's depth range too.

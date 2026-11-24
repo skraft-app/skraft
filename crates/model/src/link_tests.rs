@@ -207,8 +207,14 @@ fn links_are_saved() {
 fn a_file_with_a_malformed_link_is_refused() {
     let mut h = History::new(Document::new());
     let (rail, leg) = rail_and_leg(&mut h);
-    link(&mut h, rail, leg);
+    let body = link(&mut h, rail, leg);
     let root = h.document().root();
+
+    // A linked body is a machining: any other sign is a bad file.
+    let mut doc = h.document().clone();
+    let q = doc.part_mut(part_of(&h, leg)).unwrap();
+    q.bodies.iter_mut().find(|b| b.id == body).unwrap().sign = Sign::Positive;
+    assert!(matches!(Document::from_file(&doc.to_file().unwrap()), Err(Error::File(FileError::BadBodyId(i))) if i == body));
 
     let mut doc = h.document().clone();
     doc.assembly_mut(root).unwrap().links_mut()[0].seat = DAffine3::from_scale(DVec3::splat(2.0));
@@ -224,6 +230,26 @@ fn a_file_with_a_malformed_link_is_refused() {
     doc.assembly_mut(root).unwrap().links_mut()[0].source = vec![Id(0)];
     let read = Document::from_file(&doc.to_file().unwrap()).unwrap();
     assert_eq!(read.link_state(root, &read.root_assembly().links()[0]), LinkState::Broken);
+}
+
+#[test]
+fn a_linked_body_leads_to_its_source() {
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let body = link(&mut h, rail, leg);
+    let doc = h.document();
+    assert_eq!(doc.link_source_path(&[leg], body), Some(EntityPath::root(rail)));
+    assert_eq!(doc.link_source_path(&[rail], body), None);
+
+    // Held by an assembly below the model: the path from the model, through it.
+    let mut h = History::new(Document::new());
+    let (rail, leg) = rail_and_leg(&mut h);
+    let root = h.document().root();
+    let cabinet = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, leg], name: None }).unwrap().created[0];
+    let assembly = h.document().root_assembly().occurrence(cabinet).unwrap().component;
+    h.apply(Operation::Imprint { context: assembly, pairs: vec![pair(rail, leg)], around: 0.0, deep: 0.0 }).unwrap();
+    let body = h.document().assembly(assembly).unwrap().links()[0].body;
+    assert_eq!(h.document().link_source_path(&[cabinet, leg], body), Some(EntityPath::new(vec![cabinet], rail)));
 }
 
 #[test]

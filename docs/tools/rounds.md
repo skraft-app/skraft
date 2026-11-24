@@ -16,7 +16,9 @@ SketchUp): the interaction is Skraft's.
 - **Under the cursor**: the edge of the shapes shown nearest the cursor, within the
   inferences' aperture and seen (nothing in front of it, not cut by the section), lit
   (`infer::edge_at`, on the display mesh's snap edges). In an open part, the edges of its
-  bodies (each body's own, as its recipe is shown); else the edges of the parts' shapes.
+  bodies (each body's own, as its recipe is shown); else the edges of the parts' shapes. A
+  linked body's are never taken (they follow its source, [Links](../model/bodies.md#links)):
+  with no other edge there, the cursor `select-refused` and a tip naming its source.
 - **A click** takes the edge, or lets it go when taken. All the edges are of one body or one
   part: once one is taken, only the edges of its body or part light and are taken (the others
   still hide what lies behind them); Esc lets them all go to pick on another. **A double click** takes its whole tangent
