@@ -185,7 +185,8 @@ Link     { id, source: path, receiver: path, body, seat: T }
 - A link whose receiver or body is gone is dropped after the operation; one whose source is gone
   stays, its body frozen in place and told.
 - **Its shape follows** (`Document::update_imprints`): when the own bodies of a source or a
-  receiver change, the tools of its seated links are built again from the source as it now is,
+  receiver change, in place or in the part it was just made unique into (a stretch « Seulement
+  celle-ci »), the tools of its seated links are built again from the source as it now is,
   where it now is, in every copy, their seats with them, even past the receiver's former box (a
   shelf raised by legs stretched taller). A move alone keeps the tool rigid: what newly enters
   the receiver has no clearance until the next change of shape; a source moved out of its

@@ -1522,3 +1522,35 @@ fn a_stretch_making_the_legs_taller_carries_the_mortise_past_their_old_top() {
     assert!((mortise.translation - at(10.0, 10.0, 140.0)).length() < 1e-9, "where the shelf now is: {mortise:?}");
     assert!(close(volume(&h, leg_part), 20.0 * 100.0 * 200.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
 }
+
+#[test]
+fn a_shelf_made_unique_by_a_stretch_reshapes_its_mortise() {
+    let mut h = History::new(Document::new());
+    let (leg, leg2, shelf) = shelf_between_mirrored_legs(&mut h);
+    let root = h.document().root();
+    let shelf_part = part_of(&h, shelf);
+    let other = h
+        .apply(Operation::PlaceOccurrence { context: root, component: shelf_part, transform: moved(at(10.0, 10.0, 70.0)) })
+        .unwrap()
+        .created[0];
+    h.apply(Operation::Imprint { context: root, pairs: vec![pair(other, leg), pair(other, leg2)], around: 0.0, deep: 0.0 }).unwrap();
+    let leg_part = part_of(&h, leg);
+    let full = 20.0 * 100.0 * 100.0;
+    assert!(close(volume(&h, leg_part), full - 2.0 * 10.0 * 80.0 * 10.0));
+
+    // The lower shelf alone made narrower, as a part of its own: 80 deep down to 50.
+    h.apply(Operation::Stretch {
+        context: vec![],
+        occurrences: vec![shelf],
+        frame: DAffine3::IDENTITY,
+        axis: DVec3::Y,
+        cuts: vec![50.0],
+        moves: vec![0.0, -30.0],
+        scope: Scope::This,
+        cutters: None,
+    })
+    .unwrap();
+    assert_ne!(part_of(&h, shelf), shelf_part, "made unique");
+    assert_eq!(states(&h), vec![LinkState::Seated; 4]);
+    assert!(close(volume(&h, leg_part), full - 10.0 * 50.0 * 10.0 - 10.0 * 80.0 * 10.0), "{}", volume(&h, leg_part));
+}
