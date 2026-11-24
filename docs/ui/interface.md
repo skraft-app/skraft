@@ -327,7 +327,8 @@ Enter. Menus and tooltips write shortcuts as the platform does ([Texts and langu
 ## About
 
 « À propos de Skraft » (`app.about`: the File menu, the palette, the app menu on macOS, in place of
-AppKit's panel) shows the version, the copyright, that it is free software without warranty, and
+AppKit's panel) shows the version, under it a button to look for a newer one (desktop,
+[Updates](updates.md)), the copyright, that it is free software without warranty, and
 the main projects it is built with (each a link, what it does here, its license), and links to
 the license, all the third-party licenses and the source of this version (its `v*` tag).
 **Why:** the GPL v3 (section 5d) asks an interactive program to show these notices. Links open in

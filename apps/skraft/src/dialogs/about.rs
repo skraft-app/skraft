@@ -132,9 +132,15 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.add_space(10.0);
                 ui.heading(egui::RichText::new(t!("start.title")).size(22.0).strong());
                 ui.weak(t!("about.version", version = VERSION));
+                // The check for a new version (docs/ui/updates.md; desktop): it opens its window.
                 #[cfg(not(target_arch = "wasm32"))]
-                if ui.link(t!("about.check_updates")).clicked() {
-                    check_updates = true;
+                {
+                    ui.add_space(6.0);
+                    let r = ui.button(skraft_i18n::ellipsis(t!("about.check_updates")));
+                    crate::kit::handles::publish(|| "about:check_updates".to_owned(), r.rect);
+                    if r.clicked() {
+                        check_updates = true;
+                    }
                 }
                 ui.add_space(8.0);
                 ui.label(t!("about.tagline"));
