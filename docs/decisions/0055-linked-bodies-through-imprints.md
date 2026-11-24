@@ -158,6 +158,8 @@ What holds now:
   outside the receiver cuts nothing, so nothing has to be run back.
 - **Only its walls inside the receiver move**: the one facing an opening is the bottom (`deep`),
   the others the cheeks (`around`). **The clearance belongs to the machining.**
+- **A linked body is a machining** (`−`), its sign not changed: `+` and `∩` had no case (the
+  source's material twice, a source as a cutting template), and the clearance widens a hollow.
 - **A source pushed further bites further, whatever its shape** (the user's decision): its
   shoulder cuts too, with no alert. The tool stays rigid on a move, so what newly enters has no
   clearance until the next change of shape.

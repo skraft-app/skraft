@@ -127,6 +127,8 @@ Link     { id, source: path, receiver: path, body, seat: T }
   its sign or taking it out of its part is refused (`Refusal::LinkedBody`), and among other bodies
   it is left where it is. What stays open: its clearance, its own name, deleting it, and
   « Rompre le lien », which makes it a plain body.
+- **A machining, always** (`−`): `+` and `∩` had no case; a file with another sign on it is
+  refused.
 - **Named after its source** (`Document::settle_link_names`, after each operation and on reading a
   file): renaming the part renames it; a body that lost its source keeps the last name.
 - **Told in the navigator** (`Document::link_map`): the icon of « Empreindre », and a chain on the

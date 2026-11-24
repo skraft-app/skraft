@@ -455,8 +455,10 @@ impl Document {
                             return Err(Error::File(FileError::BadBodyId(d.id)));
                         }
                     }
+                    // A linked body is a machining (docs/model/bodies.md#links).
                     for b in p.all_bodies() {
-                        if b.id.0 >= self.next_id || !here.insert(b.id) || p.def(b.def).is_none() {
+                        let linked_off = |d: &crate::BodyDef| d.source == crate::BodySource::Linked && b.sign != crate::Sign::Negative;
+                        if b.id.0 >= self.next_id || !here.insert(b.id) || p.def(b.def).is_none_or(linked_off) {
                             return Err(Error::File(FileError::BadBodyId(b.id)));
                         }
                     }

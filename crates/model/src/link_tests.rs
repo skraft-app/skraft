@@ -207,8 +207,14 @@ fn links_are_saved() {
 fn a_file_with_a_malformed_link_is_refused() {
     let mut h = History::new(Document::new());
     let (rail, leg) = rail_and_leg(&mut h);
-    link(&mut h, rail, leg);
+    let body = link(&mut h, rail, leg);
     let root = h.document().root();
+
+    // A linked body is a machining: any other sign is a bad file.
+    let mut doc = h.document().clone();
+    let q = doc.part_mut(part_of(&h, leg)).unwrap();
+    q.bodies.iter_mut().find(|b| b.id == body).unwrap().sign = Sign::Positive;
+    assert!(matches!(Document::from_file(&doc.to_file().unwrap()), Err(Error::File(FileError::BadBodyId(i))) if i == body));
 
     let mut doc = h.document().clone();
     doc.assembly_mut(root).unwrap().links_mut()[0].seat = DAffine3::from_scale(DVec3::splat(2.0));
