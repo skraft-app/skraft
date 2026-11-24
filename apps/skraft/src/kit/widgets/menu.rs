@@ -1,8 +1,8 @@
 //! The rows of the menus (docs/ui/interface.md#widgets).
 
+use crate::cards::panels::CommandView;
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::panels::CommandView;
 
 /// Whether a command is shown in a menu as a check box (a display toggle).
 pub fn is_toggle(v: &CommandView) -> bool {

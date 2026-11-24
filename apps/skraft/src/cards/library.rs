@@ -10,10 +10,10 @@ use skraft_model::{Document, Id};
 use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
-use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
+use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
+use crate::cards::panels::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::panels::Action;
 use crate::thumbnails::Thumbnails;
 use crate::window::ribbon::Corners;
 

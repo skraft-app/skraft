@@ -8,7 +8,7 @@ use skraft_model::{ComponentKind, Document, EntityPath, Id, Subject};
 use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
-use crate::catalog::{LIST_ROW, LIST_THUMB};
+use crate::cards::catalog::{LIST_ROW, LIST_THUMB};
 use crate::kit::widgets::{Confirm, Tick, confirm_buttons, tick, tree_row};
 
 /// The list's height and the dialog's width (points); a level's indent.

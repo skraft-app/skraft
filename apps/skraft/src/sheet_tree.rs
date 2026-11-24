@@ -8,10 +8,10 @@ use skraft_i18n::t;
 use skraft_model::{DimKind, Drawing, Element, ElementKind, FastSet, Id, Operation, Orient, Presentation, Sheet, View, ViewKind};
 use skraft_tools::Editor;
 
+use crate::cards::panels::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::{self, Fold, IconButton};
-use crate::panels::Action;
 use crate::sheet::{InfoOn, SheetAsk, SheetState};
 
 /// The side of a row's small buttons.

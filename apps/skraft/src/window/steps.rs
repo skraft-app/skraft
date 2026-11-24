@@ -8,8 +8,8 @@ use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use skraft_i18n::t;
 use skraft_tools::{Key, Steps};
 
+use crate::cards::panels::Action;
 use crate::kit::style::Tip;
-use crate::panels::Action;
 use crate::window::toasts::Level;
 
 /// A step number's square, and the link between two.

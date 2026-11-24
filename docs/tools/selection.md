@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/panels.rs, apps/skraft/src/panels/, apps/skraft/src/window/drop_up.rs, apps/skraft/src/instance_name.rs]
+code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/cards/panels.rs, apps/skraft/src/cards/panels/, apps/skraft/src/window/drop_up.rs, apps/skraft/src/instance_name.rs]
 ---
 
 # Select first, and a selection scope

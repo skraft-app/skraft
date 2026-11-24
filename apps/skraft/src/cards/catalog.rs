@@ -5,9 +5,9 @@
 use skraft_i18n::t;
 use skraft_model::Id;
 
+use crate::cards::panels::{Action, weak_share};
 use crate::kit::icons;
 use crate::kit::widgets::{rename_field, tree_row};
-use crate::panels::{Action, weak_share};
 
 /// A list row's height, and its picture's side (points).
 pub(crate) const LIST_ROW: f32 = 30.0;

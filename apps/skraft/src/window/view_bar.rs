@@ -5,10 +5,10 @@
 use egui::{Popup, Rect, RectAlign, Sense, StrokeKind, vec2};
 use skraft_i18n::t;
 
+use crate::cards::panels::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::{IconButton, Look, PinRow, pin_row};
-use crate::panels::{Action, CommandView};
 use crate::window::dock::Dock;
 
 /// The standard views' button: not a command of the registry, it opens their menu.

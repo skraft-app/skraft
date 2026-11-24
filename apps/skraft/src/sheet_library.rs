@@ -10,10 +10,10 @@ use skraft_model::{Container, Drawing, Id, Operation, Projection};
 use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
-use crate::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
+use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
+use crate::cards::library::natural_cmp;
+use crate::cards::panels::Action;
 use crate::kit::style::Tip;
-use crate::library::natural_cmp;
-use crate::panels::Action;
 use crate::sheet::{SheetState, Sketch, sketch_of};
 
 /// What the card keeps of a document between frames (never on disk): its search, its rows and

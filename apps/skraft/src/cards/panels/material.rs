@@ -120,11 +120,11 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
         ui.horizontal(|ui| {
             let h = OPTION_HEIGHT;
             let ink = ui.visuals().text_color();
-            let thumb = m.texture.as_ref().and_then(|t| crate::materials::thumbnail(ui.ctx(), doc, &t.image));
+            let thumb = m.texture.as_ref().and_then(|t| crate::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
             let clicked = match &thumb {
                 Some(tex) => {
                     let img = egui::Image::new(tex)
-                        .uv(crate::materials::centre_square(tex))
+                        .uv(crate::cards::materials::centre_square(tex))
                         .maintain_aspect_ratio(false)
                         .fit_to_exact_size(egui::vec2(h, h))
                         .corner_radius(3.0);

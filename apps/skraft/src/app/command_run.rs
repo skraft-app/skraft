@@ -528,9 +528,9 @@ impl SkraftApp {
             Action::ViewBarSide(side) => return self.prefs.view_bar_side = side,
             Action::CardList(card, list) => {
                 let pref = match card {
-                    crate::catalog::Card::Components => &mut self.prefs.components_list,
-                    crate::catalog::Card::Compositions => &mut self.prefs.compositions_list,
-                    crate::catalog::Card::Materials => &mut self.prefs.materials_list,
+                    crate::cards::catalog::Card::Components => &mut self.prefs.components_list,
+                    crate::cards::catalog::Card::Compositions => &mut self.prefs.compositions_list,
+                    crate::cards::catalog::Card::Materials => &mut self.prefs.materials_list,
                 };
                 return *pref = list;
             }

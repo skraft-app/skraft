@@ -11,12 +11,12 @@ use skraft_model::{Boolean, Document, FileView, LengthUnit, Operation, Settings}
 use skraft_theme::{Choice, Mode, Palette as UiPalette, Theme};
 use skraft_tools::{Editor, Key, LoadEnd, LoadKind, StandardView, ToolInput, ToolKind};
 
+use crate::cards::panels::{self, Action, CommandView};
 use crate::clipboard::{Clipboard, Copied};
 use crate::commands::{self, COMMANDS, Keymap, Menu, Shortcut};
 use crate::docs::{DocId, Docs, file_name};
 use crate::file::{self, Inbox};
 use crate::kit::style::{CARD_MARGIN, Tip, card_frame, option_card};
-use crate::panels::{self, Action, CommandView};
 use crate::prefs::Preferences;
 use crate::viewport::{self, Viewport};
 use crate::window::dock::{self, Dock, PanelId};

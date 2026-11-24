@@ -16,10 +16,10 @@ use skraft_i18n::t;
 
 use crate::kit::widgets::{PinRow, pin_row};
 
+use crate::cards::panels::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::style::menu_item;
-use crate::panels::{Action, CommandView};
 use crate::workspace::{self, Workspace};
 
 // ---- the description -------------------------------------------------------------------------
@@ -728,7 +728,7 @@ pub fn ribbon_menu(ui: &mut egui::Ui, prefs: &Prefs, actions: &mut Vec<Action>) 
 fn tip(c: &CommandView) -> String {
     match c.id {
         // Erase is not a command shortcut: the tool reads the delete key.
-        "edit.erase" => t!("toolbar.with_shortcut", label = c.label, shortcut = crate::panels::delete_key()),
+        "edit.erase" => t!("toolbar.with_shortcut", label = c.label, shortcut = crate::cards::panels::delete_key()),
         _ => c.tip(),
     }
 }

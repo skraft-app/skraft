@@ -3,7 +3,7 @@
 
 mod about;
 mod app;
-mod catalog;
+mod cards;
 mod clipboard;
 mod commands;
 #[cfg(not(target_arch = "wasm32"))]
@@ -22,14 +22,10 @@ mod instance_name;
 mod journal_window;
 mod kit;
 mod language;
-mod library;
-mod materials;
 mod naming;
 mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
-mod panels;
-mod parts_table;
 mod pdf;
 mod prefs;
 mod separators;

@@ -84,7 +84,7 @@ impl SkraftApp {
                 let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                 title_bar(ui, rect, head_rect, &t!("parts_list.title"), false, true);
                 ui.add_space(2.0 * HEAD_PAD);
-                crate::parts_table::ui(ui, &d.editor, &mut d.parts_list, actions);
+                crate::cards::parts_table::ui(ui, &d.editor, &mut d.parts_list, actions);
             });
         });
         let grip = egui::Rect::from_x_y_ranges(rect.right()..=rect.right() + margin, rect.y_range());
@@ -283,13 +283,13 @@ impl SkraftApp {
                             let (doc_id, list) = (doc.id, self.prefs.materials_list);
                             let (editor, state) = (&doc.editor, &mut doc.materials);
                             ui.push_id(doc_id, |ui| {
-                                crate::materials::card(ui, editor, state, list, body, actions, area.id_salt("materials"))
+                                crate::cards::materials::card(ui, editor, state, list, body, actions, area.id_salt("materials"))
                             });
                         }
                         PanelId::Components => {
                             let doc_id = doc.id;
                             let (editor, state) = (&doc.editor, &mut doc.library);
-                            let look = crate::library::Look {
+                            let look = crate::cards::library::Look {
                                 doc: doc_id,
                                 thumbnails: &mut self.viewport.thumbnails,
                                 list: self.prefs.components_list,
@@ -298,7 +298,7 @@ impl SkraftApp {
                                 margin: CARD_MARGIN,
                             };
                             ui.push_id(doc_id, |ui| {
-                                crate::library::components(ui, editor, state, look, actions, area.id_salt("components"))
+                                crate::cards::library::components(ui, editor, state, look, actions, area.id_salt("components"))
                             });
                         }
                         PanelId::Compositions => {

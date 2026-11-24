@@ -40,7 +40,7 @@ pub enum Action {
     /// view follows the drag, docs/ui/components-library.md#placing).
     PlaceComponent(Id),
     /// A card of definitions as a list (true) or a grid (docs/ui/catalog.md).
-    CardList(crate::catalog::Card, bool),
+    CardList(crate::cards::catalog::Card, bool),
     /// The library's menu: its occurrences selected, the selection replaced by it, deleted.
     SelectOccurrences(Id),
     ReplaceSelection(Id),

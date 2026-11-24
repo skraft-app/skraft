@@ -14,7 +14,7 @@ use skraft_model::kernel::Solid;
 use skraft_model::{Document, EntityPath, FastMap, Id, Units};
 use skraft_tools::Editor;
 
-use crate::panels::Action;
+use crate::cards::panels::Action;
 
 /// A row: a part, with one material, and where it is placed.
 #[derive(Clone, Debug, PartialEq)]
