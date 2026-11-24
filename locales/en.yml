@@ -981,7 +981,7 @@ notice:
   imprinted_plural: "%{count} links made"
   rename: "Rename"
 
-# « Imprimer »'s confirmation (decision 0055).
+# « Empreindre »'s confirmation (decision 0055).
 imprint:
   title: "Imprint Into the Parts It Enters"
   around: "Clearance all around"
@@ -997,6 +997,7 @@ imprint:
   bad_value: "unreadable value"
   ok: "Imprint"
 
+# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 naming:
   title_part: "Part Name"
   title_assembly: "Assembly Name"

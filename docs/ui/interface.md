@@ -194,7 +194,18 @@ In `apps/skraft/src/kit/widgets.rs`:
   **`framed_field`** applies a value once typed (Enter or a click away; Esc puts it back: the
   entity info, the tool options), **`live_field`** keeps each keystroke for a modal box that
   checks what is typed as it comes (« Empreindre »'s lengths, a name). Apart, `rename_field` and
-  `start_rename` (a name edited in its row, as the row draws it), `cut_label`.
+  `start_rename` (a name edited in its row, as the row draws it), `cut_label`. A field whose text
+  cannot be used is outlined in the error colour (`FieldLook::bad`).
+- **A modal box's form** (`form.rs`): **`form_row`**, a row — the label on the left (lit, in
+  semibold and the accent's ink, while a figure beside the form shows what its value sets), the
+  field (`FORM_FIELD_WIDTH`) and its unit against the right edge, so that the fields line up
+  with each other and with the buttons;
+  **`form_message`**, the line saying what is wrong, kept empty so the box does not jump;
+  **`warning_box`**, a warning in a box tinted with the error colour (« Empreindre »'s
+  confirmation, the naming box's message).
+- **`overlay::leader`**, a figure's leader to its text — a dot, a slant, a short shelf —, in
+  the dim ink, in the accent's when what it points at is picked or typed: the mouse of the
+  Preferences to its gestures, « Empreindre »'s tenon to its clearances.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
 - **`confirm_buttons`**, the buttons closing a modal box: its main one, filled, then the one
   cancelling; Enter and Esc stay the box's.

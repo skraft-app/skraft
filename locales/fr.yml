@@ -1077,7 +1077,6 @@ notice:
   imprinted_plural: "%{count} liens créés"
   rename: "Renommer"
 
-# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 # « Empreindre »'s confirmation (decision 0055).
 imprint:
   title: "Empreindre dans les pièces traversées"
@@ -1094,6 +1093,7 @@ imprint:
   bad_value: "valeur illisible"
   ok: "Empreindre"
 
+# The dialog naming what was just made (docs/tools/quick-tools.md; apps/skraft/src/naming.rs).
 naming:
   title_part: "Nom de la pièce"
   title_assembly: "Nom de l'assemblage"
