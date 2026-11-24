@@ -9,6 +9,7 @@ use skraft_i18n::t;
 use skraft_tools::Naming;
 
 use crate::docs::DocId;
+use crate::widgets::{Confirm, confirm_buttons};
 
 /// The dialog open: on what a document's editor names.
 pub struct Dialog {
@@ -70,20 +71,10 @@ impl Dialog {
             ui.add_space(2.0);
             ui.label(egui::RichText::new(line).small().color(ui.visuals().error_fg_color));
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let fill = ui.visuals().selection.bg_fill;
-                    let ok = ui.add_enabled(why.is_none(), egui::Button::new(t!("naming.ok")).fill(fill));
-                    crate::handles::publish_enabled(|| "naming.ok".into(), ok.rect, why.is_none());
-                    if ok.clicked() {
-                        answer = Answer::Name(self.text.clone());
-                    }
-                    let cancel = ui.button(t!("naming.cancel"));
-                    crate::handles::publish(|| "naming.cancel".into(), cancel.rect);
-                    if cancel.clicked() {
-                        answer = Answer::Cancel;
-                    }
-                });
+            ui.horizontal(|ui| match confirm_buttons(ui, "naming", t!("naming.ok"), why.is_none(), t!("naming.cancel")) {
+                Some(Confirm::Ok) => answer = Answer::Name(self.text.clone()),
+                Some(Confirm::Cancel) => answer = Answer::Cancel,
+                None => {}
             });
         });
         if matches!(answer, Answer::Open) && why.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {

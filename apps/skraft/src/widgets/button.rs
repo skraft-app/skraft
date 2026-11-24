@@ -24,6 +24,34 @@ fn veil_of(ink: egui::Color32, resp: &egui::Response) -> Option<egui::Color32> {
     Some(ink.gamma_multiply(alpha))
 }
 
+/// Which of a modal box's [`confirm_buttons`] was clicked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Confirm {
+    Ok,
+    Cancel,
+}
+
+/// The buttons closing a modal box, from the right edge of the row they end: `ok`, filled with
+/// the selection's colour and clickable while `enabled`, then `cancel`. Published as
+/// `<handle>.ok` and `<handle>.cancel`. Enter and Esc stay the box's to answer.
+pub(crate) fn confirm_buttons(ui: &mut egui::Ui, handle: &str, ok: String, enabled: bool, cancel: String) -> Option<Confirm> {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let fill = ui.visuals().selection.bg_fill;
+        let ok = ui.add_enabled(enabled, egui::Button::new(ok).fill(fill));
+        crate::handles::publish_enabled(|| format!("{handle}.ok"), ok.rect, enabled);
+        let cancel = ui.button(cancel);
+        crate::handles::publish(|| format!("{handle}.cancel"), cancel.rect);
+        if ok.clicked() {
+            Some(Confirm::Ok)
+        } else if cancel.clicked() {
+            Some(Confirm::Cancel)
+        } else {
+            None
+        }
+    })
+    .inner
+}
+
 /// A button whose frame is not drawn ([`backed`] draws its background) but keeps its margins.
 pub(crate) fn unframed(button: egui::Button) -> egui::Button {
     button.fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE)

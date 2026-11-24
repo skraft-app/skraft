@@ -9,7 +9,7 @@ use skraft_tools::Editor;
 use skraft_tools::search::Matcher;
 
 use crate::catalog::{LIST_ROW, LIST_THUMB};
-use crate::widgets::tree_row;
+use crate::widgets::{Confirm, confirm_buttons, tree_row};
 
 /// The list's height and the dialog's width (points); a level's indent.
 const LIST_HEIGHT: f32 = 340.0;
@@ -258,23 +258,14 @@ impl ViewPicker {
                 self.rows = None;
             }
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let label = match self.purpose {
-                        Purpose::New => t!("drawing.picker.place"),
-                        Purpose::Change(_) => t!("drawing.picker.apply"),
-                    };
-                    let ok = ui.add(egui::Button::new(label).fill(ui.visuals().selection.bg_fill));
-                    crate::handles::publish(|| "view_picker.ok".into(), ok.rect);
-                    if ok.clicked() {
-                        answer = Answer::Done(self.subject(doc));
-                    }
-                    let cancel = ui.button(t!("naming.cancel"));
-                    crate::handles::publish(|| "view_picker.cancel".into(), cancel.rect);
-                    if cancel.clicked() {
-                        answer = Answer::Cancel;
-                    }
-                });
+            let label = match self.purpose {
+                Purpose::New => t!("drawing.picker.place"),
+                Purpose::Change(_) => t!("drawing.picker.apply"),
+            };
+            ui.horizontal(|ui| match confirm_buttons(ui, "view_picker", label, true, t!("naming.cancel")) {
+                Some(Confirm::Ok) => answer = Answer::Done(self.subject(doc)),
+                Some(Confirm::Cancel) => answer = Answer::Cancel,
+                None => {}
             });
         });
         if thumbnails.pending() {

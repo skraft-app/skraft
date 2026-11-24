@@ -168,6 +168,8 @@ In `apps/skraft/src/widgets.rs`:
 - **`framed_field`** (the one text field), `rename_field` and `start_rename` (a name edited in
   its row), `cut_label`.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
+- **`confirm_buttons`**, the buttons closing a modal box: its main one, filled, then the one
+  cancelling; Enter and Esc stay the box's.
 - **`tree_row`**, `fold_toggle` and the drag ghost, the rows of the navigators and the lists.
 - **`warning`**, the ⚠ before an error to correct.
 - **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
