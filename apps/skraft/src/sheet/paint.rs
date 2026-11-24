@@ -311,6 +311,8 @@ pub(super) fn draw_elements(
     let frame_ink = level.accent;
     let thin = egui::Stroke::new((0.25 * pv.zoom).max(1.0) as f32, paper_ink);
     let accent = egui::Stroke::new(2.0, frame_ink);
+    let ink = Ink { painter, e, d, level, ready, fields, paper_ink, frame_ink, thin, accent, ppp };
+    let mut pictures = Pictures { lines, views, wanted, asked };
     // Its frame, under what it holds.
     if let Some(b) = s.border {
         let m = DVec2::splat(b.margin);
@@ -340,114 +342,15 @@ pub(super) fn draw_elements(
         let alone = !level.printed && under.is_some() && shown.path.len() == level.open.len();
         let picked = alone && selected.contains(&el.id);
         let pv = pv.placed(shown.transform);
-        let (rect, (lo, hi)) = match &el.kind {
-            ElementKind::View(v) => {
-                let Some(r) = d.resolve_as(el.id, shown.projection) else { continue };
-                let data = views.get(e, el.id, &r);
-                let (lo, hi) = frame_of(&r, data.bx3.map(|(lo, hi)| (lo.truncate(), hi.truncate())));
-                let quad = pv.quad(lo, hi);
-                let rect = egui::Rect::from_points(&quad);
-                // Its picture — its parts rendered, its lines over them, as the style says — as
-                // last drawn, under its frame.
-                let slot = slot_of(el.id, v, shown.projection);
-                if let Some(tex) = ready.get(&slot) {
-                    draw_picture(painter, *tex, quad);
-                }
-                if painter.clip_rect().intersects(rect) && asked.insert(slot) {
-                    // Its lines as last computed (new ones on their way when it changed).
-                    let got = if v.style == ViewStyle::Rendered {
-                        None
-                    } else {
-                        let (got, busy) = lines.get(slot, data.lines.as_ref(), !level.printed);
-                        if busy {
-                            painter.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-                        }
-                        got
-                    };
-                    let size = (hi - lo) * pv.zoom;
-                    if let Some(w) = wanted_picture(slot, v.style, &r, &data, got, egui::vec2(size.x as f32, size.y as f32), ppp) {
-                        wanted.push(w);
-                    }
-                }
-                if !level.printed {
-                    if picked {
-                        stroke_box(painter, &pv, quad, egui::Stroke::new(2.0, frame_ink));
-                    } else {
-                        overlay::dashed_quad(painter, quad, egui::Stroke::new(1.0, frame_ink), overlay::FRAME);
-                    }
-                    let angle = pv.angle();
-                    let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
-                    let shown_scale = if r.perspective.is_some() { t!("drawing.no_scale") } else { scale_label(r.scale) };
-                    let name = format!("{} · {}", v.name, shown_scale);
-                    turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
-                }
-                if alone {
-                    crate::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
-                }
-                (rect, (lo, hi))
-            }
-            ElementKind::Dimension(dim) => {
-                let Some(r) = d.resolve_as(dim.view, shown.projection) else { continue };
-                // Kept, not drawn: a perspective has no measure to read (decision 0051).
-                if r.perspective.is_some() {
-                    continue;
-                }
-                let Some(centre) = views.get(e, dim.view, &r).centre() else { continue };
-                let shape = crate::dims::shape(e.document(), &r, centre, dim);
-                let rect = draw_dim(painter, &pv, &shape);
-                if picked {
-                    painter.rect_stroke(rect, 0.0, accent, egui::StrokeKind::Middle);
-                }
-                if alone {
-                    crate::handles::publish(|| format!("sheet_element:{}", el.id.0), rect);
-                }
-                (rect, shape.bounds())
-            }
+        let mark = (alone, picked);
+        let drawn = match &el.kind {
+            ElementKind::View(v) => draw_view(&ink, &mut pictures, &pv, shown, v, mark),
+            ElementKind::Dimension(dim) => draw_dimension(&ink, pictures.views, &pv, shown, dim, mark),
             // `placed` goes through them.
-            ElementKind::Instance(_) => continue,
-            other => {
-                let (r, b) = match other {
-                    ElementKind::Text { at, text, size } => {
-                        let words = fields.map_or_else(|| text.clone(), |f| f.fill(text, &shown.path));
-                        let font = egui::FontId::proportional((size * pv.zoom).max(1.0) as f32);
-                        let (r, on_screen) = turned_text(painter, pv.to_screen(*at), pv.angle(), words, font, paper_ink);
-                        (r, (*at, *at + DVec2::new(on_screen.x as f64, on_screen.y as f64) / pv.zoom))
-                    }
-                    ElementKind::Line { from, to } => {
-                        let (a, b) = (pv.to_screen(*from), pv.to_screen(*to));
-                        painter.line_segment([a, b], thin);
-                        (egui::Rect::from_two_pos(a, b).expand(3.0), (from.min(*to), from.max(*to)))
-                    }
-                    ElementKind::Rect { min, max } => {
-                        let quad = pv.quad(*min, *max);
-                        stroke_box(painter, &pv, quad, thin);
-                        (egui::Rect::from_points(&quad), (*min, *max))
-                    }
-                    ElementKind::Circle { center, radius } => {
-                        let (c, r) = (pv.to_screen(*center), (*radius * pv.zoom) as f32);
-                        painter.circle_stroke(c, r, thin);
-                        let half = DVec2::splat(*radius);
-                        (egui::Rect::from_center_size(c, egui::Vec2::splat(2.0 * r)), (*center - half, *center + half))
-                    }
-                    ElementKind::Image { min, max, .. } => {
-                        let quad = pv.quad(*min, *max);
-                        stroke_box(painter, &pv, quad, thin);
-                        painter.line_segment([quad[0], quad[2]], thin);
-                        painter.line_segment([quad[3], quad[1]], thin);
-                        (egui::Rect::from_points(&quad), (*min, *max))
-                    }
-                    ElementKind::View(_) | ElementKind::Dimension(_) | ElementKind::Instance(_) => unreachable!(),
-                };
-                // On its box, as a view's frame.
-                if picked {
-                    stroke_box(painter, &pv, pv.quad(b.0, b.1), accent);
-                }
-                if alone {
-                    crate::handles::publish(|| format!("sheet_element:{}", el.id.0), r);
-                }
-                (r, b)
-            }
+            ElementKind::Instance(_) => None,
+            other => Some(draw_figure(&ink, &pv, shown, other, mark)),
         };
+        let Some((rect, (lo, hi))) = drawn else { continue };
         let Some(top) = under else { continue };
         // What one instance shows comes in a row.
         match boxes.last_mut() {
@@ -462,7 +365,22 @@ pub(super) fn draw_elements(
             out.level_box = Some(out.level_box.map_or((q, q), |(a, z)| (a.min(q), z.max(q))));
         }
     }
-    // An instance: picked and named by the box of what it shows.
+    close_level(&ink, pv, selected, &tops, boxes, &mut out);
+    out
+}
+
+/// After the elements, from the boxes of what the level's instances show (`boxes`): those
+/// instances picked and named by them, the composition edited in its grey box; what a press
+/// lands on, but the locked ones (drawn, not picked).
+fn close_level(
+    k: &Ink<'_>,
+    pv: &Paperview,
+    selected: &[Id],
+    tops: &HashMap<Id, &skraft_model::Element>,
+    mut boxes: Vec<(Id, egui::Rect)>,
+    out: &mut Drawn,
+) {
+    let Ink { painter, level, accent, .. } = *k;
     for (id, r) in &boxes {
         if !level.printed && tops.get(id).is_some_and(|el| el.kind.instance().is_some()) {
             if selected.contains(id) {
@@ -471,7 +389,6 @@ pub(super) fn draw_elements(
             crate::handles::publish(|| format!("sheet_element:{}", id.0), *r);
         }
     }
-    // The composition edited in its grey box.
     if level.open.is_empty() {
         out.level_box = None;
     } else if let Some((lo, hi)) = out.level_box {
@@ -480,8 +397,172 @@ pub(super) fn draw_elements(
         let q = pv.placed(level.place).quad(lo - m, hi + m);
         overlay::dashed_quad(painter, q, egui::Stroke::new(1.0, egui::Color32::from_gray(130)), overlay::LEVEL);
     }
-    // A locked one is drawn, not picked.
     boxes.retain(|(id, _)| tops.get(id).is_some_and(|el| !el.locked));
     out.frames = boxes;
-    out
+}
+
+/// What a sheet's elements are drawn with.
+#[derive(Clone, Copy)]
+struct Ink<'a> {
+    painter: &'a egui::Painter,
+    e: &'a Editor,
+    d: &'a Drawing,
+    level: Level<'a>,
+    ready: &'a HashMap<ViewSlot, egui::TextureId>,
+    fields: Option<&'a Fields<'a>>,
+    /// What is drawn on the paper.
+    paper_ink: egui::Color32,
+    /// The views' frames and names.
+    frame_ink: egui::Color32,
+    thin: egui::Stroke,
+    /// What is picked.
+    accent: egui::Stroke,
+    ppp: f32,
+}
+
+/// What a view's picture reads and asks for.
+struct Pictures<'a> {
+    lines: &'a mut crate::view_lines::LinesCache,
+    views: &'a mut ViewsCache,
+    wanted: &'a mut Vec<Wanted>,
+    /// The views asked for so far: one placed twice asks for its picture once per slot.
+    asked: &'a mut HashSet<ViewSlot>,
+}
+
+/// A view: its picture as last drawn (asking for a new one when it is on screen), its frame
+/// and name. `(alone, picked)`: it can be picked, it is. Its rect on screen and its box,
+/// none when it cannot be resolved.
+fn draw_view(
+    k: &Ink<'_>,
+    p: &mut Pictures<'_>,
+    pv: &Paperview,
+    shown: &skraft_model::Placed<'_>,
+    v: &skraft_model::View,
+    (alone, picked): (bool, bool),
+) -> Option<(egui::Rect, (DVec2, DVec2))> {
+    let Ink { painter, e, d, level, ready, frame_ink, ppp, .. } = *k;
+    let Pictures { lines, views, wanted, asked } = p;
+    let el = shown.element;
+    let r = d.resolve_as(el.id, shown.projection)?;
+    let data = views.get(e, el.id, &r);
+    let (lo, hi) = frame_of(&r, data.bx3.map(|(lo, hi)| (lo.truncate(), hi.truncate())));
+    let quad = pv.quad(lo, hi);
+    let rect = egui::Rect::from_points(&quad);
+    // Its picture — its parts rendered, its lines over them, as the style says — as
+    // last drawn, under its frame.
+    let slot = slot_of(el.id, v, shown.projection);
+    if let Some(tex) = ready.get(&slot) {
+        draw_picture(painter, *tex, quad);
+    }
+    if painter.clip_rect().intersects(rect) && asked.insert(slot) {
+        // Its lines as last computed (new ones on their way when it changed).
+        let got = if v.style == ViewStyle::Rendered {
+            None
+        } else {
+            let (got, busy) = lines.get(slot, data.lines.as_ref(), !level.printed);
+            if busy {
+                painter.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            }
+            got
+        };
+        let size = (hi - lo) * pv.zoom;
+        if let Some(w) = wanted_picture(slot, v.style, &r, &data, got, egui::vec2(size.x as f32, size.y as f32), ppp) {
+            wanted.push(w);
+        }
+    }
+    if !level.printed {
+        if picked {
+            stroke_box(painter, pv, quad, egui::Stroke::new(2.0, frame_ink));
+        } else {
+            overlay::dashed_quad(painter, quad, egui::Stroke::new(1.0, frame_ink), overlay::FRAME);
+        }
+        let angle = pv.angle();
+        let label = quad[0] + egui::emath::Rot2::from_angle(angle) * egui::vec2(0.0, -2.0);
+        let shown_scale = if r.perspective.is_some() { t!("drawing.no_scale") } else { scale_label(r.scale) };
+        let name = format!("{} · {}", v.name, shown_scale);
+        turned_text(painter, label, angle, name, egui::FontId::proportional(11.0), frame_ink);
+    }
+    if alone {
+        crate::handles::publish(|| format!("sheet_view:{}", el.id.0), rect);
+    }
+    Some((rect, (lo, hi)))
+}
+
+/// A dimension, read on its view; kept but not drawn on a perspective, which has no measure
+/// to read (decision 0051).
+fn draw_dimension(
+    k: &Ink<'_>,
+    views: &mut ViewsCache,
+    pv: &Paperview,
+    shown: &skraft_model::Placed<'_>,
+    dim: &skraft_model::Dimension,
+    (alone, picked): (bool, bool),
+) -> Option<(egui::Rect, (DVec2, DVec2))> {
+    let Ink { painter, e, d, accent, .. } = *k;
+    let el = shown.element;
+    let r = d.resolve_as(dim.view, shown.projection)?;
+    if r.perspective.is_some() {
+        return None;
+    }
+    let centre = views.get(e, dim.view, &r).centre()?;
+    let shape = crate::dims::shape(e.document(), &r, centre, dim);
+    let rect = draw_dim(painter, pv, &shape);
+    if picked {
+        painter.rect_stroke(rect, 0.0, accent, egui::StrokeKind::Middle);
+    }
+    if alone {
+        crate::handles::publish(|| format!("sheet_element:{}", el.id.0), rect);
+    }
+    Some((rect, shape.bounds()))
+}
+
+/// A text, a line, a rectangle, a circle, an image (its frame for now); picked, outlined on
+/// its box as a view's frame.
+fn draw_figure(
+    k: &Ink<'_>,
+    pv: &Paperview,
+    shown: &skraft_model::Placed<'_>,
+    kind: &ElementKind,
+    (alone, picked): (bool, bool),
+) -> (egui::Rect, (DVec2, DVec2)) {
+    let Ink { painter, fields, paper_ink, thin, accent, .. } = *k;
+    let (r, b) = match kind {
+        ElementKind::Text { at, text, size } => {
+            let words = fields.map_or_else(|| text.clone(), |f| f.fill(text, &shown.path));
+            let font = egui::FontId::proportional((size * pv.zoom).max(1.0) as f32);
+            let (r, on_screen) = turned_text(painter, pv.to_screen(*at), pv.angle(), words, font, paper_ink);
+            (r, (*at, *at + DVec2::new(on_screen.x as f64, on_screen.y as f64) / pv.zoom))
+        }
+        ElementKind::Line { from, to } => {
+            let (a, b) = (pv.to_screen(*from), pv.to_screen(*to));
+            painter.line_segment([a, b], thin);
+            (egui::Rect::from_two_pos(a, b).expand(3.0), (from.min(*to), from.max(*to)))
+        }
+        ElementKind::Rect { min, max } => {
+            let quad = pv.quad(*min, *max);
+            stroke_box(painter, pv, quad, thin);
+            (egui::Rect::from_points(&quad), (*min, *max))
+        }
+        ElementKind::Circle { center, radius } => {
+            let (c, r) = (pv.to_screen(*center), (*radius * pv.zoom) as f32);
+            painter.circle_stroke(c, r, thin);
+            let half = DVec2::splat(*radius);
+            (egui::Rect::from_center_size(c, egui::Vec2::splat(2.0 * r)), (*center - half, *center + half))
+        }
+        ElementKind::Image { min, max, .. } => {
+            let quad = pv.quad(*min, *max);
+            stroke_box(painter, pv, quad, thin);
+            painter.line_segment([quad[0], quad[2]], thin);
+            painter.line_segment([quad[3], quad[1]], thin);
+            (egui::Rect::from_points(&quad), (*min, *max))
+        }
+        ElementKind::View(_) | ElementKind::Dimension(_) | ElementKind::Instance(_) => unreachable!(),
+    };
+    if picked {
+        stroke_box(painter, pv, pv.quad(b.0, b.1), accent);
+    }
+    if alone {
+        crate::handles::publish(|| format!("sheet_element:{}", shown.element.id.0), r);
+    }
+    (r, b)
 }
