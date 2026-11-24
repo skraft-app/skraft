@@ -1,5 +1,6 @@
-//! The search field of the « Composants » card and of the navigator
-//! (docs/ui/components-library.md#search); the matching itself is `skraft_tools::search`'s.
+//! The search field of the cards and of the navigator (docs/ui/components-library.md#search),
+//! and what a search lets through as last listed; the matching itself is
+//! `skraft_tools::search`'s.
 
 use skraft_i18n::t;
 
@@ -63,4 +64,13 @@ pub const GAP: f32 = 6.0;
 /// egui rounds the field's), at least a widget's.
 pub fn line_height(ui: &egui::Ui) -> f32 {
     ui.spacing().interact_size.y.max((ui.text_style_height(&egui::TextStyle::Body) + 4.0).round())
+}
+
+/// What a search lets through, as last listed (`rows`, with the document's revision and the
+/// search it was listed for): listed again by `list` when either has changed.
+pub fn listed<'r, R>(rows: &'r mut Option<(u64, String, R)>, revision: u64, search: &str, list: impl FnOnce() -> R) -> &'r R {
+    if rows.as_ref().is_some_and(|(r, s, _)| *r != revision || s != search) {
+        *rows = None;
+    }
+    &rows.get_or_insert_with(|| (revision, search.to_owned(), list())).2
 }

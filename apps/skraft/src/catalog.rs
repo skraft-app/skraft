@@ -172,6 +172,13 @@ pub(crate) trait Shelf {
     fn lead_interact(&mut self, _ui: &mut egui::Ui, _response: egui::Response, _actions: &mut Vec<Action>) {}
 }
 
+/// `area` as high as what is left of a card's `height`, from `top` (where its content starts)
+/// down to the cursor.
+pub(crate) fn fit(ui: &egui::Ui, area: egui::ScrollArea, height: f32, top: f32) -> egui::ScrollArea {
+    let room = (height - (ui.cursor().top() - top)).max(0.0);
+    area.max_height(room).min_scrolled_height(room)
+}
+
 /// The items of `rows`, as a list or as a grid, in `area`: only the rows in view are laid out,
 /// only the tiles in view drawn (a model may hold thousands of definitions).
 pub(crate) fn show(

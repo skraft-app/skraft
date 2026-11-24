@@ -57,24 +57,19 @@ pub fn card(
 ) {
     let doc = editor.document();
     let top = ui.cursor().top();
-    let revision = editor.history().revision();
     let matcher = Matcher::new(&state.search);
-    if state.rows.as_ref().is_none_or(|(r, f, _)| *r != revision || *f != state.search) {
-        state.rows = Some((revision, state.search.clone(), rows_of(doc, &matcher)));
-    }
+    let rows = crate::search::listed(&mut state.rows, editor.history().revision(), &state.search, || rows_of(doc, &matcher));
     let salt = ui.make_persistent_id("materials_search");
     crate::search::field(ui, salt, "materials", &mut state.search, |ui, side| {
         catalog::view_toggle(ui, side, as_list, Card::Materials, actions);
         buttons(ui, doc, side, actions);
     });
     ui.add_space(crate::search::GAP - ui.spacing().item_spacing.y);
-    let Some((_, _, rows)) = &state.rows else { return };
     if rows.is_empty() && matcher.is_active() {
         ui.weak(t!("search.no_match"));
         return;
     }
-    let room = (height - (ui.cursor().top() - top)).max(0.0);
-    let area = area.max_height(room).min_scrolled_height(room);
+    let area = catalog::fit(ui, area, height, top);
     let mut shelf = Materials {
         editor,
         doc,

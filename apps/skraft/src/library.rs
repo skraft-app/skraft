@@ -143,12 +143,8 @@ pub fn components(
 ) {
     let doc = editor.document();
     let top = ui.cursor().top();
-    let revision = editor.history().revision();
     let matcher = Matcher::new(&state.search);
-    if state.rows.as_ref().is_none_or(|(r, f, _)| *r != revision || *f != state.search) {
-        state.rows = Some((revision, state.search.clone(), Shelves::of(doc, &matcher)));
-    }
-    let Some((_, _, shelves)) = &state.rows else { return };
+    let shelves = crate::search::listed(&mut state.rows, editor.history().revision(), &state.search, || Shelves::of(doc, &matcher));
     // The tabs, the ribbon's, their band from the title bar's line across the card; each with
     // what the search lets through, so a match in the other is seen.
     let labels = [
@@ -199,8 +195,7 @@ pub fn components(
         px: ((crate::thumbnails::TILE * ppp).round() as u32).clamp(16, 512),
     };
     let mut shelf = Components { editor, chosen: editor.chosen_component(), disabled, thumbs };
-    let height = (look.height - (ui.cursor().top() - top)).max(0.0);
-    let area = area.max_height(height).min_scrolled_height(height);
+    let area = catalog::fit(ui, area, look.height, top);
     catalog::show(ui, &mut shelf, rows, look.list, actions, area);
     if shelf.thumbs.thumbnails.pending() {
         ui.ctx().request_repaint();
