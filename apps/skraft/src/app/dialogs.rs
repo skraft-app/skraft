@@ -9,10 +9,10 @@ impl SkraftApp {
         let Some(mut picker) = d.sheet.picker.take() else { return };
         let doc = d.id;
         match picker.show(ctx, &d.editor, &mut self.viewport.thumbnails, doc) {
-            crate::view_picker::Answer::Open => d.sheet.picker = Some(picker),
-            crate::view_picker::Answer::Cancel => {}
-            crate::view_picker::Answer::Done(subject) => {
-                if let Err(e) = crate::sheet::picked(&mut d.editor, &mut d.sheet, picker.purpose, subject) {
+            crate::drawing::view_picker::Answer::Open => d.sheet.picker = Some(picker),
+            crate::drawing::view_picker::Answer::Cancel => {}
+            crate::drawing::view_picker::Answer::Done(subject) => {
+                if let Err(e) = crate::drawing::sheet::picked(&mut d.editor, &mut d.sheet, picker.purpose, subject) {
                     self.toasts.push(Note::error(t!("notice.op_failed", op = t!("operation.set_element")), e));
                 }
             }

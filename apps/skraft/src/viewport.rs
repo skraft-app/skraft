@@ -89,7 +89,7 @@ pub struct Viewport {
     textures: Vec<[f32; 4]>,
     /// The pictures of the drawing's views (docs/ui/drawing.md#rendered-views), by document
     /// and view slot, and the textures of those dropped, freed at the next frame.
-    sheet: HashMap<(u64, crate::sheet::ViewSlot), SheetPicture>,
+    sheet: HashMap<(u64, crate::drawing::sheet::ViewSlot), SheetPicture>,
     sheet_freed: Vec<egui::TextureId>,
     /// Counts the frames a sheet asked for pictures: how recently each was seen.
     sheet_frame: u64,
@@ -189,7 +189,7 @@ impl Viewport {
     }
 
     /// The views' pictures of document `doc` drawn so far, by view slot.
-    pub fn sheet_textures(&self, doc: u64) -> HashMap<crate::sheet::ViewSlot, egui::TextureId> {
+    pub fn sheet_textures(&self, doc: u64) -> HashMap<crate::drawing::sheet::ViewSlot, egui::TextureId> {
         self.sheet.iter().filter(|((d, _), _)| *d == doc).map(|((_, v), p)| (*v, p.texture)).collect()
     }
 
@@ -204,7 +204,7 @@ impl Viewport {
         doc: u64,
         editor: &Editor,
         theme: &Theme,
-        wanted: &[crate::sheet::Wanted],
+        wanted: &[crate::drawing::sheet::Wanted],
     ) {
         let Some(state) = frame.wgpu_render_state() else { return };
         self.show_document(doc);
@@ -219,7 +219,7 @@ impl Viewport {
             let [w, h] = p.picture.size();
             (*k, w as u64 * h as u64 * 4, p.seen)
         });
-        for k in crate::sheet::over_budget(sizes, now, SHEET_KEPT_BYTES) {
+        for k in crate::drawing::sheet::over_budget(sizes, now, SHEET_KEPT_BYTES) {
             if let Some(p) = self.sheet.remove(&k) {
                 self.sheet_freed.push(p.texture);
             }
@@ -235,7 +235,7 @@ impl Viewport {
             let _ = self.sync(state, editor, theme);
             self.render_thumbnails(ctx, state, ctx.pixels_per_point(), editor, theme);
         }
-        let todo: Vec<&crate::sheet::Wanted> = wanted
+        let todo: Vec<&crate::drawing::sheet::Wanted> = wanted
             .iter()
             .filter(|w| self.sheet.get(&(doc, w.slot)).is_none_or(|p| p.stamp != w.stamp || p.images != images_ready(&self.images, w)))
             .collect();
@@ -286,7 +286,7 @@ impl Viewport {
         doc: u64,
         editor: &Editor,
         theme: &Theme,
-        w: &crate::sheet::Wanted,
+        w: &crate::drawing::sheet::Wanted,
         ppp: f32,
     ) -> Option<(u32, u32, Vec<u8>)> {
         let state = frame.wgpu_render_state()?;
@@ -1064,7 +1064,7 @@ struct SheetLook<'a> {
 /// A sheet view's picture `w` drawn into `picture` (docs/ui/drawing.md#rendered-views): its
 /// parts, its lines over them, on the paper's white.
 /// How many of the texture images picture `w` shows are ready (they stay so once they are).
-fn images_ready(images: &crate::images::TextureImages, w: &crate::sheet::Wanted) -> usize {
+fn images_ready(images: &crate::images::TextureImages, w: &crate::drawing::sheet::Wanted) -> usize {
     w.images.iter().filter(|id| images.get(id).is_some()).count()
 }
 
@@ -1073,7 +1073,7 @@ fn draw_sheet_picture(
     state: &egui_wgpu::RenderState,
     scene: &skraft_tools::DisplayScene,
     look: &SheetLook<'_>,
-    w: &crate::sheet::Wanted,
+    w: &crate::drawing::sheet::Wanted,
     picture: &render::Picture,
 ) {
     let (theme, palette, textures, ppp) = (look.theme, look.palette, look.textures, look.ppp);

@@ -13,8 +13,8 @@ use skraft_tools::search::Matcher;
 use crate::cards::catalog::{self, Card, Ink, Renaming, Rows, Shelf};
 use crate::cards::library::natural_cmp;
 use crate::cards::panels::Action;
+use crate::drawing::sheet::{SheetState, Sketch, sketch_of};
 use crate::kit::style::Tip;
-use crate::sheet::{SheetState, Sketch, sketch_of};
 
 /// What the card keeps of a document between frames (never on disk): its search, its rows and
 /// the compositions' outlines, made again when the document or what they depend on changes.

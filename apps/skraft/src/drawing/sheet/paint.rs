@@ -107,7 +107,7 @@ pub(super) fn draw_other_sheets(
     d: &Drawing,
     title: &str,
     ready: &HashMap<ViewSlot, egui::TextureId>,
-    lines: &mut crate::view_lines::LinesCache,
+    lines: &mut crate::drawing::view_lines::LinesCache,
     views: &mut ViewsCache,
     wanted: &mut Vec<Wanted>,
 ) {
@@ -159,7 +159,7 @@ fn draw_marked_column(
     view: Paperview,
     board: &Board,
     aids: Aids,
-    column: &crate::sheet_board::Column,
+    column: &crate::drawing::sheet_board::Column,
     name: &str,
     (above, room): (f32, f32),
 ) {
@@ -274,7 +274,7 @@ pub(super) fn draw_elements(
     level: Level<'_>,
     selected: &[Id],
     ready: &HashMap<ViewSlot, egui::TextureId>,
-    lines: &mut crate::view_lines::LinesCache,
+    lines: &mut crate::drawing::view_lines::LinesCache,
     views: &mut ViewsCache,
     wanted: &mut Vec<Wanted>,
     // The views asked for so far: one placed twice asks for its picture once per slot.
@@ -399,7 +399,7 @@ struct Ink<'a> {
 
 /// What a view's picture reads and asks for.
 struct Pictures<'a> {
-    lines: &'a mut crate::view_lines::LinesCache,
+    lines: &'a mut crate::drawing::view_lines::LinesCache,
     views: &'a mut ViewsCache,
     wanted: &'a mut Vec<Wanted>,
     /// The views asked for so far: one placed twice asks for its picture once per slot.
@@ -482,7 +482,7 @@ fn draw_dimension(
         return None;
     }
     let centre = views.get(e, dim.view, &r).centre()?;
-    let shape = crate::dims::shape(e.document(), &r, centre, dim);
+    let shape = crate::drawing::dims::shape(e.document(), &r, centre, dim);
     let rect = draw_dim(painter, pv, &shape);
     if picked {
         painter.rect_stroke(rect, 0.0, accent, egui::StrokeKind::Middle);

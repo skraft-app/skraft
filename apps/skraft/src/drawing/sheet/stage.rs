@@ -142,7 +142,7 @@ pub fn ui(
     fit: Option<egui::Rect>,
     e: &mut Editor,
     st: &mut SheetState,
-    lines: &mut crate::view_lines::LinesCache,
+    lines: &mut crate::drawing::view_lines::LinesCache,
     theme: &Theme,
     ready: &HashMap<ViewSlot, egui::TextureId>,
     title: &str,
@@ -154,7 +154,7 @@ pub fn ui(
     crate::kit::handles::publish(|| "sheet".into(), rect);
     if st.framer.is_some() {
         let room = fit.filter(|r| r.width() >= MIN_FIT_ROOM && r.height() >= MIN_FIT_ROOM).unwrap_or(rect);
-        return crate::view_framer::ui(ui, room, e, st, ready);
+        return crate::drawing::view_framer::ui(ui, room, e, st, ready);
     }
     let paper_room = rect;
     let centre = paper_room.center();
@@ -230,7 +230,7 @@ struct Stage<'a> {
 
 /// What the frame asks for: the views' lines, the pictures of the active sheet and the others'.
 struct Asks<'a> {
-    lines: &'a mut crate::view_lines::LinesCache,
+    lines: &'a mut crate::drawing::view_lines::LinesCache,
     wanted: &'a mut Vec<Wanted>,
     others: &'a mut Vec<Wanted>,
 }
@@ -743,7 +743,7 @@ fn select_tool(e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_>, preview: &O
             (Some(i), _) => st.enter(i),
             // A view: its point of view (decision 0051).
             (None, Some(v)) if drawing.element(v).is_some_and(|el| matches!(el.kind, ElementKind::View(_))) => {
-                if let Err(why) = crate::view_framer::open(e, st, v) {
+                if let Err(why) = crate::drawing::view_framer::open(e, st, v) {
                     st.message = Some(why);
                 }
             }
@@ -831,7 +831,7 @@ fn dimension_tool(ui: &egui::Ui, e: &mut Editor, st: &mut SheetState, s: &OnShee
         } else if let Some(dim) = dimension_of(e, drawing, &mut st.views, tool, &st.picks, at, projection) {
             // Where a click puts it.
             if let Some((r, c)) = view_map(e, drawing, &mut st.views, dim.view, projection) {
-                draw_dim(painter, &lv, &crate::dims::shape(e.document(), &r, c, &dim));
+                draw_dim(painter, &lv, &crate::drawing::dims::shape(e.document(), &r, c, &dim));
             }
             if clicked {
                 st.picks.clear();

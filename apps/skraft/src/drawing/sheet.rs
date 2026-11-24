@@ -15,9 +15,9 @@ use skraft_model::{
 use skraft_theme::{Inks, Theme};
 use skraft_tools::Editor;
 
+use crate::drawing::sheet_board::{Board, Column};
+use crate::drawing::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::kit::overlay;
-use crate::sheet_board::{Board, Column};
-use crate::view_picker::{Purpose, ViewPicker, subject_of_paths};
 use crate::viewport;
 
 /// A document's sheet shown and how it is seen (the sheet and the camera kept in its file,
@@ -85,7 +85,7 @@ pub struct SheetState {
     /// editor, and the pointer in the level open).
     pub asked: Option<SheetAsk>,
     /// The « Compositions » card's search, rows and outlines.
-    pub library: crate::sheet_library::CompositionsState,
+    pub library: crate::drawing::sheet_library::CompositionsState,
     /// The composition being dragged from that card, placed where it is let go.
     pub carried: Option<Id>,
     /// The dialog choosing what a view shows, while open.
@@ -93,7 +93,7 @@ pub struct SheetState {
     /// The view being placed by [`SheetTool::Place`].
     placing: Option<Placing>,
     /// The view being framed (« Cadrer la vue »), over the stage.
-    pub framer: Option<crate::view_framer::ViewFramer>,
+    pub framer: Option<crate::drawing::view_framer::ViewFramer>,
     /// What the entity info shows while nothing is picked.
     pub info: InfoOn,
     /// What each view shows, for the document's revision and the meshes' generation.
@@ -829,7 +829,7 @@ pub fn selected_view<'a>(e: &'a Editor, st: &SheetState) -> Option<(Id, &'a View
 /// « Cadrer la vue » on the view picked.
 pub fn frame_view(e: &Editor, st: &mut SheetState) -> Result<(), String> {
     let id = selected_view(e, st).map(|(id, _)| id).ok_or_else(|| t!("drawing.no_view_selected"))?;
-    crate::view_framer::open(e, st, id)
+    crate::drawing::view_framer::open(e, st, id)
 }
 
 /// Can a view be projected from the view picked (a parallel one)?

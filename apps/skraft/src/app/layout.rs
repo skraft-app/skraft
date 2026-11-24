@@ -305,7 +305,15 @@ impl SkraftApp {
                             let (doc_id, list) = (doc.id, self.prefs.compositions_list);
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::sheet_library::compositions(ui, editor, st, list, body, actions, area.id_salt("compositions"))
+                                crate::drawing::sheet_library::compositions(
+                                    ui,
+                                    editor,
+                                    st,
+                                    list,
+                                    body,
+                                    actions,
+                                    area.id_salt("compositions"),
+                                )
                             });
                         }
                         // On a sheet, the drawing's tree (docs/ui/drawing.md#navigator).
@@ -313,7 +321,7 @@ impl SkraftApp {
                             let (doc_id, name) = (doc.id, doc.name());
                             let (editor, st) = (&doc.editor, &mut doc.sheet);
                             ui.push_id(doc_id, |ui| {
-                                crate::sheet_tree::navigator(ui, editor, st, &name, actions, area.id_salt("sheet_tree"))
+                                crate::drawing::sheet_tree::navigator(ui, editor, st, &name, actions, area.id_salt("sheet_tree"))
                             });
                         }
                         PanelId::Outliner => {
@@ -640,8 +648,17 @@ impl SkraftApp {
                         // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).
                         let ready = viewport.sheet_textures(d.id);
                         let title = d.name();
-                        let wanted =
-                            crate::sheet::ui(ui, view, sheet_room, &mut d.editor, &mut d.sheet, &mut d.lines, &theme, &ready, &title);
+                        let wanted = crate::drawing::sheet::ui(
+                            ui,
+                            view,
+                            sheet_room,
+                            &mut d.editor,
+                            &mut d.sheet,
+                            &mut d.lines,
+                            &theme,
+                            &ready,
+                            &title,
+                        );
                         viewport.sheet_pictures(ui.ctx(), frame, d.id, &d.editor, &theme, &wanted);
                     } else {
                         viewport.ui(ui, frame, d.id, &mut d.editor, &d.vcb, &prefs.navigation, &theme, prefs.show_render_stats);

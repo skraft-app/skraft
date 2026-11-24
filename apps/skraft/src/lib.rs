@@ -11,8 +11,8 @@ mod control;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crash;
 mod dates;
-mod dims;
 mod docs;
+mod drawing;
 mod driving;
 mod file;
 mod identity;
@@ -26,20 +26,11 @@ mod naming;
 mod nav_prefs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opened;
-mod pdf;
 mod prefs;
 mod separators;
-mod sheet;
-mod sheet_board;
-mod sheet_library;
-mod sheet_tree;
-mod templates;
 mod thumbnails;
 #[cfg(not(target_arch = "wasm32"))]
 mod update;
-mod view_framer;
-mod view_lines;
-mod view_picker;
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;

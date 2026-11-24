@@ -93,7 +93,7 @@ pub(super) fn handles(
         }),
         ElementKind::Text { .. } => frame.map_or_else(Vec::new, |(_, hi)| vec![(Handle::Size, hi)]),
         ElementKind::Dimension(dim) => view_map(e, d, views, dim.view, projection)
-            .map_or_else(Vec::new, |(r, c)| vec![(Handle::Dim, crate::dims::shape(e.document(), &r, c, dim).grip)]),
+            .map_or_else(Vec::new, |(r, c)| vec![(Handle::Dim, crate::drawing::dims::shape(e.document(), &r, c, dim).grip)]),
         _ => Vec::new(),
     }
 }
