@@ -487,7 +487,7 @@ impl SkraftApp {
         // the view on the right. The ribbon, the tools' cards and the side panels float over
         // it, so opening or resizing them never resizes the view.
         let Some(i) = self.docs.active_index() else { return };
-        let margin = 8.0;
+        let margin = crate::style::FLOAT_GAP;
         let area = ui.available_rect_before_wrap();
         let stage = self.workspace().stage;
         let split = match stage {

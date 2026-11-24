@@ -36,6 +36,9 @@ pub const BAR_ICON: f32 = 18.0;
 /// The margin inside a panel's card, around its content (its border just outside).
 pub const CARD_MARGIN: f32 = 6.0;
 
+/// The room between the cards floating over the stage, and around them (points).
+pub const FLOAT_GAP: f32 = 8.0;
+
 /// The frame of a panel's card.
 pub fn card_frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style).inner_margin(CARD_MARGIN)
