@@ -190,9 +190,10 @@ What holds now:
 
 ## Trial (2026-11-23, headless)
 
-`crates/model/tests/links_trial.rs` and `crates/kernel/tests/imprint_offset_trial.rs` (branch
-`feature/linked-bodies`). The links are prototyped in the test, over the public operations: a
-table of four legs and four rails with two tenons each, the legs turned by quarters or mirrored.
+Two headless tests, never committed: they prototyped the links over the public operations
+before the model had them. The cases that still hold now run in `crates/model/src/link_tests.rs`
+and `crates/kernel/tests/imprint.rs`. The trial's table: four legs and four rails with two
+tenons each, the legs turned by quarters or mirrored.
 
 - **14 scenarios pass**: following, « Replacer », a source off, pulled out, two moves asked of one
   body, a leg separated, a rail whose ends disagree (its 10 mm gap told), an assembly copied.
