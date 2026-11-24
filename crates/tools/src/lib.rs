@@ -32,6 +32,6 @@ pub use editor::{
 pub use infer::{Curve, EdgeRef, InferKind, Inference, LineKind};
 pub use scene::{DefinitionMesh, DisplayScene, Hit, Owner, PartMesh, Piece, Placement, RecipeMeshes, RecipeTool, SceneGuide};
 pub use tools::{
-    Cursor, Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PointShape, PreviewLabel, Steps, ToolInput, ToolKind,
-    ToolOption,
+    Cursor, Key, Marquee, Modifiers, OptionChoice, OptionValue, OptionValues, PointShape, PreviewLabel, StepBadge, Steps, ToolInput,
+    ToolKind, ToolOption,
 };

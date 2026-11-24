@@ -28,6 +28,8 @@ pub(crate) struct FieldLook<'a> {
     pub(crate) align: egui::Align2,
     /// Outlined with the selection's colour (a tool option's value set).
     pub(crate) lit: bool,
+    /// What is typed cannot be used: outlined with the error colour (a modal box's field).
+    pub(crate) bad: bool,
     /// A letter in a colour, in a box on the left (an axis' `X`).
     pub(crate) addon: Option<(&'a str, egui::Color32)>,
     /// Its name among the named handles (docs/control-protocol.md), if published.
@@ -83,7 +85,11 @@ fn draw_field(ui: &mut egui::Ui, field_id: egui::Id, text: &mut String, f: Field
     // its text not.
     let alpha = crate::kit::style::fill_alpha(ui);
     let border = faded(visuals.widgets.noninteractive.bg_stroke, alpha);
-    let stroke = faded(field_stroke(visuals, focused, f.lit, hovered), alpha);
+    let mut stroke = field_stroke(visuals, focused, f.lit, hovered);
+    if f.bad {
+        stroke.color = visuals.error_fg_color;
+    }
+    let stroke = faded(stroke, alpha);
     let radius = visuals.widgets.inactive.corner_radius;
     let addon = f.addon.map(|_| OPTION_HEIGHT).unwrap_or(0.0);
     let mut corners = radius;
@@ -157,7 +163,8 @@ pub(crate) fn framed_field(ui: &mut egui::Ui, id: egui::Id, shown: &str, exact: 
     let focused = ui.memory(|m| m.has_focus(field_id));
     // While focused, the text typed (kept across frames); else the value.
     let mut text: String = focused.then(|| ui.data(|d| d.get_temp(id))).flatten().unwrap_or_else(|| shown.to_owned());
-    let look = FieldLook { hint: f.hint, tip: f.tip, width: f.width, align: f.align, lit: f.lit, addon: f.addon, handle: f.handle };
+    let look =
+        FieldLook { hint: f.hint, tip: f.tip, width: f.width, align: f.align, lit: f.lit, bad: false, addon: f.addon, handle: f.handle };
     let r = draw_field(ui, field_id, &mut text, look);
     // Just focused (clicked, tabbed into): the real value, all of it selected, to be typed over.
     if r.gained_focus() {

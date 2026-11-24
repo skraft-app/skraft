@@ -372,7 +372,13 @@ impl Viewport {
         }
         paint_overlay_points(ui.painter(), rect, editor, theme);
         paint_marks(ui.painter(), rect, editor, theme);
+        // The steps' numbers on the parts picked (docs/ui/interface.md#steps-bar).
         let mut clear = Vec::new();
+        for b in editor.badges() {
+            if let Some(at) = editor.camera.project(b.at, editor.viewport_size()) {
+                clear.push(steps::badge(ui.painter(), ui.visuals(), rect.min + egui::vec2(at.x as f32, at.y as f32), &b.name));
+            }
+        }
         if let Some(cursor) = response.hover_pos() {
             clear.push(footprint.translate(cursor.to_vec2()));
             clear.extend(paint_inference(ui.painter(), rect, cursor, footprint, editor, theme));
@@ -1221,9 +1227,9 @@ fn mark_colors(theme: &Theme, mark: Mark, fade: render::Tint) -> skraft_theme::M
         Mark::Hover => theme.hover,
         Mark::HoverFaded => skraft_theme::MarkColors { face: then_fade(theme.hover.face, fade), edge: then_fade(theme.hover.edge, fade) },
         Mark::Picked => theme.picked,
-        Mark::PickedTool => theme.picked_tool,
+        Mark::PickedRelated => theme.picked_related,
         Mark::Ghost => theme.ghost,
-        // The other copies a change reaches: the picked target's orange, lighter.
+        // The other copies a change reaches.
         Mark::Related => theme.related,
         // In the colour the paint would give: no tint over it.
         Mark::Painted => skraft_theme::MarkColors { face: [0.0; 4], edge: theme.hover.edge },

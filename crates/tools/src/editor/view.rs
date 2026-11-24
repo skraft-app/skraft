@@ -17,10 +17,11 @@ pub enum Mark {
     Hover,
     /// Hovered (in the navigator) outside the context being edited: hovered, still faded.
     HoverFaded,
-    /// Picked by a tool (the solid tools' targets).
+    /// Picked by a two-step tool as what it changes (the solid tools' targets): as selected
+    /// (docs/tools/solid-tools.md).
     Picked,
-    /// Picked by a solid tool as a tool (its B), lighter.
-    PickedTool,
+    /// Another occurrence of a target picked, which changes with it: as selected, lighter.
+    PickedRelated,
     /// The selection where the move tool would put it.
     Ghost,
     /// Another occurrence of the part a change is aimed at: it changes too (docs/model/data-model.md).
@@ -439,6 +440,16 @@ impl Editor {
                 || under_any(&erasing_deep, &p.path, depth)
         };
         let mut ghosts: Batches = Vec::new();
+        // The parts picked that make a change (the solid tools' tools): see-through, as the
+        // bodies they become (docs/tools/solid-tools.md).
+        let acting: skraft_model::FastSet<Vec<Id>> =
+            preview.picked_tools.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
+        let acting_look = match preview.picked_sign {
+            Some(skraft_model::Sign::Negative) => Look::Tool,
+            Some(skraft_model::Sign::Intersect) => Look::Intersect,
+            _ => Look::Blank,
+        };
+        let mut acting_ghosts: Batches = Vec::new();
         let mut swapped: Vec<(Id, Vec<ViewPlacement>)> = Vec::new();
         // The highlights to move with them: from the part where it was to where it is drawn.
         let mut moved: Vec<(Id, DAffine3, Id, DAffine3)> = Vec::new();
@@ -457,6 +468,10 @@ impl Editor {
                     push_to(&mut ghosts, def, ViewPlacement { ghost: true, faint_edges: true, ..vp });
                     continue;
                 }
+                if under_any(&acting, &p.path, 0) {
+                    push_to(&mut acting_ghosts, def, ViewPlacement { ghost: true, look: acting_look, ..vp });
+                    continue;
+                }
                 match swap(p) {
                     Some((key, t)) => {
                         moved.push((def, p.transform, key, t));
@@ -469,6 +484,7 @@ impl Editor {
         }
         v.batches.extend(swapped);
         v.batches.extend(ghosts);
+        v.batches.extend(acting_ghosts);
         if let (Some(r), Some(o)) = (recipe, &open)
             && let Ok((_, part, t)) = doc.resolve_container(o)
         {
@@ -749,10 +765,14 @@ impl Editor {
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
             mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
-        let picked =
-            preview.picked_solids.iter().map(|p| (p, Mark::Picked)).chain(preview.picked_tools.iter().map(|p| (p, Mark::PickedTool)));
+        let picked = preview.picked_solids.iter().map(|p| (p, Mark::Picked));
         for (p, m) in preview.hover_solid.iter().map(|p| (p, Mark::Hover)).chain(picked) {
+            let from = v.highlights.len();
             mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
+            // A part picked as a tool stays see-through under the cursor.
+            if preview.picked_tools.contains(p) {
+                v.highlights[from..].iter_mut().for_each(|h| h.ghost = true);
+            }
         }
         // The other occurrences a change reaches, the one aimed at excepted: those of the open
         // part (docs/model/opening-a-part.md), else of the part a tool aims at.
@@ -763,12 +783,14 @@ impl Editor {
         {
             // Those not shown (the rest of the model hidden, or hidden by the user) are not marked either.
             let aimed = aimed.part_path();
+            // A two-step tool's target: its copies as it is, lighter.
+            let related = if preview.picked_sign.is_some() { Mark::PickedRelated } else { Mark::Related };
             for p in places.iter().filter(|p| p.entity_path() != aimed && self.scene.is_shown(p)) {
                 v.highlights.push(ViewHighlight {
                     definition: part,
                     solid: part,
                     transform: p.transform,
-                    mark: Mark::Related,
+                    mark: related,
                     material: p.material,
                     ghost: self.xray(),
                     face: None,

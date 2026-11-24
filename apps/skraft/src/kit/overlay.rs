@@ -1,6 +1,7 @@
 //! What the 2D stages draw on screen over their content, the 3D view's and the drawing sheet's
 //! alike (docs/render/drawer.md#screen-overlays): the dashes by what they mean, the selection
-//! rectangle, the square grip, the cross, a turned text.
+//! rectangle, the square grip, the cross, a turned text; and the leader of the interface's
+//! figures (the mouse of the Preferences, « Empreindre »'s tenon).
 
 use skraft_theme::Theme;
 
@@ -25,6 +26,14 @@ pub const ALIGNMENT: Dash = Dash { on: 3.0, off: 3.0 };
 pub const TRACKED: Dash = Dash { on: 4.0, off: 3.0 };
 /// The box around the composition being edited.
 pub const LEVEL: Dash = Dash { on: 5.0, off: 3.0 };
+
+/// A drawing's leader from a part of a figure to its text: a dot at `anchor`, a slant, then a
+/// shelf `shelf` long to `end` (its text's start), level with it.
+pub fn leader(painter: &egui::Painter, anchor: egui::Pos2, end: egui::Pos2, shelf: f32, stroke: egui::Stroke) {
+    let back = if end.x >= anchor.x { -shelf } else { shelf };
+    painter.add(egui::Shape::line(vec![anchor, egui::pos2(end.x + back, end.y), end], stroke));
+    painter.circle_filled(anchor, 2.0, stroke.color);
+}
 
 /// The polyline `path`, dashed.
 pub fn dashed(painter: &egui::Painter, path: &[egui::Pos2], stroke: egui::Stroke, dash: Dash) {

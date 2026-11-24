@@ -93,6 +93,9 @@ pub struct Editor {
     link_offer: Option<links::LinkOffer>,
     /// « Empreindre » waiting for the kernel's answer, and its plan once answered.
     imprint_ask: Option<links::ImprintAsk>,
+    /// « Empreindre »'s marks while the kernel is asked and its confirmation open
+    /// ([`Editor::end_imprint`]).
+    imprint_shown: Option<Preview>,
     imprint_ready: Option<skraft_model::ImprintPlan>,
     /// The parts seated in one part that overlap, as the kernel last answered.
     link_overlaps: skraft_model::LinkOverlaps,
@@ -282,6 +285,7 @@ impl Editor {
             link_map: doc.link_map(),
             link_offer: None,
             imprint_ask: None,
+            imprint_shown: None,
             imprint_ready: None,
             link_overlaps: Default::default(),
             overlap_memo: Default::default(),
@@ -1639,7 +1643,10 @@ impl Editor {
                 _ => self.clear_selection(),
             },
             Command::Say(s) => self.message = Some(s),
-            Command::Imprint { sources, receivers } => self.ask_imprint(sources, receivers),
+            Command::Imprint { sources, receivers, shown } => {
+                self.imprint_shown = Some(*shown);
+                self.ask_imprint(sources, receivers);
+            }
             Command::PaintWith(m) => self.paint = m,
             Command::Hold(kind) => {
                 self.push_tool(kind, stack::Over::Held);
@@ -1683,7 +1690,18 @@ impl Editor {
         {
             return held.clone();
         }
-        self.tool.preview(&self.cx())
+        let p = self.tool.preview(&self.cx());
+        // « Empreindre » asked: the parts it picked stay marked until its confirmation closes.
+        match &self.imprint_shown {
+            Some(s) if p.picked_solids.is_empty() && p.picked_tools.is_empty() => Preview {
+                picked_solids: s.picked_solids.clone(),
+                picked_tools: s.picked_tools.clone(),
+                picked_sign: s.picked_sign,
+                badges: s.badges.clone(),
+                ..p
+            },
+            _ => p,
+        }
     }
 
     /// The point the active tool infers under the cursor, with its kind (marker and tooltip).
@@ -1726,6 +1744,12 @@ impl Editor {
     /// The points the tool marks with a cross (world), which the lengths keep clear of.
     pub fn marks(&self) -> Vec<DVec3> {
         self.preview().drawing.marks
+    }
+
+    /// The step numbers the tool draws on the parts it picked (the app draws them,
+    /// docs/ui/interface.md#steps-bar).
+    pub fn badges(&self) -> Vec<tools::StepBadge> {
+        self.preview().badges
     }
 
     /// The round points the tool draws over everything (the app draws them).

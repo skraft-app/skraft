@@ -337,10 +337,11 @@ pub struct Theme {
     /// The selection: its edges only, its faces keeping their colour (face tint alpha 0).
     pub selected: MarkColors,
     pub hover: MarkColors,
-    /// Picked by a tool (the solid tools' targets).
+    /// Picked by a two-step tool as what it changes (the solid tools' targets): the selection's
+    /// (docs/tools/solid-tools.md); what makes the change is drawn as the body it becomes.
     pub picked: MarkColors,
-    /// Picked by a solid tool as a tool (its B): the target's orange, lighter.
-    pub picked_tool: MarkColors,
+    /// The other occurrences of a target picked, which change with it: its edges, lighter.
+    pub picked_related: MarkColors,
     /// The selection where the move tool would put it.
     pub ghost: MarkColors,
     /// The other occurrences a change reaches.
@@ -412,8 +413,8 @@ impl Theme {
             intersect: srgb(30, 160, 150),
             selected: MarkColors { face: [0.05, 0.2, 1.0, 0.0], edge: [0.005, 0.035, 1.0, 1.0] },
             hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.01, 0.1, 1.0, 0.75] },
-            picked: MarkColors { face: [1.0, 0.3, 0.0, 0.55], edge: [0.79, 0.073, 0.0, 1.0] },
-            picked_tool: MarkColors { face: [1.0, 0.3, 0.0, 0.18], edge: [0.79, 0.073, 0.0, 1.0] },
+            picked: MarkColors { face: [0.05, 0.2, 1.0, 0.0], edge: [0.005, 0.035, 1.0, 1.0] },
+            picked_related: MarkColors { face: [0.05, 0.2, 1.0, 0.0], edge: [0.005, 0.035, 1.0, 0.4] },
             ghost: MarkColors { face: [0.1, 0.25, 1.0, 0.4], edge: [0.005, 0.035, 1.0, 1.0] },
             related: MarkColors { face: [1.0, 0.4, 0.02, 0.28], edge: [0.89, 0.17, 0.01, 0.65] },
             context_box: [0.45, 0.45, 0.48, 1.0],
@@ -445,6 +446,8 @@ impl Theme {
             mode: Mode::Dark,
             ui: UiTokens::dark(),
             selected: MarkColors { face: [0.1, 0.3, 1.0, 0.0], edge: srgb(70, 140, 255) },
+            picked: MarkColors { face: [0.1, 0.3, 1.0, 0.0], edge: srgb(70, 140, 255) },
+            picked_related: MarkColors { face: [0.1, 0.3, 1.0, 0.0], edge: srgba(70, 140, 255, 102) },
             hover: MarkColors { face: [0.07, 0.25, 1.0, 0.2], edge: [0.12, 0.3, 1.0, 0.85] },
             ghost: MarkColors { face: [0.1, 0.25, 1.0, 0.4], edge: srgb(70, 140, 255) },
             context_box: srgb(170, 172, 180),
