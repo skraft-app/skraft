@@ -301,8 +301,10 @@ const BUTTON_MIN_WIDTH: f32 = 50.0;
 const BUTTON_MAX_WIDTH: f32 = 74.0;
 const COMPACT_WIDTH: f32 = 34.0;
 const ICON: f32 = 24.0;
-/// How wide the cell that picks the workspace is; the ribbon starts with it.
+/// How wide the cell that picks the workspace is; the ribbon starts with it. Narrow: its icon
+/// alone.
 const WORKSPACE_WIDTH: f32 = 92.0;
+const WORKSPACE_NARROW_WIDTH: f32 = 44.0;
 /// The workspace's icon in its cell, and the gap between it and its name.
 const WORKSPACE_ICON: f32 = 28.0;
 const WORKSPACE_ICON_GAP: f32 = 4.0;
@@ -320,9 +322,16 @@ pub struct View<'a> {
     /// The width seen of a ribbon wider than that, scrolled sideways (a phone's strip,
     /// docs/ui/touch.md): its tabs are centred on what is seen first.
     pub seen: Option<f32>,
+    /// The workspace's cell as its icon alone (a phone's strip): its name is in its menu.
+    pub narrow: bool,
 }
 
 impl View<'_> {
+    /// The workspace's cell's width.
+    fn cell_width(&self) -> f32 {
+        if self.narrow { WORKSPACE_NARROW_WIDTH } else { WORKSPACE_WIDTH }
+    }
+
     fn command(&self, id: &str) -> Option<&CommandView> {
         self.views.iter().find(|v| v.id == id)
     }
@@ -346,14 +355,17 @@ fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, 
         ui.painter().rect_filled(full, corners, ui.style().interact(&response).weak_bg_fill);
     }
     let ink = ui.visuals().text_color();
-    let label = ui.painter().layout_no_wrap((current.label)(), FontId::proportional(12.5), ink);
+    // Narrow, its icon alone: its name is its menu's.
+    let label = (!v.narrow).then(|| ui.painter().layout_no_wrap((current.label)(), FontId::proportional(12.5), ink));
     let line = rect.bottom() - GROUP_LABEL_HEIGHT;
-    let block = WORKSPACE_ICON + WORKSPACE_ICON_GAP + label.size().y;
+    let block = WORKSPACE_ICON + label.as_ref().map_or(0.0, |l| WORKSPACE_ICON_GAP + l.size().y);
     let top = (full.top() + line - block) / 2.0;
     let icon = Rect::from_min_size(pos2(full.center().x - WORKSPACE_ICON / 2.0, top), vec2(WORKSPACE_ICON, WORKSPACE_ICON));
     egui::Image::new(current.icon.clone()).tint(ink).paint_at(ui, icon);
-    let at = pos2(full.center().x - label.size().x / 2.0, icon.bottom() + WORKSPACE_ICON_GAP);
-    ui.painter().galley(at, label, ink);
+    if let Some(label) = label {
+        let at = pos2(full.center().x - label.size().x / 2.0, icon.bottom() + WORKSPACE_ICON_GAP);
+        ui.painter().galley(at, label, ink);
+    }
     // As a group label's chevron: weak, the text's colour when hovered.
     let chevron_ink = if hovered { ink } else { ui.visuals().weak_text_color() };
     chevron(ui, pos2(full.center().x, line + GROUP_LABEL_HEIGHT / 2.0), chevron_ink);
@@ -675,7 +687,7 @@ pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
     let groups = span(&unreduced, &sizes, collapsed);
     let w = v.workspace;
     let tabs = tab_row_width(&painter, w);
-    (WORKSPACE_WIDTH + GROUP_GAP + groups.max(tabs)).ceil()
+    (v.cell_width() + GROUP_GAP + groups.max(tabs)).ceil()
 }
 
 /// The ribbon card's content, `width` wide: the workspace cell at the left, over the whole
@@ -689,13 +701,13 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, acti
     ui.set_width(width);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        let (cell, _) = ui.allocate_exact_size(vec2(WORKSPACE_WIDTH, height), Sense::hover());
+        let (cell, _) = ui.allocate_exact_size(vec2(v.cell_width(), height), Sense::hover());
         // The tab band from the separator, which is drawn over it, across the whole card.
         let band = egui::Margin { left: (GROUP_GAP / 2.0) as i8, ..inset };
         let sx = cell.right() + GROUP_GAP - band.leftf();
         workspace_cell(ui, v, cell, inset, sx, actions);
         ui.add_space(GROUP_GAP);
-        let content = (width - WORKSPACE_WIDTH - GROUP_GAP).max(0.0);
+        let content = (width - v.cell_width() - GROUP_GAP).max(0.0);
         ui.vertical(|ui| groups(ui, v, content, band, actions));
         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
         ui.painter().vline(sx, cell.top() - inset.topf()..=cell.bottom() + inset.bottomf(), stroke);
@@ -709,7 +721,7 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
     let tab = v.prefs.tab(v.workspace);
     ui.set_width(width);
     // What is seen of the groups' width, a strip scrolled sideways.
-    let seen = v.seen.map_or(width, |s| s - WORKSPACE_WIDTH - GROUP_GAP);
+    let seen = v.seen.map_or(width, |s| s - v.cell_width() - GROUP_GAP);
     tab_row(ui, w, tab, width, seen, inset, actions);
     ui.add_space(TAB_GAP_BELOW);
 

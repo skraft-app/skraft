@@ -50,7 +50,13 @@ impl SkraftApp {
         let panel = egui::Frame::side_top_panel(&style).inner_margin(0);
         egui::Panel::top("compact_ribbon").resizable(false).frame(panel).show(ui, |ui| {
             let seen = ui.available_width();
-            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: Some(seen - inset.sum().x) };
+            let view = ribbon::View {
+                workspace: self.workspace(),
+                prefs: &self.prefs.ribbon,
+                views,
+                seen: Some(seen - inset.sum().x),
+                narrow: true,
+            };
             let width = ribbon::natural_width(ui.ctx(), &view).max(seen - inset.sum().x);
             // Dragged from the first touch on (egui's default waits to have seen a touch screen).
             egui::ScrollArea::horizontal()

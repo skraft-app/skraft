@@ -118,8 +118,8 @@ whole interface 1.2 times larger was tried, and dropped: it took a phone's 390 p
   the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
   the screen), the quick tools and the toasts float over it as on the desktop.
 - **The ribbon, in one strip** scrolled sideways with a finger, under the bar at the top, where
-  it is on the desktop: the workspace's cell, the tabs (centred on what is seen of the strip),
-  every group.
+  it is on the desktop: the workspace's cell — its icon alone, its name in its menu —, the tabs
+  (centred on what is seen of the strip), every group.
 - **The cards' tabs** at the bottom, those of the cards the workspace shows
   ([Workspaces](workspaces.md#panels): all four in modelling, none in the parts list, which then
   has no tabs, three in drawing); held sideways, in the
