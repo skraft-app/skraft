@@ -51,8 +51,14 @@ pub fn window_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -
 /// A window's content width: `width`, or less in a narrow window (a phone's,
 /// docs/ui/touch.md) — the window's frame and a gap on either side kept within the screen.
 pub fn window_width(ctx: &egui::Context, width: f32) -> f32 {
-    let frame = egui::Frame::window(&ctx.global_style()).total_margin().sum().x;
-    width.min(ctx.content_rect().width() - frame - 2.0 * FLOAT_GAP).max(120.0)
+    fit_width(ctx, width, &egui::Frame::window(&ctx.global_style()))
+}
+
+/// The content width of something floating in `frame` (a window, a modal box, a toast): `width`,
+/// or less in a narrow window, the frame and a [`FLOAT_GAP`] on either side kept within the
+/// screen.
+pub fn fit_width(ctx: &egui::Context, width: f32, frame: &egui::Frame) -> f32 {
+    width.min(ctx.content_rect().width() - frame.total_margin().sum().x - 2.0 * FLOAT_GAP).max(120.0)
 }
 
 /// A screen too narrow for the windows' own sizes (a phone's, docs/ui/touch.md).
