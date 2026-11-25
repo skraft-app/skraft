@@ -219,6 +219,7 @@ impl SkraftApp {
             #[cfg(target_arch = "wasm32")]
             session: None,
             compact: self.form == crate::window::form::Form::Compact,
+            reserve: self.compact_tabs_reserve(ctx),
         };
         titlebar::show(ui, &bar, views, actions)
     }

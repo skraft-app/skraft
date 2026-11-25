@@ -103,6 +103,14 @@ impl SkraftApp {
         bottom
     }
 
+    /// The room the title bar keeps for the cards' tabs (held sideways, a document shown), none
+    /// otherwise.
+    pub(super) fn compact_tabs_reserve(&self, ctx: &egui::Context) -> f32 {
+        let screen = ctx.content_rect();
+        let sideways = self.form == crate::window::form::Form::Compact && screen.width() > screen.height();
+        if sideways && self.docs.active().is_some() { self.compact_cards().len() as f32 * TAB_MIN_WIDTH } else { 0.0 }
+    }
+
     /// The cards of the workspace shown, in their tabs' order.
     fn compact_cards(&self) -> Vec<PanelId> {
         let shown = self.workspace().panels;

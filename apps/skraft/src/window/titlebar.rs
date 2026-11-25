@@ -61,8 +61,11 @@ pub struct Bar<'a> {
     /// The name of the Claude Code session that launched it, if it has one: named after a
     /// colour, it colours the badge.
     pub session: Option<String>,
-    /// The compact arrangement's bar: a menu, the document, undo and redo.
+    /// The compact arrangement's bar: the mark, a menu, the file tabs, undo and redo.
     pub compact: bool,
+    /// Room the compact bar leaves free at the right of its tabs, for the app's (the cards' tabs,
+    /// held sideways); none: the tabs take it all.
+    pub reserve: f32,
 }
 
 /// The control channel's mark (docs/ui/commands.md): green while it runs,
@@ -99,20 +102,20 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     let height = if bar.compact { COMPACT_HEIGHT } else { HEIGHT };
     let panel = egui::Panel::top("title_bar").exact_size(height).resizable(false).show_separator_line(false).frame(frame);
     let shown = panel.show(ui, |ui| {
-            ui.set_style(style);
-            if bar.integrated {
-                move_window(ui);
-            }
-            let rect = ui.max_rect().expand2(egui::vec2(8.0, 0.0));
-            let line = ui.visuals().widgets.noninteractive.bg_stroke;
-            ui.painter().hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
-            if bar.compact {
-                return ui.horizontal_centered(|ui| compact_contents(ui, bar, views, actions)).inner;
-            }
-            let ground = bar.ground.map(|(fill, ink)| tabs::Ground { bottom: rect.bottom(), fill, ink });
-            ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
-            None
-        });
+        ui.set_style(style);
+        if bar.integrated {
+            move_window(ui);
+        }
+        let rect = ui.max_rect().expand2(egui::vec2(8.0, 0.0));
+        let line = ui.visuals().widgets.noninteractive.bg_stroke;
+        ui.painter().hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
+        let ground = bar.ground.map(|(fill, ink)| tabs::Ground { bottom: rect.bottom(), fill, ink });
+        if bar.compact {
+            return ui.horizontal_centered(|ui| compact_contents(ui, bar, ground, views, actions)).inner;
+        }
+        ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
+        None
+    });
     // Windows and boxes stand under it on a narrow screen (`style::window_at`).
     crate::kit::style::set_bar_bottom(ui.ctx(), shown.response.rect.bottom());
     shown.inner
@@ -190,8 +193,15 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
 
 /// The compact bar (docs/ui/touch.md#the-compact-arrangement): the app's mark (to the start
 /// page, as the desktop's), the menu (File's commands, the command search, the preferences), the
-/// document shown with the others in its menu, undo and redo at the right end.
-fn compact_contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) -> Option<egui::Rect> {
+/// file tabs as the desktop's, undo and redo at the right end; with `bar.reserve`, that much room
+/// left free before them, given back.
+fn compact_contents(
+    ui: &mut egui::Ui,
+    bar: &Bar,
+    ground: Option<tabs::Ground>,
+    views: &[CommandView],
+    actions: &mut Vec<Action>,
+) -> Option<egui::Rect> {
     let find = |id: &str| views.iter().find(|v| v.id == id);
     mark(ui, find("view.home"), actions);
     let ink = ui.visuals().text_color();
@@ -222,15 +232,14 @@ fn compact_contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions
             ui.min_rect()
         })
         .inner;
-    let room = egui::Rect::from_x_y_ranges(row.left()..=(right.left() - 4.0).max(row.left()), row.y_range());
-    let document = ui
-        .scope_builder(egui::UiBuilder::new().max_rect(room).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
-            document_menu(ui, bar, room.width(), actions);
-            ui.min_rect()
-        })
-        .inner;
-    let free = egui::Rect::from_x_y_ranges((document.right() + 8.0)..=room.right(), room.y_range());
-    (free.width() > 0.0).then_some(free)
+    let end = (right.left() - 4.0).max(row.left());
+    let tabs_end = (end - bar.reserve).max(row.left());
+    let room = egui::Rect::from_x_y_ranges(row.left()..=tabs_end, row.y_range());
+    for a in tabs::show(ui, room, bar.tabs, bar.shown, ground, false, bar.reveal) {
+        actions.push(Action::Tab(a));
+    }
+    let free = egui::Rect::from_x_y_ranges((tabs_end + 4.0)..=end, row.y_range());
+    (bar.reserve > 0.0 && free.width() > 0.0).then_some(free)
 }
 
 /// The app's mark alone (the compact bar's): a button to the start page while a document is
@@ -252,22 +261,6 @@ fn mark(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action>
     {
         actions.push(Action::Command(v.id));
     }
-}
-
-/// The compact bar's document: its name, a chevron; its menu lists the documents open (the one
-/// shown checked) to show another — a new one and closing are the menu's (File).
-fn document_menu(ui: &mut egui::Ui, bar: &Bar, width: f32, actions: &mut Vec<Action>) {
-    let title = bar.shown.and_then(|i| bar.tabs.get(i)).map(Tab::title).unwrap_or_else(|| APP_NAME.to_owned());
-    let label = egui::Button::new(egui::RichText::new(title).strong()).right_text(egui::RichText::new("⌄")).truncate();
-    let button = label.min_size(egui::vec2(0.0, COMPACT_BUTTON));
-    ui.set_max_width(width);
-    menu_button(ui, "titlebar:documents", button, None, |ui| {
-        for (i, tab) in bar.tabs.iter().enumerate() {
-            if ui.add(crate::kit::style::menu_item(tab.title(), None, false).selected(bar.shown == Some(i))).clicked() {
-                actions.push(Action::Tab(tabs::TabAction::Select(i)));
-            }
-        }
-    });
 }
 
 /// The badge of a newer version, after the app's own: opens its window.
