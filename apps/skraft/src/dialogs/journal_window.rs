@@ -74,6 +74,18 @@ impl Who {
 }
 
 impl Shown {
+    /// The « Quoi » list's text: the kinds shown among the four (the hovers are some inputs).
+    fn what_label(&self) -> String {
+        let kinds = [self.inputs, self.tools, self.operations, self.jobs];
+        let n = kinds.iter().filter(|k| **k).count();
+        let shown = match n {
+            0 => t!("journal.what_none"),
+            4 => t!("journal.what_all"),
+            n => t!("journal.what_count", shown = n, total = kinds.len()),
+        };
+        t!("journal.what", shown = shown)
+    }
+
     fn shows(&self, entry: &Entry) -> bool {
         let whose = match self.origin {
             Who::All => true,
@@ -156,28 +168,41 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
 /// The journal's entries, oldest first, following the last.
 fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
     let entries: Vec<&Entry> = journal.since(0).filter(|e| shown.shows(e)).collect();
-    egui::Sides::new().show(
-        ui,
-        |ui| {
-            ui.checkbox(&mut shown.inputs, t!("journal.show.inputs"));
-            ui.add_enabled(shown.inputs, egui::Checkbox::new(&mut shown.hovers, t!("journal.show.hovers")));
-            ui.checkbox(&mut shown.tools, t!("journal.show.tools"));
-            ui.checkbox(&mut shown.operations, t!("journal.show.operations"));
-            ui.checkbox(&mut shown.jobs, t!("journal.show.jobs"));
-            ui.separator();
-            egui::ComboBox::from_id_salt("journal_origin").selected_text(shown.origin.label()).show_ui(ui, |ui| {
+    // What and who, each a list: the row fits a phone's window.
+    let filters = |ui: &mut egui::Ui| {
+        egui::ComboBox::from_id_salt("journal_what")
+            .selected_text(shown.what_label())
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show_ui(ui, |ui| {
+                ui.checkbox(&mut shown.inputs, t!("journal.show.inputs"));
+                // Among the inputs.
+                ui.horizontal(|ui| {
+                    ui.add_space(ui.spacing().indent);
+                    ui.add_enabled(shown.inputs, egui::Checkbox::new(&mut shown.hovers, t!("journal.show.hovers")));
+                });
+                ui.checkbox(&mut shown.tools, t!("journal.show.tools"));
+                ui.checkbox(&mut shown.operations, t!("journal.show.operations"));
+                ui.checkbox(&mut shown.jobs, t!("journal.show.jobs"));
+            })
+            .response
+            .tip(t!("journal.what_tip"));
+        egui::ComboBox::from_id_salt("journal_origin")
+            .selected_text(t!("journal.who", who = shown.origin.label()))
+            .show_ui(ui, |ui| {
                 for who in [Who::All, Who::User, Who::Pilot] {
                     ui.selectable_value(&mut shown.origin, who, who.label());
                 }
-            });
-        },
-        |ui| {
-            if ui.button(t!("journal.copy")).tip(t!("journal.copy_tip")).clicked() {
-                let lines: Vec<String> = entries.iter().map(|e| skraft_control::json::entry(e).to_string()).collect();
-                ui.ctx().copy_text(lines.join("\n"));
-            }
-        },
-    );
+            })
+            .response
+            .tip(t!("journal.who_tip"));
+    };
+    let copy = |ui: &mut egui::Ui| {
+        if ui.button(t!("journal.copy")).tip(t!("journal.copy_tip")).clicked() {
+            let lines: Vec<String> = entries.iter().map(|e| skraft_control::json::entry(e).to_string()).collect();
+            ui.ctx().copy_text(lines.join("\n"));
+        }
+    };
+    egui::Sides::new().show(ui, filters, copy);
     ui.separator();
     if entries.is_empty() {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| ui.weak(t!("journal.empty")));

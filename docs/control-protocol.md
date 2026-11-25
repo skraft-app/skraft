@@ -101,8 +101,9 @@ and tasks, serialisable): an operation's job that failed, a recipe that skipped 
   entering a component from it).
 - **Journal window** (`apps/skraft/src/dialogs/journal_window.rs`, command `app.journal`: the control
   channel's mark's menu, the command palette): reads the shown tab's journal directly, channel
-  on or off — its events (filtered by kind — inputs, hovers, left out at first, tools,
-  operations, jobs — and by origin — Tous / Utilisateur / Pilote —, following the last; failed
+  on or off — its events (filtered by two lists: « Quoi », the kinds — inputs, hovers among
+  them, left out at first, tools, operations, jobs —, and « Qui », the origin — Tous /
+  Utilisateur / Pilote —; following the last; failed
   ones in red; the pilot's marked with the channel's green mark, the client on hover; copied as
   JSON lines, as `journal.log` gives them), its kernel failures (each copied in full with its
   job, as `journal.failures` `seq` gives it: `skraft_control::json` is public for this), and a
