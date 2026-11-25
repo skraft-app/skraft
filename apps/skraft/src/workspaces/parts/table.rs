@@ -180,7 +180,8 @@ fn lit(editor: &Editor, row: &Row) -> bool {
 const ROW_HEIGHT: f32 = 22.0;
 
 /// The parts list of the shown document, filling `ui`. With `sideways` (a phone's,
-/// docs/ui/touch.md), at least as wide as its columns, the whole table scrolled both ways.
+/// docs/ui/touch.md), or narrower than its columns, at least as wide as them, the whole table
+/// scrolled both ways (its header then scrolled too).
 pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sideways: bool, actions: &mut Vec<Action>) {
     let units = editor.document().settings().units.clone();
     let mut sort = state.sort;
@@ -199,6 +200,7 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sidewa
     let dim_widths = [Column::Length, Column::Width, Column::Thickness].map(dim_width);
     // The columns' least widths: the name's, the material's, the dimensions', the quantity's.
     let least = 120.0 + 80.0 + dim_widths.iter().sum::<f32>() + 56.0 + 5.0 * ui.spacing().item_spacing.x;
+    let sideways = sideways || ui.available_width() < least;
     let mut draw = |ui: &mut egui::Ui| {
         let mut table = TableBuilder::new(ui)
             .vscroll(!sideways)

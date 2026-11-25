@@ -62,7 +62,8 @@ text near a phone's usual 16 pt.
   document shown — its menu lists the documents open, a new one, closing it —, undo and redo.
   No file tabs.
 - **The stage** takes the room between the bars: the 3D view, the parts list over the whole
-  stage (at least as wide as its columns, the whole table scrolled both ways with a finger), or
+  stage (at least as wide as its columns, the whole table scrolled both ways with a finger — as
+  on the desktop when the list is narrower than its columns), or
   the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
   the screen), the quick tools and the toasts float over it as on the desktop.
 - **The ribbon, in one strip** scrolled sideways with a finger, at the bottom: the workspace's
