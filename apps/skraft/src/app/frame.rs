@@ -204,7 +204,16 @@ impl SkraftApp {
             shown: self.docs.active_index(),
             reveal: !cfg!(target_arch = "wasm32"),
             integrated: crate::INTEGRATED_TITLEBAR,
-            ground: self.docs.active().map(|_| (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))),
+            // The shown tab opens onto the view; in the compact arrangement onto the ribbon's tab
+            // band, under the title bar (docs/ui/touch.md).
+            ground: self.docs.active().map(|_| {
+                if self.form == crate::window::form::Form::Compact {
+                    let v = &ctx.global_style().visuals;
+                    (v.faint_bg_color, v.text_color())
+                } else {
+                    (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))
+                }
+            }),
             remote: self.remote_mark(ctx),
             #[cfg(not(target_arch = "wasm32"))]
             update: self.prefs.updates.announce().map(str::to_owned),

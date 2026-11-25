@@ -110,7 +110,8 @@ whole interface 1.2 times larger was tried, and dropped: it took a phone's 390 p
 **What it shows**, every workspace (modelling, parts list, drawing):
 - **The bar at the top**, 36 pt high: the app's mark (to the start page, as the desktop's), a
   menu (☰: File's commands, the command search, the preferences), the file tabs as the
-  desktop's — the one shown in the view's colour, opening onto it, the others behind « » » —,
+  desktop's — the one shown in the colour of the ribbon's tab band under it, opening onto it, the
+  others behind « » » —,
   undo and redo.
 - **The stage** takes the room between the bars: the 3D view, the parts list over the whole
   stage (at least as wide as its columns, the whole table scrolled both ways with a finger — as
