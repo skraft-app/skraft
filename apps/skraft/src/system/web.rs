@@ -70,13 +70,13 @@ pub fn call(method: String, params: JsValue) -> js_sys::Promise {
     })
 }
 
-/// The page's colours around the app (`web/index.html`): the title bar's above it — its theme
-/// colour, which tints Safari's bar —, the panels' below and beside it, under the home indicator
-/// (docs/ui/touch.md#safe-areas).
+/// The page's colours around the app (`web/index.html`): the title bar's above it, the panels'
+/// below and beside it, under the home indicator — and the bars' of the browser or of the phone,
+/// through the theme colour and the edges' strips (docs/ui/touch.md#safe-areas).
 pub fn set_page_colors(top: egui::Color32, bottom: egui::Color32) {
     let hex = |c: egui::Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
     let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
-    // Safari tints its own bar with the theme colour.
+    // The browsers that take the theme colour tint their bar with it.
     if let Ok(Some(meta)) = document.query_selector("meta[name=theme-color]") {
         let _ = meta.set_attribute("content", &hex(top));
     }
@@ -85,4 +85,13 @@ pub fn set_page_colors(top: egui::Color32, bottom: egui::Color32) {
     let style = root.style();
     let _ = style.set_property("--skraft-top", &hex(top));
     let _ = style.set_property("--skraft-bottom", &hex(bottom));
+    // Safari reads its bars' colours from the edges' strips only as they appear: out and back.
+    if let Some(body) = document.body() {
+        for id in ["edge-top", "edge-bottom"] {
+            if let Some(strip) = document.get_element_by_id(id) {
+                strip.remove();
+                let _ = body.append_child(&strip);
+            }
+        }
+    }
 }
