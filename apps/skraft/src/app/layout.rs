@@ -34,8 +34,9 @@ impl SkraftApp {
         self.painting = painting;
         if started && self.form == crate::window::form::Form::Compact {
             // Risen from the bottom in the compact arrangement (docs/ui/touch.md).
-            let shown = self.compact.card != Some(PanelId::Materials);
-            self.compact.card = Some(PanelId::Materials);
+            let materials = compact::CompactCard::Panel(PanelId::Materials);
+            let shown = self.compact.card != Some(materials);
+            self.compact.card = Some(materials);
             return shown;
         }
         started && self.prefs.layout_mut(self.workspace().id).reveal(PanelId::Materials)
@@ -74,27 +75,44 @@ impl SkraftApp {
         Split { table, view: table + share * (right - table).max(0.0) + margin, right }
     }
 
-    /// A split stage's table in `rect` (the parts list), and with `grip` the separation right of
-    /// it, `margin` wide, dragged to share the room between the table and the view.
-    fn stage_table(&mut self, ctx: &egui::Context, rect: egui::Rect, area: egui::Rect, margin: f32, grip: bool, actions: &mut Vec<Action>) {
-        let Some(d) = self.docs.active_mut() else { return };
-        egui::Area::new(egui::Id::unique("stage_table")).fixed_pos(rect.min).constrain_to(area).show(ctx, |ui| {
+    /// A split stage's table in `rect` (the parts list), and the separation right of it, `margin`
+    /// wide, dragged to share the room between the table and the view; with `sheet`, risen from
+    /// the bottom in the compact arrangement (at its full height or not) instead, as a card: no
+    /// separation, its header's events given back.
+    pub(super) fn stage_table(
+        &mut self,
+        ctx: &egui::Context,
+        rect: egui::Rect,
+        area: egui::Rect,
+        margin: f32,
+        sheet: Option<bool>,
+        actions: &mut Vec<Action>,
+    ) -> Option<CardEvent> {
+        let mut event = None;
+        let d = self.docs.active_mut()?;
+        let order = if sheet.is_some() { egui::Order::Foreground } else { egui::Order::Middle };
+        egui::Area::new(egui::Id::unique("stage_table")).fixed_pos(rect.min).order(order).constrain_to(area).show(ctx, |ui| {
             let frame = card_frame(ui.style());
             let inner = (rect.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
             frame.show(ui, |ui| {
                 ui.set_min_size(inner);
                 ui.set_max_size(inner);
                 crate::kit::handles::publish(|| "parts_list".into(), rect);
-                // A title bar as the side panels' (neither folded nor moved: no chevron).
+                // A title bar as the side panels' (neither folded nor moved: no chevron, but risen
+                // from the bottom).
                 let header = ui.spacing().interact_size.y;
-                let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
+                let sense = if sheet.is_some() { egui::Sense::click_and_drag() } else { egui::Sense::hover() };
+                let (head_rect, head) = ui.allocate_exact_size(egui::vec2(inner.x, header), sense);
                 title_bar(ui, rect, head_rect, &t!("parts_list.title"), false, true);
+                if let Some(full) = sheet {
+                    event = sheet_header(ui, &head, head_rect, full);
+                }
                 ui.add_space(2.0 * HEAD_PAD);
-                crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, !grip, actions);
+                crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, sheet.is_some(), actions);
             });
         });
-        if !grip {
-            return;
+        if sheet.is_some() {
+            return event;
         }
         let grip = egui::Rect::from_x_y_ranges(rect.right()..=rect.right() + margin, rect.y_range());
         let split = self.split(area, margin);
@@ -114,6 +132,7 @@ impl SkraftApp {
                 self.prefs.table_share = Preferences::default().table_share;
             }
         });
+        None
     }
 
     /// The side panels, as cards in their columns ([`dock`]), the one dragged by its header
@@ -235,28 +254,19 @@ impl SkraftApp {
                     let band = title_bar(ui, rect, head_rect, &panel_title(id), folded, !tabbed);
                     let stroke = ui.visuals().window_stroke;
                     let color = ui.visuals().strong_text_color();
-                    // The fold chevron at the right end: down when open, right when folded; risen
-                    // from the bottom, up to its full height, down from it.
-                    let angle = match edges.sheet {
-                        Some(false) => std::f32::consts::PI,
-                        Some(true) => 0.0,
-                        None if folded => -std::f32::consts::FRAC_PI_2,
-                        None => 0.0,
-                    };
-                    crate::kit::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
-                    if edges.sheet.is_some() {
-                        if head.clicked() {
-                            event = Some(CardEvent::Tapped);
-                        } else if head.dragged() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-                            event = Some(CardEvent::Pulled(head.drag_delta().y));
-                        } else if head.drag_stopped() {
-                            event = Some(CardEvent::Let);
+                    if let Some(full) = edges.sheet {
+                        event = sheet_header(ui, &head, head_rect, full);
+                    } else {
+                        // The fold chevron at the right end: down when open, right when folded.
+                        let angle = if folded { -std::f32::consts::FRAC_PI_2 } else { 0.0 };
+                        crate::kit::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
+                    }
+                    if edges.sheet.is_none() {
+                        if head.dragged() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        } else if head.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                         }
-                    } else if head.dragged() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                    } else if head.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                     }
                     if edges.sheet.is_none()
                         && head.clicked()
@@ -557,18 +567,13 @@ impl SkraftApp {
         // The 3D view's rect: what overlays on the view (quick card, drop-up, steps bar, view
         // bar) and what zoom extents frames are placed in.
         // The compact arrangement (docs/ui/touch.md): no ribbon nor columns over the stage, a
-        // card risen from the bottom instead; the parts list over the whole stage.
+        // card risen from the bottom instead — the parts list's table one of them, over the view.
         if self.form == crate::window::form::Form::Compact {
             self.ribbon_bottom = None;
             self.ribbon_last_bottom = None;
-            if stage == Stage::Parts {
-                let table = area.shrink(margin);
-                self.stage_table(ctx, table, area, margin, false, actions);
-            } else {
-                self.stage_ui(ui, frame, i, area, area, margin);
-            }
+            self.stage_ui(ui, frame, i, area, area, margin);
             self.compact.top = self.compact_card(ctx, area, margin, actions);
-            if stage != Stage::View {
+            if stage == Stage::Sheet {
                 return;
             }
             let room = Room { view: area, margin, below_ribbon: area.top() + margin, free: (area.left(), area.right()) };
@@ -585,7 +590,7 @@ impl SkraftApp {
         // the columns, when the ribbon fits beside it, else under the ribbon.
         if let Some(s) = split {
             let table = egui::Rect::from_min_max(egui::pos2(s.table, columns_top), egui::pos2(s.view - margin, area.bottom() - margin));
-            self.stage_table(ctx, table, area, margin, true, actions);
+            self.stage_table(ctx, table, area, margin, None, actions);
         }
         // Beside a split stage's table, what is left free is the view's.
         let (free_left, free_right) = (free.min.max(view.left()), free.max);
@@ -894,6 +899,25 @@ pub(super) enum CardEvent {
     Pulled(f32),
     /// That drag let go.
     Let,
+}
+
+/// The header of a card risen from the bottom in the compact arrangement (docs/ui/touch.md), its
+/// response `head`: its chevron up while it is not at its full height, down when it is; tapped,
+/// [`CardEvent::Tapped`]; dragged, [`CardEvent::Pulled`] then [`CardEvent::Let`].
+pub(super) fn sheet_header(ui: &egui::Ui, head: &egui::Response, head_rect: egui::Rect, full: bool) -> Option<CardEvent> {
+    let angle = if full { 0.0 } else { std::f32::consts::PI };
+    let color = ui.visuals().strong_text_color();
+    crate::kit::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
+    if head.clicked() {
+        Some(CardEvent::Tapped)
+    } else if head.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        Some(CardEvent::Pulled(head.drag_delta().y))
+    } else if head.drag_stopped() {
+        Some(CardEvent::Let)
+    } else {
+        None
+    }
 }
 
 pub(super) fn panel_title(id: PanelId) -> String {

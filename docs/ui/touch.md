@@ -113,17 +113,17 @@ whole interface 1.2 times larger was tried, and dropped: it took a phone's 390 p
   desktop's — the one shown in the colour of the ribbon's tab band under it, opening onto it, the
   others behind « » » —,
   undo and redo.
-- **The stage** takes the room between the bars: the 3D view, the parts list over the whole
-  stage (at least as wide as its columns, the whole table scrolled both ways with a finger — as
-  on the desktop when the list is narrower than its columns), or
-  the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
-  the screen), the quick tools and the toasts float over it as on the desktop.
+- **The stage** takes the room between the bars: the 3D view — in the parts list too, its table
+  a card ([below](#the-compact-arrangement)) — or the sheet. The view bar, the tool's option cards
+  (scrolled sideways when wider than the screen), the quick tools and the toasts float over it as
+  on the desktop.
 - **The ribbon, in one strip** scrolled sideways with a finger, under the bar at the top, where
   it is on the desktop: the workspace's cell — its icon alone, its name in its menu —, the tabs
   (centred on what is seen of the strip), every group.
 - **The cards' tabs** at the bottom, those of the cards the workspace shows
-  ([Workspaces](workspaces.md#panels): all four in modelling, none in the parts list, which then
-  has no tabs, three in drawing); held sideways, in the
+  ([Workspaces](workspaces.md#panels): all four in modelling, three in drawing), the parts list's
+  table first in its workspace — a card as the others, risen on coming to the workspace, the
+  whole table scrolled both ways with a finger; held sideways, in the
   bar at the top, where they fit, so the view keeps its height. A tab raises its card from the
   bottom over half the stage; its header, dragged, sets its height (let go low, it goes down),
   tapped, takes it to the stage's whole height and back to half; its tab again lowers it. One card at a time; the paint tool raises « Matières ».

@@ -1,17 +1,46 @@
-//! The compact arrangement of a phone (docs/ui/touch.md#the-compact-arrangement): at the bottom
-//! of the window the ribbon in one strip scrolled sideways and the cards' tabs; a card risen
-//! from the bottom over the view, one at a time.
+//! The compact arrangement of a phone (docs/ui/touch.md#the-compact-arrangement): under the title
+//! bar the ribbon in one strip scrolled sideways, at the bottom the cards' tabs; a card risen from
+//! the bottom over the view, one at a time — the parts list's table one of them.
 
 use super::layout::{CardEvent, Edges};
 use super::*;
 
 /// What the compact arrangement keeps for the session: the card risen and its share of the
-/// stage's height (none: half), where the bars and the card begin (for the toasts above them).
+/// stage's height (none: half), where the bars and the card begin (for the toasts above them),
+/// the workspace of the last frame (a workspace's own card rises on coming to it).
 #[derive(Default)]
 pub(super) struct Compact {
-    pub(super) card: Option<PanelId>,
+    pub(super) card: Option<CompactCard>,
     pub(super) share: Option<f32>,
     pub(super) top: Option<f32>,
+    workspace: Option<&'static str>,
+}
+
+/// A card that rises from the bottom: a side panel, or the parts list's table, which the desktop
+/// shows beside the view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum CompactCard {
+    Panel(PanelId),
+    PartsList,
+}
+
+impl CompactCard {
+    /// Its tab's title, short.
+    fn label(self) -> String {
+        match self {
+            CompactCard::Panel(PanelId::EntityInfo) => t!("compact.entity_info"),
+            CompactCard::Panel(id) => layout::panel_title(id),
+            CompactCard::PartsList => t!("parts_list.title"),
+        }
+    }
+
+    /// Its tab's handle's name (`compact_tab:<name>`).
+    fn handle(self) -> &'static str {
+        match self {
+            CompactCard::Panel(id) => id.command(),
+            CompactCard::PartsList => "parts_list",
+        }
+    }
 }
 
 /// A card's share of the stage's height: risen, at its full height; dragged under the least, it
@@ -23,8 +52,8 @@ const LEAST: f32 = 0.2;
 const TABS_HEIGHT: f32 = 44.0;
 /// A card's tab's narrowest, in the title bar.
 const TAB_MIN_WIDTH: f32 = 96.0;
-/// The cards, in their tabs' order.
-const CARDS: [PanelId; 4] = [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Library];
+/// The side panels, in their tabs' order.
+const PANELS: [PanelId; 4] = [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Library];
 
 impl SkraftApp {
     /// The bars laid out before the stage, which takes the room between them: the ribbon's strip
@@ -64,8 +93,13 @@ impl SkraftApp {
                 .scroll_source(egui::scroll_area::ScrollSource::ALL)
                 .show(ui, |ui| card.show(ui, |ui| ribbon::ribbon(ui, &view, width, inset, actions)));
         });
-        // The cards the workspace shows (docs/ui/workspaces.md#panels): none, no tabs.
+        // The cards the workspace shows (docs/ui/workspaces.md#panels): none, no tabs. Coming to
+        // the parts list, its table rises.
         let cards = self.compact_cards();
+        let workspace = self.workspace();
+        if self.compact.workspace.replace(workspace.id).is_some_and(|w| w != workspace.id) && workspace.stage == Stage::Parts {
+            self.compact.card = Some(CompactCard::PartsList);
+        }
         if self.compact.card.is_some_and(|c| !cards.contains(&c)) {
             self.compact.card = None;
         }
@@ -117,20 +151,23 @@ impl SkraftApp {
         if sideways && self.docs.active().is_some() { self.compact_cards().len() as f32 * TAB_MIN_WIDTH } else { 0.0 }
     }
 
-    /// The cards of the workspace shown, in their tabs' order.
-    fn compact_cards(&self) -> Vec<PanelId> {
-        let shown = self.workspace().panels;
-        CARDS.into_iter().filter(|p| shown.is_none_or(|s| s.contains(p))).collect()
+    /// The cards of the workspace shown, in their tabs' order: the parts list's table first, then
+    /// its side panels.
+    fn compact_cards(&self) -> Vec<CompactCard> {
+        let w = self.workspace();
+        let table = (w.stage == Stage::Parts).then_some(CompactCard::PartsList);
+        let panels = PANELS.into_iter().filter(|p| w.panels.is_none_or(|s| s.contains(p))).map(CompactCard::Panel);
+        table.into_iter().chain(panels).collect()
     }
 
     /// The cards' tabs in `row`, as wide as each other: a tap raises its card, again lowers it.
-    fn card_tabs(&mut self, ui: &mut egui::Ui, cards: &[PanelId], row: egui::Rect) {
+    fn card_tabs(&mut self, ui: &mut egui::Ui, cards: &[CompactCard], row: egui::Rect) {
         let width = row.width() / cards.len() as f32;
         for (k, &id) in cards.iter().enumerate() {
             let rect = egui::Rect::from_min_size(egui::pos2(row.left() + k as f32 * width, row.top()), egui::vec2(width, row.height()));
             let lit = self.compact.card == Some(id);
             let r = ui.interact(rect, egui::Id::unique(("compact_tab", id)), egui::Sense::click());
-            crate::kit::handles::publish(|| format!("compact_tab:{}", id.command()), rect);
+            crate::kit::handles::publish(|| format!("compact_tab:{}", id.handle()), rect);
             let visuals = ui.visuals();
             if lit {
                 ui.painter().rect_filled(rect.shrink(4.0), 6.0, visuals.selection.bg_fill);
@@ -139,11 +176,11 @@ impl SkraftApp {
             // On one line: smaller when the tab is too narrow for it.
             let mut font = egui::TextStyle::Body.resolve(ui.style());
             let room = rect.width() - 8.0;
-            let natural = ui.painter().layout_no_wrap(tab_label(id), font.clone(), ink).size().x;
+            let natural = ui.painter().layout_no_wrap(id.label(), font.clone(), ink).size().x;
             if natural > room {
                 font.size *= room / natural;
             }
-            let text = ui.painter().layout_no_wrap(tab_label(id), font, ink);
+            let text = ui.painter().layout_no_wrap(id.label(), font, ink);
             ui.painter().galley(rect.center() - text.size() / 2.0, text, ink);
             if r.clicked() {
                 self.compact.card = if lit { None } else { Some(id) };
@@ -168,9 +205,15 @@ impl SkraftApp {
             egui::pos2(area.right() - margin, area.bottom() - margin),
         );
         let header = ctx.global_style().spacing.interact_size.y;
-        let edges = Edges { side: None, bottom: false, sheet: Some(full), max_width: rect.width(), min_height: 0.0 };
         let mut navigator_shown = false;
-        match self.panel_card(ctx, id, rect, header, edges, &mut navigator_shown, actions) {
+        let event = match id {
+            CompactCard::Panel(id) => {
+                let edges = Edges { side: None, bottom: false, sheet: Some(full), max_width: rect.width(), min_height: 0.0 };
+                self.panel_card(ctx, id, rect, header, edges, &mut navigator_shown, actions)
+            }
+            CompactCard::PartsList => self.stage_table(ctx, rect, area, margin, Some(full), actions),
+        };
+        match event {
             // Tapped: to its full height, or back to half.
             Some(CardEvent::Tapped) => self.compact.share = Some(if full { HALF } else { 1.0 }),
             // Its header follows the finger; let go low, it goes down.
@@ -186,13 +229,5 @@ impl SkraftApp {
             actions.push(Action::HoverMachining(None));
         }
         Some(rect.top())
-    }
-}
-
-/// A card's tab: its title, short.
-fn tab_label(id: PanelId) -> String {
-    match id {
-        PanelId::EntityInfo => t!("compact.entity_info"),
-        _ => layout::panel_title(id),
     }
 }
