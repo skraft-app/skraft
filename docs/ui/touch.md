@@ -150,8 +150,8 @@ stays the largest thing on the screen, and a card is read over it rather than in
 Added to a phone's home screen, the page is the app's own window, down to the home indicator's
 swipe. Its status bar is opaque, in the title bar's colour: `web/index.html` sets no status bar
 style — iOS 26 lays a frosted band over a page drawn under the status bar, `black-translucent`
-or not, the title bar blurred with it — and its `theme-color` is the title bar's, which the app
-sets again from its theme (`system::web::set_page_colors`, with the CSS variables
+or not, the title bar blurred with it — and the document's own ground (the root's, under the
+body) and its `theme-color` are the title bar's, which the app sets again from its theme (`system::web::set_page_colors`, with the CSS variables
 `--skraft-top` and `--skraft-bottom`). The page asks for the whole screen (`viewport-fit=cover`)
 and keeps the app's canvas within the safe areas (`env(safe-area-inset-*)` as the body's
 padding): the panels' colour shows under it and beside it (the home indicator, a notch held

@@ -24,6 +24,9 @@
     /* The app within the screen's safe areas (a phone's notch, status bar, home indicator): the
        page around it in the title bar's colour above, the panels' elsewhere, which the app sets
        from its theme (docs/ui/touch.md#safe-areas). */
+    /* The document's own ground, under the body: in the title bar's colour, which iOS gives the
+       opaque status bar of a phone's web app (it ignores theme-color there). */
+    html { background: var(--skraft-top, #3a342e); }
     /* Fixed: the page never scrolls, not even by the status bar's height iOS counts in 100vh,
        which left it shifted up after a rotation. */
     body { position: fixed; inset: 0; height: auto; box-sizing: border-box;
