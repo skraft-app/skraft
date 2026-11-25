@@ -87,6 +87,9 @@ it lit), so a lifted finger leaves nothing lit.
 on the canvas (eframe listens to `touchmove` on the document, passively in Chrome, so only this
 keeps the browser from panning or zooming the page), no overscroll, no text selection, callout or
 tap highlight. eframe already keeps the context menu and Safari's `gesture*` events from the page.
+iOS suspends a hidden page (the screen locked) and drops its downloads: a load that failed after
+the page was hidden reloads the page once it is shown again, and the kernel's worker tries its
+wasm again 1, 2, 4, 8 and 16 s later before giving up (`web/kernel-worker.js`).
 
 **Testing without a touch screen**: `ui.touch` ([Control protocol](../control-protocol.md))
 sends real fingers — each down at `from` a frame after the one before, moved to `to` in

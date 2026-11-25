@@ -63,6 +63,11 @@
     // it waits for. Progress
     // counts decompressed bytes against the sizes `scripts/build-web.sh` writes here, since a
     // compressed response's Content-Length says nothing about them.
+    // iOS suspends a hidden page (the screen locked, another app) and drops its downloads:
+    // a load that failed after the page was hidden starts again once it is shown.
+    let hidden = document.hidden;
+    document.addEventListener("visibilitychange", () => { hidden ||= document.hidden; });
+
     const loader = document.getElementById("loader");
     const bar = loader.querySelector("i");
     const sizes = { ui: Number("__UI_WASM_BYTES__") };
@@ -101,7 +106,13 @@
       loader.remove();
     } catch (err) {
       console.error("Skraft failed to load", err);
-      loader.classList.add("failed");
+      if (hidden) {
+        const again = () => { if (!document.hidden) location.reload(); };
+        document.addEventListener("visibilitychange", again);
+        again();
+      } else {
+        loader.classList.add("failed");
+      }
     }
   </script>
 </body>

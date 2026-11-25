@@ -5,10 +5,22 @@
 // stopped by the UI terminating this worker.
 import init, { run } from "./worker/skraft_kernel_worker.js";
 
-const ready = init().then(() => true, (err) => {
-  self.postMessage({ fatal: String(err) });
-  return false;
-});
+// A download dropped (iOS drops a hidden page's: the screen locked) is tried again, 1, 2, 4,
+// 8 then 16 s later — a suspended page's timers wait with it — before the kernel is given up.
+const ready = (async () => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await init();
+      return true;
+    } catch (err) {
+      if (attempt >= 5) {
+        self.postMessage({ fatal: String(err) });
+        return false;
+      }
+      await new Promise((wake) => setTimeout(wake, 1000 * 2 ** attempt));
+    }
+  }
+})();
 
 self.onmessage = async (event) => {
   if (!(await ready)) return;
