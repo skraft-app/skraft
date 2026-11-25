@@ -242,35 +242,34 @@ impl Updates {
         }
         let mut open = true;
         let mut close = false;
-        egui::Window::new(t!("update.title"))
+        let window = egui::Window::new(t!("update.title"))
             .id(egui::Id::unique(WINDOW_ID))
             .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .show(ctx, |ui| {
-                ui.set_width(420.0);
-                match prefs.newer().cloned() {
-                    Some(release) => close = available(ui, &release, prefs),
-                    None => match &self.status {
-                        Status::Failed(e) => {
-                            ui.label(t!("update.failed"));
-                            ui.small(e);
-                        }
-                        Status::UpToDate => {
-                            ui.label(t!("update.up_to_date", version = VERSION));
-                        }
-                        Status::Idle | Status::Checking => {
-                            ui.horizontal(|ui| {
-                                ui.spinner();
-                                ui.label(t!("update.checking"));
-                            });
-                        }
-                    },
-                }
-            });
+            .pivot(egui::Align2::CENTER_CENTER);
+        crate::kit::style::window_at(window, ctx, ctx.content_rect().center()).show(ctx, |ui| {
+            ui.set_width(crate::kit::style::window_width(ui.ctx(), 420.0));
+            match prefs.newer().cloned() {
+                Some(release) => close = available(ui, &release, prefs),
+                None => match &self.status {
+                    Status::Failed(e) => {
+                        ui.label(t!("update.failed"));
+                        ui.small(e);
+                    }
+                    Status::UpToDate => {
+                        ui.label(t!("update.up_to_date", version = VERSION));
+                    }
+                    Status::Idle | Status::Checking => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(t!("update.checking"));
+                        });
+                    }
+                },
+            }
+        });
         self.window = open && !close;
     }
 }

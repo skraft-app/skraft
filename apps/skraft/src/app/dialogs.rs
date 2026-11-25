@@ -232,7 +232,7 @@ impl SkraftApp {
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .fixed_size([600.0, 0.0])
+            .fixed_size([crate::kit::style::window_width(ctx, 600.0), 0.0])
             // Below the ribbon when a document is shown, never over it.
             .anchor(egui::Align2::CENTER_TOP, [0.0, top])
             .show(ctx, |ui| {

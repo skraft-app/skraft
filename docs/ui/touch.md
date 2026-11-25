@@ -124,6 +124,11 @@ phone's usual 16 pt. egui's zoom is the interface zoom's preference times this
 - **The measurements box** above the cards' tabs while the tool takes a typed value (its keypad,
   [below](#the-keypad)). No status bar: its hints speak of keys and a mouse.
 
+Windows and boxes keep within a narrow screen (`style::window_width`, `window_body`,
+`window_at`): as wide as the screen leaves at most, their body scrolled when larger, held in the
+middle rather than where they were left; « À propos » drops its licenses' column, its links one
+under the other.
+
 The page keeps the browser's safe areas (no `viewport-fit=cover`): Safari keeps it clear of the
 notch and the home indicator, which the app would otherwise have to read from CSS and leave
 free itself.

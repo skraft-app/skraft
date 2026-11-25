@@ -21,20 +21,19 @@ impl SkraftApp {
         let Some(mut tab) = self.prefs_window else { return };
         let mut open = true;
         // A fixed id: the title changes with the language.
-        egui::Window::new(t!("prefs.title"))
+        let r = ctx.content_rect();
+        let window = egui::Window::new(t!("prefs.title"))
             .id(prefs_window_id())
             .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(420.0)
+            .default_width(crate::kit::style::window_width(ctx, 420.0))
+            .max_width(crate::kit::style::window_width(ctx, f32::INFINITY))
             // Pinned by its title bar: changing tabs moves only its bottom edge.
-            .pivot(egui::Align2::CENTER_TOP)
-            .default_pos({
-                let r = ctx.content_rect();
-                egui::pos2(r.center().x, r.top() + r.height() * 0.15)
-            })
-            .show(ctx, |ui| {
+            .pivot(egui::Align2::CENTER_TOP);
+        crate::kit::style::window_at(window, ctx, egui::pos2(r.center().x, r.top() + r.height() * 0.15)).show(ctx, |ui| {
+            crate::kit::style::window_body(ui, |ui| {
                 let workspace = self.workspace().id;
                 // The ribbon's tabs (as the journal window's), their band across the window
                 // under its title bar.
@@ -73,7 +72,8 @@ impl SkraftApp {
                     PrefsTab::Interface => interface_settings(ui, &mut self.prefs, workspace),
                     PrefsTab::Shortcuts => self.shortcut_settings(ui),
                 }
-            });
+            })
+        });
         if tab != PrefsTab::Shortcuts || !open {
             self.capturing = None;
         }

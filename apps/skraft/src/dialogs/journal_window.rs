@@ -117,8 +117,8 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
         .open(&mut open)
         .collapsible(false)
         .resizable(true)
-        .default_size([620.0, 420.0])
-        .min_width(560.0)
+        .default_size([crate::kit::style::window_width(ctx, 620.0), 420.0])
+        .min_width(crate::kit::style::window_width(ctx, 560.0))
         .min_height(240.0)
         .show(ctx, |ui| {
             let Some((_, journal)) = doc else {

@@ -39,6 +39,29 @@ pub const CARD_MARGIN: f32 = 6.0;
 /// The room between the cards floating over the stage, and around them (points).
 pub const FLOAT_GAP: f32 = 8.0;
 
+/// A window's body: scrolled both ways when the window is smaller than it (a phone's,
+/// docs/ui/touch.md), the window itself kept within the screen by [`window_width`].
+pub fn window_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let height = ui.ctx().content_rect().height() * 0.8;
+    let width = window_width(ui.ctx(), f32::INFINITY);
+    egui::ScrollArea::both().id_salt("window_body").max_width(width).max_height(height).show(ui, add).inner
+}
+
+/// A window's content width: `width`, or less in a narrow window (a phone's,
+/// docs/ui/touch.md) — the window's frame and a gap on either side kept within the screen.
+pub fn window_width(ctx: &egui::Context, width: f32) -> f32 {
+    let style = ctx.global_style();
+    // The frame's margins, and the room of the body's scroll bar ([`window_body`]).
+    let frame = egui::Frame::window(&style).total_margin().sum().x + style.spacing.scroll.allocated_width();
+    width.min(ctx.content_rect().width() - frame - 2.0 * FLOAT_GAP).max(120.0)
+}
+
+/// `window` placed at `pos` (by its pivot) the first time; in a screen too narrow for the
+/// windows' own sizes (a phone's), held there, not where it was left, which may be off it.
+pub fn window_at<'a>(window: egui::Window<'a>, ctx: &egui::Context, pos: egui::Pos2) -> egui::Window<'a> {
+    if ctx.content_rect().width() < 600.0 { window.current_pos(pos) } else { window.default_pos(pos) }
+}
+
 /// The frame of a panel's card.
 pub fn card_frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style).inner_margin(CARD_MARGIN)
