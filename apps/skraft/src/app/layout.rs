@@ -32,6 +32,12 @@ impl SkraftApp {
         let painting = self.docs.active().is_some_and(|d| matches!(d.editor.tool_kind(), ToolKind::Paint | ToolKind::Sample));
         let started = painting && !self.painting;
         self.painting = painting;
+        if started && self.form == crate::window::form::Form::Compact {
+            // Risen from the bottom in the compact arrangement (docs/ui/touch.md).
+            let shown = self.compact.card != Some(PanelId::Materials);
+            self.compact.card = Some(PanelId::Materials);
+            return shown;
+        }
         started && self.prefs.layout_mut(self.workspace().id).reveal(PanelId::Materials)
     }
 
@@ -68,9 +74,9 @@ impl SkraftApp {
         Split { table, view: table + share * (right - table).max(0.0) + margin, right }
     }
 
-    /// A split stage's table in `rect` (the parts list), and the separation right of it,
-    /// `margin` wide, dragged to share the room between the table and the view.
-    fn stage_table(&mut self, ctx: &egui::Context, rect: egui::Rect, area: egui::Rect, margin: f32, actions: &mut Vec<Action>) {
+    /// A split stage's table in `rect` (the parts list), and with `grip` the separation right of
+    /// it, `margin` wide, dragged to share the room between the table and the view.
+    fn stage_table(&mut self, ctx: &egui::Context, rect: egui::Rect, area: egui::Rect, margin: f32, grip: bool, actions: &mut Vec<Action>) {
         let Some(d) = self.docs.active_mut() else { return };
         egui::Area::new(egui::Id::unique("stage_table")).fixed_pos(rect.min).constrain_to(area).show(ctx, |ui| {
             let frame = card_frame(ui.style());
@@ -87,6 +93,9 @@ impl SkraftApp {
                 crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, actions);
             });
         });
+        if !grip {
+            return;
+        }
         let grip = egui::Rect::from_x_y_ranges(rect.right()..=rect.right() + margin, rect.y_range());
         let split = self.split(area, margin);
         egui::Area::new(egui::Id::unique("stage_split")).fixed_pos(grip.min).show(ctx, |ui| {
@@ -128,7 +137,7 @@ impl SkraftApp {
             for p in &placed {
                 let rect = egui::Rect::from_min_size(egui::pos2(x, p.top), egui::vec2(width, p.height));
                 // Every card but the one filling the column has a bottom edge to drag.
-                let edges = Edges { side: Some(side), bottom: !p.fills, max_width, min_height: metrics.min_height };
+                let edges = Edges { side: Some(side), bottom: !p.fills, sheet: None, max_width, min_height: metrics.min_height };
                 if let Some(e) = self.panel_card(ctx, p.id, rect, header, edges, &mut navigator_shown, actions) {
                     event = Some(e);
                 }
@@ -137,7 +146,7 @@ impl SkraftApp {
         }
         if let (Some(d), Some(p)) = (self.panel_drag, pointer) {
             let rect = egui::Rect::from_min_size(p - d.offset, d.size);
-            let edges = Edges { side: None, bottom: false, max_width, min_height: metrics.min_height };
+            let edges = Edges { side: None, bottom: false, sheet: None, max_width, min_height: metrics.min_height };
             if let Some(e) = self.panel_card(ctx, d.id, rect, header, edges, &mut navigator_shown, actions) {
                 event = Some(e);
             }
@@ -156,6 +165,7 @@ impl SkraftApp {
         };
         match event {
             Some(CardEvent::Grabbed(drag)) => self.panel_drag = Some(drag),
+            Some(CardEvent::Tapped) => {}
             Some(CardEvent::Dropped) => {
                 if let (Some(d), Some(p)) = (self.panel_drag.take(), pointer) {
                     let (side, .., before) = target(p);
@@ -190,7 +200,7 @@ impl SkraftApp {
     /// One side panel in `rect`: its header (click: fold, drag: move it) and its content, and
     /// the edges `edges` gives to drag (width of its column, its height).
     #[allow(clippy::too_many_arguments)]
-    fn panel_card(
+    pub(super) fn panel_card(
         &mut self,
         ctx: &egui::Context,
         id: PanelId,
@@ -203,7 +213,7 @@ impl SkraftApp {
         let workspace = self.workspace().id;
         // The library shows the components' tabs, but on a sheet.
         let tabbed = id == PanelId::Library && self.workspace().stage != Stage::Sheet;
-        let folded = self.prefs.layout(workspace).card(id).is_some_and(|c| c.folded);
+        let folded = edges.sheet.is_none() && self.prefs.layout(workspace).card(id).is_some_and(|c| c.folded);
         let floating = edges.side.is_none();
         let mut event = None;
         // Drawn only with a document shown.
@@ -225,25 +235,37 @@ impl SkraftApp {
                     let band = title_bar(ui, rect, head_rect, &panel_title(id), folded, !tabbed);
                     let stroke = ui.visuals().window_stroke;
                     let color = ui.visuals().strong_text_color();
-                    // The fold chevron at the right end: down when open, right when folded.
-                    let angle = if folded { -std::f32::consts::FRAC_PI_2 } else { 0.0 };
+                    // The fold chevron at the right end: down when open, right when folded; risen
+                    // from the bottom, up to its full height, down from it.
+                    let angle = match edges.sheet {
+                        Some(false) => std::f32::consts::PI,
+                        Some(true) => 0.0,
+                        None if folded => -std::f32::consts::FRAC_PI_2,
+                        None => 0.0,
+                    };
                     crate::kit::icons::chevron(ui, egui::pos2(head_rect.right() - 8.0, head_rect.center().y), 14.0, color, angle);
-                    if head.dragged() {
+                    if edges.sheet.is_some() {
+                        if head.clicked() {
+                            event = Some(CardEvent::Tapped);
+                        }
+                    } else if head.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                     } else if head.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                     }
-                    if head.clicked()
+                    if edges.sheet.is_none()
+                        && head.clicked()
                         && let Some(c) = self.prefs.layout_mut(workspace).card_mut(id)
                     {
                         c.folded = !c.folded;
                     }
-                    if head.drag_started()
+                    if edges.sheet.is_none()
+                        && head.drag_started()
                         && let Some(p) = head.interact_pointer_pos()
                     {
                         event = Some(CardEvent::Grabbed(PanelDrag { id, offset: p - rect.min, size: rect.size() }));
                     }
-                    if head.drag_stopped() {
+                    if edges.sheet.is_none() && head.drag_stopped() {
                         event = Some(CardEvent::Dropped);
                     }
                     if folded {
@@ -407,54 +429,55 @@ impl SkraftApp {
     /// The box is laid out first: a long message is cut short (…) before it, whole in its tip.
     pub(super) fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let Some(d) = self.docs.active_mut() else { return };
-            // On a sheet, its tool's hint and its own measurements box.
-            if d.workspace.stage == Stage::Sheet {
-                let status = d.sheet.status();
-                self.driving.message(&status);
-                let measure = d.sheet.vcb();
-                let takes = measure.is_some();
-                let (label, value) = measure.unwrap_or_else(|| (t!("status.measurements"), String::new()));
-                // What was typed, while the box still takes it.
-                if !takes {
-                    d.vcb.clear();
-                }
-                let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
-                let r = ui.add_enabled(takes, egui::TextEdit::singleline(&mut text).desired_width(160.0));
-                crate::kit::handles::publish_enabled(|| "vcb".into(), r.rect, takes);
-                if r.changed() {
-                    d.vcb = text.clone();
-                }
-                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
-                    d.sheet.typed = Some(std::mem::take(&mut d.vcb));
-                }
-                ui.label(label);
-                ui.add_space(ui.spacing().item_spacing.x * 2.0);
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.add(egui::Label::new(status).truncate());
-                });
-                return;
-            }
-            let status = d.editor.status();
+            let Some(status) = self.vcb_box(ui) else { return };
             self.driving.message(&status);
-            // The box first (right to left): its field, then its label at its left.
-            let (label, value) = d.editor.vcb().unwrap_or_else(|| (t!("status.measurements"), String::new()));
-            let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
-            let r = ui.add_enabled(d.editor.takes_typing(), egui::TextEdit::singleline(&mut text).desired_width(160.0));
-            crate::kit::handles::publish_enabled(|| "vcb".into(), r.rect, d.editor.takes_typing());
-            if r.changed() {
-                d.vcb = text.clone();
-            }
-            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
-                let t = std::mem::take(&mut d.vcb);
-                d.editor.input(ToolInput::Vcb(t));
-            }
-            ui.label(label);
             ui.add_space(ui.spacing().item_spacing.x * 2.0);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add(egui::Label::new(status).truncate());
             });
         });
+    }
+
+    /// Does the measurements box take a typed value now (the tool's, or a sheet's)?
+    pub(super) fn vcb_takes(&self) -> bool {
+        self.docs.active().is_some_and(|d| match d.workspace.stage {
+            Stage::Sheet => d.sheet.vcb().is_some(),
+            _ => d.editor.takes_typing(),
+        })
+    }
+
+    /// The measurements box (VCB), in a right-to-left `ui`: its field, then its label at its
+    /// left. On a sheet, its tool's box. Gives the tool's hint (none: no document).
+    pub(super) fn vcb_box(&mut self, ui: &mut egui::Ui) -> Option<String> {
+        let d = self.docs.active_mut()?;
+        let sheet = d.workspace.stage == Stage::Sheet;
+        let (status, measure, takes) = if sheet {
+            let measure = d.sheet.vcb();
+            (d.sheet.status(), measure.clone(), measure.is_some())
+        } else {
+            (d.editor.status(), d.editor.vcb(), d.editor.takes_typing())
+        };
+        // A sheet's box keeps what was typed only while it takes it.
+        if sheet && !takes {
+            d.vcb.clear();
+        }
+        let (label, value) = measure.unwrap_or_else(|| (t!("status.measurements"), String::new()));
+        let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
+        let r = ui.add_enabled(takes, egui::TextEdit::singleline(&mut text).desired_width(160.0));
+        crate::kit::handles::publish_enabled(|| "vcb".into(), r.rect, takes);
+        if r.changed() {
+            d.vcb = text.clone();
+        }
+        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
+            let typed = std::mem::take(&mut d.vcb);
+            if sheet {
+                d.sheet.typed = Some(typed);
+            } else {
+                d.editor.input(ToolInput::Vcb(typed));
+            }
+        }
+        ui.label(label);
+        Some(status)
     }
 
     /// The start page (docs/ui/file-tabs.md): no document open.
@@ -536,6 +559,26 @@ impl SkraftApp {
         };
         // The 3D view's rect: what overlays on the view (quick card, drop-up, steps bar, view
         // bar) and what zoom extents frames are placed in.
+        // The compact arrangement (docs/ui/touch.md): no ribbon nor columns over the stage, a
+        // card risen from the bottom instead; the parts list over the whole stage.
+        if self.form == crate::window::form::Form::Compact {
+            self.ribbon_bottom = None;
+            self.ribbon_last_bottom = None;
+            if stage == Stage::Parts {
+                let table = area.shrink(margin);
+                self.stage_table(ctx, table, area, margin, false, actions);
+            } else {
+                self.stage_ui(ui, frame, i, area, area, margin);
+            }
+            self.compact.top = self.compact_card(ctx, area, margin, actions);
+            if stage != Stage::View {
+                return;
+            }
+            let room = Room { view: area, margin, below_ribbon: area.top() + margin, free: (area.left(), area.right()) };
+            let free_top = self.option_cards(ctx, room, actions);
+            self.view_overlays(ctx, room, free_top, views, actions);
+            return;
+        }
         let view = split.map_or(area, |s| egui::Rect::from_min_max(egui::pos2(s.view, area.top()), area.max));
         self.stage_ui(ui, frame, i, area, view, margin);
         let (above, below_ribbon) = self.ribbon_ui(ctx, area, split, margin, views, actions);
@@ -545,7 +588,7 @@ impl SkraftApp {
         // the columns, when the ribbon fits beside it, else under the ribbon.
         if let Some(s) = split {
             let table = egui::Rect::from_min_max(egui::pos2(s.table, columns_top), egui::pos2(s.view - margin, area.bottom() - margin));
-            self.stage_table(ctx, table, area, margin, actions);
+            self.stage_table(ctx, table, area, margin, true, actions);
         }
         // Beside a split stage's table, what is left free is the view's.
         let (free_left, free_right) = (free.min.max(view.left()), free.max);
@@ -578,33 +621,43 @@ impl SkraftApp {
             let gap = if has_context && has_tool { margin } else { 0.0 };
             let row_width = context_width + gap + tool_width;
             let options_left = (view.center().x - row_width / 2.0).min(free_right - row_width).max(free_left);
+            // Wider than the view (a phone's): scrolled sideways (docs/ui/touch.md).
+            let room_width = free_right - free_left;
             let options = egui::Area::new(options_id)
                 .fixed_pos(egui::pos2(options_left, below_ribbon))
                 .constrain_to(view)
                 .show(ctx, |ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = margin;
-                        let mut drawn = widths;
-                        if has_context {
-                            let shown =
-                                crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
-                                    options::context_options(ui, &doc.editor, actions)
-                                });
-                            drawn[0] = shown.response.rect.width();
-                        }
-                        if has_tool {
-                            let shown = crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
-                                options::tool_options(ui, &doc.editor, actions)
-                            });
-                            drawn[1] = shown.response.rect.width();
-                        }
-                        if drawn != widths {
-                            ui.data_mut(|d| d.insert_temp(widths_id, drawn));
-                            // Past egui's passes for this frame, the discard is refused: the next frame then.
-                            ui.ctx().request_discard("tool option cards resized");
-                            ui.ctx().request_repaint();
-                        }
-                    });
+                    let mut row = |ui: &mut egui::Ui| {
+                        ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = margin;
+                            let mut drawn = widths;
+                            if has_context {
+                                let shown =
+                                    crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
+                                        options::context_options(ui, &doc.editor, actions)
+                                    });
+                                drawn[0] = shown.response.rect.width();
+                            }
+                            if has_tool {
+                                let shown =
+                                    crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
+                                        options::tool_options(ui, &doc.editor, actions)
+                                    });
+                                drawn[1] = shown.response.rect.width();
+                            }
+                            if drawn != widths {
+                                ui.data_mut(|d| d.insert_temp(widths_id, drawn));
+                                // Past egui's passes for this frame, the discard is refused: the next frame then.
+                                ui.ctx().request_discard("tool option cards resized");
+                                ui.ctx().request_repaint();
+                            }
+                        })
+                    };
+                    if row_width > room_width {
+                        egui::ScrollArea::horizontal().id_salt("tool_options_scroll").max_width(room_width).show(ui, row);
+                    } else {
+                        row(ui);
+                    }
                 })
                 .response
                 .rect;
@@ -774,8 +827,11 @@ pub(super) struct Edges {
     pub(super) side: Option<Dock>,
     /// Its bottom edge sets its height.
     pub(super) bottom: bool,
-    max_width: f32,
-    min_height: f32,
+    /// Risen from the bottom in the compact arrangement, at its full height or not
+    /// (docs/ui/touch.md): never folded nor moved, a tap on its header is [`CardEvent::Tapped`].
+    pub(super) sheet: Option<bool>,
+    pub(super) max_width: f32,
+    pub(super) min_height: f32,
 }
 
 /// Room under a side panel's title before its bar's bottom line, and as much again under the
@@ -808,6 +864,8 @@ pub(super) enum CardEvent {
     Grabbed(PanelDrag),
     /// Released.
     Dropped,
+    /// Its header tapped, risen from the bottom: it goes to its full height or back.
+    Tapped,
 }
 
 pub(super) fn panel_title(id: PanelId) -> String {

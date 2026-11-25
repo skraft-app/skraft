@@ -26,6 +26,11 @@ use crate::window::tabs::{self, Tab};
 
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
+/// The compact bar's (docs/ui/touch.md#the-compact-arrangement): its buttons are a finger's.
+pub const COMPACT_HEIGHT: f32 = 44.0;
+/// A compact bar's button, and its icon.
+const COMPACT_BUTTON: f32 = 40.0;
+const COMPACT_ICON: f32 = 22.0;
 /// Width left clear for the three macOS window buttons ahead of the app's mark, margin included.
 const TRAFFIC_LIGHTS: f32 = 84.0;
 /// The command search's widest.
@@ -56,6 +61,8 @@ pub struct Bar<'a> {
     /// The name of the Claude Code session that launched it, if it has one: named after a
     /// colour, it colours the badge.
     pub session: Option<String>,
+    /// The compact arrangement's bar: a menu, the document, undo and redo.
+    pub compact: bool,
 }
 
 /// The control channel's mark (docs/ui/commands.md): green while it runs,
@@ -81,25 +88,33 @@ const UPDATE_HOVERED: egui::Color32 = egui::Color32::from_rgb(0xf0, 0x6e, 0xbb);
 /// The failed channel's mark: a red readable on the bar's dark ground.
 const ALERT: egui::Color32 = egui::Color32::from_rgb(240, 96, 88);
 
-/// The bar's panel, at the top of the window.
-pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) {
+/// The bar's panel, at the top of the window. The compact bar gives the room it leaves free,
+/// between the document and undo.
+pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) -> Option<egui::Rect> {
     let mut style = ui.style().as_ref().clone();
     crate::kit::style::title_bar(ui.ctx(), &mut style);
     let frame = egui::Frame::side_top_panel(&style).inner_margin(egui::Margin::symmetric(8, 0));
     // The line along the bar's bottom edge is drawn by the bar, under the shown tab, which
     // opens through it onto the view.
-    let panel = egui::Panel::top("title_bar").exact_size(HEIGHT).resizable(false).show_separator_line(false).frame(frame);
-    panel.show(ui, |ui| {
-        ui.set_style(style);
-        if bar.integrated {
-            move_window(ui);
-        }
-        let rect = ui.max_rect().expand2(egui::vec2(8.0, 0.0));
-        let line = ui.visuals().widgets.noninteractive.bg_stroke;
-        ui.painter().hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
-        let ground = bar.ground.map(|(fill, ink)| tabs::Ground { bottom: rect.bottom(), fill, ink });
-        ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
-    });
+    let height = if bar.compact { COMPACT_HEIGHT } else { HEIGHT };
+    let panel = egui::Panel::top("title_bar").exact_size(height).resizable(false).show_separator_line(false).frame(frame);
+    panel
+        .show(ui, |ui| {
+            ui.set_style(style);
+            if bar.integrated {
+                move_window(ui);
+            }
+            let rect = ui.max_rect().expand2(egui::vec2(8.0, 0.0));
+            let line = ui.visuals().widgets.noninteractive.bg_stroke;
+            ui.painter().hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
+            if bar.compact {
+                return ui.horizontal_centered(|ui| compact_contents(ui, bar, views, actions)).inner;
+            }
+            let ground = bar.ground.map(|(fill, ink)| tabs::Ground { bottom: rect.bottom(), fill, ink });
+            ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
+            None
+        })
+        .inner
 }
 
 /// Gives the bar's free areas their window behaviour: a drag carries the window, a double-click
@@ -170,6 +185,77 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
     for a in tabs::show(ui, room, bar.tabs, bar.shown, ground, window_moves, bar.reveal) {
         actions.push(Action::Tab(a));
     }
+}
+
+/// The compact bar (docs/ui/touch.md#the-compact-arrangement): the menu (File's commands, the
+/// command search, the preferences), the document shown with the others in its menu, undo and
+/// redo at the right end.
+fn compact_contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) -> Option<egui::Rect> {
+    let find = |id: &str| views.iter().find(|v| v.id == id);
+    let ink = ui.visuals().text_color();
+    let icon = egui::Image::new(icons::MENU).fit_to_exact_size(egui::Vec2::splat(COMPACT_ICON)).tint(ink);
+    let button = egui::Button::image(icon).min_size(egui::Vec2::splat(COMPACT_BUTTON));
+    menu_button(ui, "titlebar:menu", button, None, |ui| {
+        menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions);
+        ui.separator();
+        menu_items(ui, ["app.command_palette", "app.preferences"].into_iter().filter_map(find), actions);
+    });
+    // Undo and redo at the right end; the document takes the room left.
+    let row = ui.available_rect_before_wrap();
+    let right = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+            for id in ["edit.redo", "edit.undo"] {
+                if let Some(v) = find(id) {
+                    let r = IconButton::new(id_icon(id), COMPACT_BUTTON, COMPACT_ICON)
+                        .look(Look::Veil)
+                        .enabled(v.enabled)
+                        .show(ui)
+                        .tip(v.tip());
+                    crate::kit::handles::publish_enabled(|| format!("titlebar:{}", v.id), r.rect, v.enabled);
+                    if r.clicked() {
+                        actions.push(Action::Command(v.id));
+                    }
+                }
+            }
+            ui.min_rect()
+        })
+        .inner;
+    let room = egui::Rect::from_x_y_ranges(row.left()..=(right.left() - 4.0).max(row.left()), row.y_range());
+    let document = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(room).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+            document_menu(ui, bar, room.width(), actions);
+            ui.min_rect()
+        })
+        .inner;
+    let free = egui::Rect::from_x_y_ranges((document.right() + 8.0)..=room.right(), room.y_range());
+    (free.width() > 0.0).then_some(free)
+}
+
+/// The compact bar's document: its name, a chevron; its menu lists the documents open (the one
+/// shown checked), then a new one and closing the one shown.
+fn document_menu(ui: &mut egui::Ui, bar: &Bar, width: f32, actions: &mut Vec<Action>) {
+    let title = bar.shown.and_then(|i| bar.tabs.get(i)).map(Tab::title).unwrap_or_else(|| APP_NAME.to_owned());
+    let label = egui::Button::new(egui::RichText::new(title).strong()).right_text(egui::RichText::new("⌄")).truncate();
+    let button = label.min_size(egui::vec2(0.0, COMPACT_BUTTON));
+    ui.set_max_width(width);
+    menu_button(ui, "titlebar:documents", button, None, |ui| {
+        for (i, tab) in bar.tabs.iter().enumerate() {
+            if ui.add(crate::kit::style::menu_item(tab.title(), None, false).selected(bar.shown == Some(i))).clicked() {
+                actions.push(Action::Tab(tabs::TabAction::Select(i)));
+            }
+        }
+        if !bar.tabs.is_empty() {
+            ui.separator();
+        }
+        if ui.add(crate::kit::style::menu_item(t!("tabs.new_tip"), None, false)).clicked() {
+            actions.push(Action::Tab(tabs::TabAction::New));
+        }
+        if let Some(i) = bar.shown
+            && ui.add(crate::kit::style::menu_item(t!("tabs.close"), None, false)).clicked()
+        {
+            actions.push(Action::Tab(tabs::TabAction::Close(i)));
+        }
+    });
 }
 
 /// The badge of a newer version, after the app's own: opens its window.

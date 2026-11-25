@@ -1,14 +1,14 @@
 ---
 status: under way
-code: [apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/system/driving.rs, crates/tools/src/tools/select.rs, web/index.html]
+code: [apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/system/driving.rs, crates/tools/src/tools/select.rs, web/index.html, apps/skraft/src/window/form.rs, apps/skraft/src/app/compact.rs, apps/skraft/src/window/titlebar.rs]
 ---
 
 # Touch screens
 
 Skraft on a tablet or a phone, through the web app (or a touch screen on Windows). A phone is
 for looking at a model, a tablet for modelling too
-([0056](../decisions/0056-touch-screens-phone-views-tablet-models.md)). For now the view takes
-the fingers; the interface around it is still the desktop's.
+([0056](../decisions/0056-touch-screens-phone-views-tablet-models.md)). The view takes the
+fingers; a phone's screen gets the compact arrangement, a tablet's keeps the desktop's.
 
 ## Gestures in the view
 
@@ -41,6 +41,37 @@ the fingers; the interface around it is still the desktop's.
 - The first finger reaches the tool for a frame or two before a second one lands: the tool
   showed what was under it (a height preview, a lit part), hidden when the gesture begins.
 - The gestures are fixed, not part of the navigation style.
+
+## The compact arrangement
+
+**When**: the primary pointer is a finger (CSS `pointer: coarse`) and the window's short side is
+under 600 pt (`form::COMPACT_SIDE`): a phone, either way up. A tablet (an iPad mini's 744 pt) and
+a small desktop window under a mouse keep the desktop arrangement. No preference; for testing,
+`SKRAFT_FORM=compact` (desktop: the window then opens at a phone's size) or `?form=compact` in the
+page's address (`desktop` forces the other).
+
+**Larger under a finger**: wherever the pointer is a finger, tablet included, the whole interface
+is drawn 1.2 times larger (egui's zoom, `form::TOUCH_ZOOM`): buttons, rows and text together, the
+text near a phone's usual 16 pt.
+
+**What it shows**, every workspace (modelling, parts list, drawing):
+- **The bar at the top**: a menu (☰: File's commands, the command search, the preferences), the
+  document shown — its menu lists the documents open, a new one, closing it —, undo and redo.
+  No file tabs.
+- **The stage** takes the room between the bars: the 3D view, the parts list over the whole
+  stage, or the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
+  the screen), the quick tools and the toasts float over it as on the desktop.
+- **The ribbon, in one strip** scrolled sideways with a finger, at the bottom: the workspace's
+  cell, the tabs, every group.
+- **The cards' tabs** under it (Navigateur, Infos, Matières, Bibliothèque); held sideways, in the
+  bar at the top, where they fit, so the view keeps its height. A tab raises its card from the
+  bottom over half the stage, a tap on its header takes it to the stage's whole height and back,
+  its tab again lowers it. One card at a time; the paint tool raises « Matières ».
+- **The measurements box** above the strip while the tool takes a typed value (the system
+  keyboard for now). No status bar: its hints speak of keys and a mouse.
+
+*Why*: a phone is for looking at a model, but the user wants every tool within reach; the view
+stays the largest thing on the screen, and a card is read over it rather than instead of it.
 
 ## How it is built
 

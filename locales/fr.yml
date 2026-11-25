@@ -359,6 +359,11 @@ update:
   checking: "Recherche de mises à jour"
   up_to_date: "Skraft %{version} est à jour."
   failed: "Impossible de vérifier les mises à jour."
+# The compact arrangement of a phone (docs/ui/touch.md).
+compact:
+  # The entity info card's tab, short.
+  entity_info: "Infos"
+
 start:
   title: "Skraft"
   new: "Nouveau document"

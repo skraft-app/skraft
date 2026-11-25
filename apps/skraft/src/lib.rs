@@ -40,6 +40,10 @@ pub(crate) fn app_drags_window(cc: &eframe::CreationContext<'_>) {
 pub fn native_options() -> eframe::NativeOptions {
     let mut viewport =
         egui::ViewportBuilder::default().with_title("Skraft").with_inner_size([1280.0, 800.0]).with_min_inner_size([640.0, 400.0]);
+    // A phone's compact arrangement tried on the desktop (docs/ui/touch.md): a phone's size.
+    if crate::window::form::Probe::read().forced_compact() {
+        viewport = viewport.with_inner_size([390.0, 844.0]).with_min_inner_size([320.0, 320.0]);
+    }
     // The app icon (window, taskbar, macOS Dock), rendered from assets/app-icon.svg.
     match eframe::icon_data::from_png_bytes(include_bytes!("../assets/app-icon.png")) {
         Ok(icon) => viewport = viewport.with_icon(std::sync::Arc::new(icon)),

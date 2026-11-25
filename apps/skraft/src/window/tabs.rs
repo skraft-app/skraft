@@ -25,7 +25,7 @@ pub struct Tab {
 
 impl Tab {
     /// Its name, with a bullet when it is modified.
-    fn title(&self) -> String {
+    pub fn title(&self) -> String {
         format!("{}{}", self.name, if self.modified { " •" } else { "" })
     }
 

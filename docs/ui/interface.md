@@ -12,6 +12,8 @@ tabs have pages of their own.
 
 ## Layout
 
+On a phone's screen the window takes the compact arrangement instead: [Touch screens](touch.md#the-compact-arrangement).
+
 - Title bar at the top ([Title bar and native menus](title-bar.md)), status bar at the bottom
   with the measurements box (VCB) on the right; in between, the **3D view takes the whole
   width** and the panels **float over it** (anchored cards): **the ribbon at the top**, the

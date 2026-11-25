@@ -20,6 +20,12 @@ rectangle where it should have turned the model, and two fingers did nothing use
   where the screen is small, the shared widgets larger under a finger. **The arrangement is
   chosen automatically**, by the screen's width and a coarse pointer (a finger), with no
   preference.
+- **The compact arrangement** (decided 2026-11-25): every workspace (modelling, parts list,
+  drawing); the view takes the screen; a bar at the top (menu, the document, undo and redo); a
+  bar at the bottom with the whole ribbon as one strip scrolled sideways, then the cards; a card
+  rises from the bottom, one at a time, half or full height, the view still usable above it. The
+  file tabs, the status bar and the docked columns are not shown; the VCB shows while the tool
+  takes a typed value.
 - **Gestures**: one finger is the tool's (a tap a click, a drag the tool's drag), except with
   the select tool where a drag orbits; two fingers pan and pinch with any tool, and the tool sees
   nothing of them. Fixed for now, outside the navigation styles.
@@ -36,5 +42,9 @@ rectangle where it should have turned the model, and two fingers did nothing use
   magnifier above the finger, is to be tried first (step 3).
 - **Gestures in the navigation styles**: they copy desktop programs' mouse habits, which touch
   apps do not have; to reconsider if users ask.
+- **Only some tools on a phone** (select, measure, section, hide), the others left out or in
+  the command palette: the user wants every tool within reach, in a strip scrolled sideways.
+- **Cards as full-screen pages**, a back button to the model: the view would vanish each time a
+  part's information is read.
 - **A preference for the compact arrangement**: one more setting for what the screen already
   tells; a tablet in landscape keeps the desktop arrangement by its width.

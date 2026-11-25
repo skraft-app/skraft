@@ -1,0 +1,138 @@
+//! The compact arrangement of a phone (docs/ui/touch.md#the-compact-arrangement): at the bottom
+//! of the window the ribbon in one strip scrolled sideways and the cards' tabs; a card risen
+//! from the bottom over the view, one at a time.
+
+use super::layout::{CardEvent, Edges};
+use super::*;
+
+/// What the compact arrangement keeps for the session: the card risen, at its full height or not,
+/// and where the bars and the card begin (for the toasts above them).
+#[derive(Default)]
+pub(super) struct Compact {
+    pub(super) card: Option<PanelId>,
+    pub(super) full: bool,
+    pub(super) top: Option<f32>,
+}
+
+/// The cards' tabs' height: a finger's.
+const TABS_HEIGHT: f32 = 44.0;
+/// A card's tab's narrowest, in the title bar.
+const TAB_MIN_WIDTH: f32 = 96.0;
+/// The cards, in their tabs' order.
+const CARDS: [PanelId; 4] = [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Library];
+
+impl SkraftApp {
+    /// The bars at the bottom of the window, laid out before the stage, which takes the room
+    /// above them: the cards' tabs at the bottom, the ribbon's strip above. Gives their top.
+    /// Held sideways, the cards' tabs go to the room `bar_room` the title bar leaves, when they
+    /// fit there: the view keeps its height.
+    pub(super) fn compact_bars(
+        &mut self,
+        ui: &mut egui::Ui,
+        bar_room: Option<egui::Rect>,
+        views: &[CommandView],
+        actions: &mut Vec<Action>,
+    ) -> f32 {
+        let ctx = ui.ctx().clone();
+        let screen = ctx.content_rect();
+        let in_bar = bar_room.filter(|r| screen.width() > screen.height() && r.width() >= CARDS.len() as f32 * TAB_MIN_WIDTH);
+        match in_bar {
+            Some(room) => {
+                egui::Area::new(egui::Id::unique("compact_cards_in_bar")).fixed_pos(room.min).order(egui::Order::Foreground).show(
+                    &ctx,
+                    |ui| {
+                        let mut style = ui.style().as_ref().clone();
+                        crate::kit::style::title_bar(&ctx, &mut style);
+                        ui.set_style(style);
+                        ui.allocate_space(room.size());
+                        self.card_tabs(ui, room);
+                    },
+                );
+            }
+            None => {
+                egui::Panel::bottom("compact_cards").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
+                    let row = ui.max_rect();
+                    self.card_tabs(ui, row)
+                });
+            }
+        }
+        // The measurements box while the tool takes a typed value; the tool's hint is the
+        // status bar's, which is not shown.
+        if self.vcb_takes() {
+            egui::Panel::bottom("compact_vcb").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(status) = self.vcb_box(ui) {
+                        self.driving.message(&status);
+                    }
+                })
+            });
+        }
+        let strip = egui::Panel::bottom("compact_ribbon").resizable(false).show(ui, |ui| {
+            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
+            let width = ribbon::natural_width(ui.ctx(), &view);
+            egui::ScrollArea::horizontal()
+                .id_salt("compact_ribbon")
+                .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
+        });
+        strip.response.rect.top()
+    }
+
+    /// The cards' tabs in `row`, as wide as each other: a tap raises its card, again lowers it.
+    fn card_tabs(&mut self, ui: &mut egui::Ui, row: egui::Rect) {
+        let width = row.width() / CARDS.len() as f32;
+        for (k, id) in CARDS.into_iter().enumerate() {
+            let rect = egui::Rect::from_min_size(egui::pos2(row.left() + k as f32 * width, row.top()), egui::vec2(width, row.height()));
+            let lit = self.compact.card == Some(id);
+            let r = ui.interact(rect, egui::Id::unique(("compact_tab", id)), egui::Sense::click());
+            crate::kit::handles::publish(|| format!("compact_tab:{}", id.command()), rect);
+            let visuals = ui.visuals();
+            if lit {
+                ui.painter().rect_filled(rect.shrink(4.0), 6.0, visuals.selection.bg_fill);
+            }
+            let ink = if lit { visuals.selection.stroke.color } else { visuals.text_color() };
+            // On one line: smaller when the tab is too narrow for it.
+            let mut font = egui::TextStyle::Body.resolve(ui.style());
+            let room = rect.width() - 8.0;
+            let natural = ui.painter().layout_no_wrap(tab_label(id), font.clone(), ink).size().x;
+            if natural > room {
+                font.size *= room / natural;
+            }
+            let text = ui.painter().layout_no_wrap(tab_label(id), font, ink);
+            ui.painter().galley(rect.center() - text.size() / 2.0, text, ink);
+            if r.clicked() {
+                self.compact.card = if lit { None } else { Some(id) };
+            }
+        }
+    }
+
+    /// The card risen from the bottom of `area`, over the view: half its height, or all of it.
+    /// Gives its top.
+    pub(super) fn compact_card(&mut self, ctx: &egui::Context, area: egui::Rect, margin: f32, actions: &mut Vec<Action>) -> Option<f32> {
+        let id = self.compact.card?;
+        let full = self.compact.full;
+        let height = if full { area.height() - 2.0 * margin } else { (area.height() * 0.5).max(200.0).min(area.height() - 2.0 * margin) };
+        let rect = egui::Rect::from_min_max(
+            egui::pos2(area.left() + margin, area.bottom() - margin - height),
+            egui::pos2(area.right() - margin, area.bottom() - margin),
+        );
+        let header = ctx.global_style().spacing.interact_size.y;
+        let edges = Edges { side: None, bottom: false, sheet: Some(full), max_width: rect.width(), min_height: 0.0 };
+        let mut navigator_shown = false;
+        if let Some(CardEvent::Tapped) = self.panel_card(ctx, id, rect, header, edges, &mut navigator_shown, actions) {
+            self.compact.full = !full;
+        }
+        if !navigator_shown {
+            actions.push(Action::HoverNavigator(None));
+            actions.push(Action::HoverMachining(None));
+        }
+        Some(rect.top())
+    }
+}
+
+/// A card's tab: its title, short.
+fn tab_label(id: PanelId) -> String {
+    match id {
+        PanelId::EntityInfo => t!("compact.entity_info"),
+        _ => layout::panel_title(id),
+    }
+}
