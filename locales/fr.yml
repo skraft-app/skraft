@@ -622,6 +622,8 @@ prefs:
     light: "Clair"
     dark: "Sombre"
     palette: "Palette"
+    # The interface's zoom, also changed by ⌘+ and ⌘−.
+    zoom: "Zoom de l'interface"
     palettes:
       navy: "Marine"
       warm: "Chaud"

@@ -342,6 +342,9 @@ fn palette_name(palette: UiPalette) -> String {
 }
 
 /// `workspace`: the shown document's, whose panels it shows or closes.
+/// The interface's zooms offered in the Preferences; ⌘+ / ⌘− may set others.
+const ZOOMS: [f32; 8] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
 fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &str) {
     egui::Grid::new("interface").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.interface.theme"));
@@ -363,6 +366,17 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &st
                 }
             }
         });
+        ui.end_row();
+        ui.label(t!("prefs.interface.zoom"));
+        let percent = |zoom: f32| t!("window.zoom", percent = (zoom * 100.0).round() as i32);
+        egui::ComboBox::from_id_salt("ui_zoom").icon(crate::kit::icons::combo_chevron).selected_text(percent(prefs.zoom)).show_ui(
+            ui,
+            |ui| {
+                for zoom in ZOOMS {
+                    ui.selectable_value(&mut prefs.zoom, zoom, percent(zoom));
+                }
+            },
+        );
         ui.end_row();
         ui.label(t!("prefs.interface.ribbon_labels"));
         ui.checkbox(&mut prefs.ribbon.labels, "");

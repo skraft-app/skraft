@@ -46,6 +46,8 @@ pub struct Preferences {
     pub theme: Choice,
     /// The interface's colours, in the variant the theme picks.
     pub palette: Palette,
+    /// The interface's zoom (1: 100 %), set here or by ⌘+ / ⌘− (docs/ui/interface.md#interface-zoom).
+    pub zoom: f32,
     /// Shortcuts changed by the user, by command id (`Cmd+Shift+Z`; empty: none).
     pub shortcuts: BTreeMap<String, String>,
     /// The render statistics overlay, in a corner of the view.
@@ -105,6 +107,7 @@ impl Default for Preferences {
             locale: None,
             theme: Choice::System,
             palette: Palette::Warm,
+            zoom: 1.0,
             shortcuts: BTreeMap::new(),
             show_render_stats: false,
             components_list: false,

@@ -1,6 +1,6 @@
-//! The interface's zoom, shown when it changes (docs/ui/interface.md#interface-zoom): egui
-//! zooms the whole interface on ⌘+, ⌘− and ⌘0 (Ctrl elsewhere); its new value is shown at the
-//! center of the window for a moment, then fades.
+//! The interface's zoom, shown when it changes (docs/ui/interface.md#interface-zoom), by egui's
+//! ⌘+, ⌘− and ⌘0 (Ctrl elsewhere) or in the Preferences: its new value is shown at the center
+//! of the window for a moment, then fades.
 
 use skraft_i18n::t;
 
@@ -21,8 +21,9 @@ pub struct ZoomLabel {
 }
 
 impl ZoomLabel {
-    pub fn show(&mut self, ctx: &egui::Context) {
-        let zoom = ctx.zoom_factor();
+    /// `zoom`: the preference's, which egui's follows (`App::apply_zoom`): not egui's, which
+    /// at launch goes from its own saved zoom to the preference's.
+    pub fn show(&mut self, ctx: &egui::Context, zoom: f32) {
         let now = ctx.input(|i| i.time);
         if self.last.is_some_and(|last| last != zoom) {
             self.changed = Some(now);

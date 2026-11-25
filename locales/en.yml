@@ -551,6 +551,7 @@ prefs:
     light: "Light"
     dark: "Dark"
     palette: "Palette"
+    zoom: "Interface zoom"
     palettes:
       navy: "Navy"
       warm: "Warm"

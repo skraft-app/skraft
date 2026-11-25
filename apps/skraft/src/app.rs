@@ -56,6 +56,8 @@ pub struct SkraftApp {
     toasts: Toasts,
     /// The interface's zoom, shown a moment when it changes.
     zoom_label: crate::window::zoom_label::ZoomLabel,
+    /// The zoom egui was last seen or set at (`None`: not yet, the preference's goes first).
+    zoom_applied: Option<f32>,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Empreindre » (decision 0055).
@@ -315,6 +317,7 @@ impl SkraftApp {
             inbox: Inbox::default(),
             toasts,
             zoom_label: Default::default(),
+            zoom_applied: None,
             keymap: Keymap::new(&prefs.shortcuts),
             panel_drag: None,
             stored_prefs: prefs.clone(),
@@ -392,7 +395,29 @@ impl SkraftApp {
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
         self.theme = Theme::of(self.prefs.palette, mode);
     }
+
+    /// The interface's zoom and its preference kept together (docs/ui/interface.md#interface-zoom):
+    /// the preference's at launch, egui's when a shortcut changed it, the preference's when the
+    /// Preferences changed it. egui takes a new zoom at the next frame.
+    fn apply_zoom(&mut self, ctx: &egui::Context) {
+        let zoom = ctx.zoom_factor();
+        match self.zoom_applied {
+            Some(applied) if zoom != applied => self.prefs.zoom = zoom,
+            Some(applied) if self.prefs.zoom == applied => return,
+            _ => {
+                if !(self.prefs.zoom.is_finite() && (ZOOM_MIN..=ZOOM_MAX).contains(&self.prefs.zoom)) {
+                    self.prefs.zoom = 1.0;
+                }
+                ctx.set_zoom_factor(self.prefs.zoom);
+            }
+        }
+        self.zoom_applied = Some(self.prefs.zoom);
+    }
 }
+
+/// The interface's zoom a preferences file may set; egui's shortcuts stay between them.
+const ZOOM_MIN: f32 = 0.2;
+const ZOOM_MAX: f32 = 5.0;
 
 impl eframe::App for SkraftApp {
     /// The control channel stops with the app: its token and discovery files go.
@@ -434,6 +459,7 @@ impl eframe::App for SkraftApp {
         let origin = self.driving.origin();
         self.set_origin(&origin);
         self.apply_theme(&ctx);
+        self.apply_zoom(&ctx);
         self.poll_documents();
         self.take_notices(&ctx);
         self.end_cancelled_loads();
@@ -481,7 +507,7 @@ impl eframe::App for SkraftApp {
         self.secondary_windows(&ctx, &views, &mut actions);
         drop_hint(&ctx);
         self.show_toasts(&ctx, status_top);
-        self.zoom_label.show(&ctx);
+        self.zoom_label.show(&ctx, self.prefs.zoom);
         self.naming_dialog(&ctx);
         self.imprint_dialog(&ctx);
         self.view_picker_dialog(&ctx);

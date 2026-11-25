@@ -274,9 +274,12 @@ the status bar keeping the tools' hints.
 
 ## Interface zoom
 
-egui zooms the whole interface on ⌘+, ⌘− and ⌘0 (Ctrl elsewhere), the zoom kept with the
-window's state. `window/zoom_label.rs` shows its new value (« 125 % ») at the center of the
-window, in a popup's frame, for 0.8 s, then fades it in 0.3 s; it takes no click. The zoom
+egui zooms the whole interface on ⌘+, ⌘− and ⌘0 (Ctrl elsewhere; on the web the browser
+keeps these keys, its own zoom adding to this one). The *Interface* tab of the Preferences sets
+it too, among 75 to 200 %; it shows a zoom the keys reached outside that list as it is. The zoom
+is a preference (`Preferences::zoom`), applied at launch, and `App::apply_zoom` keeps egui's and
+it together each frame. `window/zoom_label.rs` shows its new value (« 125 % ») at the center of
+the window, in a popup's frame, for 0.8 s, then fades it in 0.3 s; it takes no click. The zoom
 restored at launch is not shown.
 
 *Why:* the zoom changes every size at once, with nothing to tell how far it is from 100 %.
@@ -363,7 +366,7 @@ Two levels, after SketchUp's styles.
 - **User preferences** (`apps/skraft/src/prefs.rs`): language ([Texts and languages](texts.md)),
   navigation (orbit speed and direction, mouse and trackpad separately; zoom speed and target;
   the navigation style, [Navigation styles](navigation-styles.md)), the interface (theme,
-  palette, panels, ribbon labels), the tools' settings and the settings of new models. A
+  palette, zoom, panels, ribbon labels), the tools' settings and the settings of new models. A
   versioned JSON file of our own, `preferences.json` in the OS's configuration folder
   (`~/Library/Application Support/Skraft/` on macOS), `localStorage` in the browser; rewritten as
   soon as a preference changes.
@@ -371,7 +374,7 @@ Two levels, after SketchUp's styles.
   migration.
 - **Preferences** window (Cmd/Ctrl+,): *General* tab (language, reopen documents at launch,
   memory of the history), *Model* tab (document settings, with "Use for new models" / "Restore
-  the default settings"), *Navigation*, *Interface*, *Shortcuts* and, on the desktop, *Débogage*
+  the default settings"), *Navigation*, *Interface* (theme, palette, [zoom](#interface-zoom), ribbon labels, panels), *Shortcuts* and, on the desktop, *Débogage*
   (the control channel, [Command registry and external driving](commands.md)). Its tabs are the
   ribbon's (`ribbon::tab_strip`, as the journal window's), the window at least as wide as they
   are. The commands `view.grid` and `view.axes` change the document too.
