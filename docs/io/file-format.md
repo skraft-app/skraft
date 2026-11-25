@@ -148,7 +148,9 @@ draws in place of the icon, and the preview on Space (macOS 12 and later). Both 
 `thumbnail.png`, found through the ZIP's central directory and read alone, stored as it is; a
 file without it, or not written as the app writes it, keeps the document icon. They run
 sandboxed, signed ad hoc with their entitlements before the app (never `--deep`, which would
-sign them again without). Windows and Linux show the icon only.
+sign them again without). Without a picture, a file has the document icon macOS draws
+(`CFBundleTypeIconSystemGenerated`): a page badged with the app's icon, its extension under
+it. Windows and Linux show the app's icon only.
 
 ## Version 1 until 0.1.0
 
