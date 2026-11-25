@@ -149,6 +149,11 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.add_space(10.0);
                 ui.heading(egui::RichText::new(t!("start.title")).size(22.0).strong());
                 ui.weak(t!("about.version", version = VERSION));
+                // A web build's stamp (scripts/build-web.sh): which wasm runs, beside the page's
+                // under the loading bar.
+                if let Some(stamp) = option_env!("SKRAFT_WEB_BUILD") {
+                    ui.small(egui::RichText::new(stamp).monospace().weak());
+                }
                 // The check for a new version (docs/ui/updates.md; desktop): it opens its window.
                 #[cfg(not(target_arch = "wasm32"))]
                 {

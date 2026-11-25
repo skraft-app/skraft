@@ -17,6 +17,8 @@ use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    // The web build's stamp (scripts/build-web.sh), shown in « À propos ».
+    println!("cargo:rerun-if-env-changed=SKRAFT_WEB_BUILD");
     if env::var("PROFILE").as_deref() == Ok("debug") {
         git_identity();
     }
