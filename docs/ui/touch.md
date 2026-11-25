@@ -184,7 +184,11 @@ panels'. The colours are kept, with the text's, in the browser's storage
 (`skraft.page_colors`): a script at the page's head takes them before it shows, so the loading
 screen — its ground, its name, its bar — and the bars Safari reads from it are the last theme's
 from the start (the first launch keeps the light ones). `theme-color` stays,
-for the browsers that take it.
+for the browsers that take it. The strips' lines are only in Safari on iOS and iPadOS, a
+home-screen app too: WebKit there (`@supports (-webkit-touch-callout: none)`, which only it
+knows), less the other browsers built on it — Chrome, Firefox, Edge… name themselves in the user
+agent (`CriOS`, `FxiOS`, `EdgiOS`…), a script at the page's head then marks the root `no-edges`.
+Elsewhere `--edge` is nought and the canvas takes the whole height.
 
 **Within the safe areas.** The page asks for the whole screen (`viewport-fit=cover`) and keeps the
 canvas within the safe areas (`env(safe-area-inset-*)` with the strips' lines as the body's

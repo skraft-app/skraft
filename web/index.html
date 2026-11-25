@@ -28,6 +28,10 @@
         root.setProperty("--skraft-ink", ink);
       }
     } catch {}
+    // The other browsers on iOS run WebKit too but tint no bar from the edges' strips: they
+    // name themselves in the user agent, and go without the strips (see .edge).
+    if (/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|GSA\//.test(navigator.userAgent))
+      document.documentElement.classList.add("no-edges");
   </script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -54,8 +58,11 @@
        touching the window's top and bottom edges that it sees, read when they appear: these
        strips, the title bar's colour and the panels', in a line the app's canvas leaves free
        above it and below it (the body's padding) — the app takes them out and puts them back when
-       its theme changes. */
-    :root { --edge: 11px; }
+       its theme changes. Only Safari on iOS and iPadOS reads them: WebKit there (the only one
+       that knows -webkit-touch-callout), less the other browsers built on it (.no-edges).
+       Elsewhere the strips are nought and the canvas takes the whole height. */
+    :root { --edge: 0px; }
+    @supports (-webkit-touch-callout: none) { :root:not(.no-edges) { --edge: 11px; } }
     .edge { position: fixed; left: 0; right: 0; height: var(--edge); z-index: 10; pointer-events: none; }
     #edge-top { top: 0; background-color: var(--skraft-top, #3a342e); }
     #edge-bottom { bottom: 0; background-color: var(--skraft-bottom, #fbfaf6); }
