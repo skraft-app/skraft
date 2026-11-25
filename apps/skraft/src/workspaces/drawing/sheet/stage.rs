@@ -65,7 +65,8 @@ fn apply_framing(st: &mut SheetState, board: &Board, known: bool, room: egui::Re
 }
 
 /// The middle or right button's drag pans the board, the wheel (or a trackpad's pinch) zooms
-/// about the pointer; two fingers pan it and pinch it about their middle.
+/// about the pointer; two fingers pan it and pinch it about their middle, one from nothing with
+/// the select tool pans it.
 fn move_camera(ui: &egui::Ui, response: &egui::Response, st: &mut SheetState, centre: egui::Pos2, pinch: Option<crate::kit::touch::Pinch>) {
     if st.zoom <= 0.0 {
         return;
@@ -81,12 +82,17 @@ fn move_camera(ui: &egui::Ui, response: &egui::Response, st: &mut SheetState, ce
         zoom_about(st, p.center, p.zoom as f64);
         return;
     }
-    if ui.input(|i| i.any_touches()) {
-        return;
+    if st.finger_pan && !response.dragged_by(egui::PointerButton::Primary) {
+        st.finger_pan = false;
     }
-    if response.dragged_by(egui::PointerButton::Middle) || response.dragged_by(egui::PointerButton::Secondary) {
+    let buttons = [egui::PointerButton::Middle, egui::PointerButton::Secondary];
+    if buttons.into_iter().any(|b| response.dragged_by(b)) || (st.finger_pan && response.dragged_by(egui::PointerButton::Primary)) {
         let d = response.drag_delta();
         st.pan -= DVec2::new(d.x as f64, -d.y as f64) / st.zoom;
+    }
+    // A touch's zoom is the pinch's, above.
+    if ui.input(|i| i.any_touches()) {
+        return;
     }
     if let Some(at) = response.hover_pos() {
         let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -410,6 +416,8 @@ fn start_drag(ui: &egui::Ui, e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_
                     }
                     st.moving = Some(start_moving(e, st, id, to, place, lv.to_sheet(p)));
                 }
+                // A finger pans the board, as it turns the 3D view (docs/ui/touch.md).
+                None if ui.input(|i| i.any_touches()) => st.finger_pan = true,
                 None => st.marquee = Some(p),
             },
             // A drag from where the button went down (the first click's point, if made).

@@ -23,7 +23,8 @@ fingers; a phone's screen gets the compact arrangement, a tablet's keeps the des
   it slides by as much; spread or brought together, it grows or shrinks by their distance,
   about their middle. The gesture's pivot is set where it begins, as an orbit's.
 - **On a drawing's board, two fingers pan and pinch it** the same way; one finger is the sheet's
-  tool's, as the mouse's left button.
+  tool's, as the mouse's left button, but with the select tool a finger dragged from nothing
+  pans the board (from a view or a shape it still moves it: the board has no other way).
 - **A touch that becomes navigation leaves the tool alone**: from the second finger down to the
   last one lifted, the tool gets no hover, click or drag. A drag the tool had from the first
   finger is given up (Esc); a point already clicked stays (a box's first corner). Lifting one

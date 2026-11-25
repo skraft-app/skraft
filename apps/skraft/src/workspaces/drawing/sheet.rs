@@ -28,6 +28,8 @@ pub struct SheetState {
     pub current: Option<Id>,
     /// Two fingers pan and pinch the board (docs/ui/touch.md).
     pub touch: crate::kit::touch::TwoFingers,
+    /// A finger dragged from nothing with the select tool pans the board, until lifted.
+    pub finger_pan: bool,
     /// The presentation shown: the sheet's, kept while it has none (docs/ui/drawing.md#navigator).
     presentation: Option<Id>,
     /// The navigator's rows unfolded, and the sheet they were last unfolded for.
