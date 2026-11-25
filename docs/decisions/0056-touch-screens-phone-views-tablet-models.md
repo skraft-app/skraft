@@ -26,6 +26,12 @@ rectangle where it should have turned the model, and two fingers did nothing use
   rises from the bottom, one at a time, half or full height, the view still usable above it. The
   file tabs, the status bar and the docked columns are not shown; the VCB shows while the tool
   takes a typed value.
+- **Modelling by touch** (decided 2026-11-25): a magnifier above the finger as soon as it is down,
+  with every tool but select, showing the point aimed at and its inference; the keyboard's
+  modifiers (Shift, copy, axis locks, add to the selection) as toggles in the tool's card, lit
+  until the operation ends, shown under a finger only; values typed on a numeric keypad of the
+  app's (digits, separators, units, Enter), not the system's keyboard; a long press is the right
+  click (context menus), a long press then a drag the selection rectangle.
 - **Gestures**: one finger is the tool's (a tap a click, a drag the tool's drag), except with
   the select tool where a drag orbits; two fingers pan and pinch with any tool, and the tool sees
   nothing of them. Fixed for now, outside the navigation styles.
@@ -40,6 +46,11 @@ rectangle where it should have turned the model, and two fingers did nothing use
 - **One finger orbits with every tool, the tool working through a cursor offset from the finger**
   (as a trackpad): precise, but every point takes two gestures; drawing by dragging, with a
   magnifier above the finger, is to be tried first (step 3).
+- **A magnifier only after the finger rests a moment** (as iOS's text one): every point would
+  wait; **an offset cursor** instead of a magnified image: the inference is what has to be seen.
+- **Modifiers held like keys** by a finger of the other hand: tiring, and a tablet is often held
+  with that hand.
+- **The system's keyboard** for the measurements box: it covers half the screen and the model.
 - **Gestures in the navigation styles**: they copy desktop programs' mouse habits, which touch
   apps do not have; to reconsider if users ask.
 - **Only some tools on a phone** (select, measure, section, hide), the others left out or in
