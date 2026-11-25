@@ -147,19 +147,31 @@ stays the largest thing on the screen, and a card is read over it rather than in
 
 ## Safe areas
 
-Added to a phone's home screen, the page is the app's own window, down to the home indicator's
-swipe, under the status bar: opaque, painted by iOS in the system's light or dark — no page sets
-its colour there (iOS 26 takes neither `theme-color`, nor the page's ground, nor a status bar
-style). `web/index.html` sets no status bar style: iOS 26 lays a frosted band over a page drawn
-under the status bar, `black-translucent` or `black`, the title bar blurred with it. Its
-`theme-color` is the title bar's, which the app sets again from its theme
-(`system::web::set_page_colors`, with the CSS variables `--skraft-top` and `--skraft-bottom`):
-Safari tints its own bar with it. The page asks for the whole screen (`viewport-fit=cover`) and
-keeps the app's canvas within the safe areas (`env(safe-area-inset-*)` as the body's padding): the
-panels' colour shows under it and beside it (the home indicator, a notch held sideways). The body
-is fixed: iOS counts the status bar in `100vh`, and a page that could scroll was left shifted up by
-it after a rotation. In Safari the browser's bars keep the page clear of these areas: the insets
-are then nought.
+Added to a phone's home screen, the app's icon is `web/apple-touch-icon.png` (iOS takes no SVG
+there): the full-bleed mark, `apps/skraft/assets/app-icon-full.png`, at 180 px, the system rounding
+its corners. The page is the app's own window, down to the home indicator's swipe, under the
+status bar. `web/index.html` sets no status bar style: iOS 26 lays a frosted band over a page
+drawn under the status bar, `black-translucent` or `black`, the title bar blurred with it.
+
+**The bars' colours.** Safari 26 — its own bars, and a home-screen app's status bar — takes
+neither `theme-color` nor a gradient: it takes the colour of a fixed element it sees touching the
+window's top or bottom edge, read as that element appears. The page has two such strips,
+`#edge-top` in the title bar's colour and `#edge-bottom` in the panels', in lines the app's canvas
+leaves free above it and below it (the body's padding, `--edge`: 11 px, the least Safari takes —
+tried on an iPhone, 1, 3, 6, 9 and 10 px were not, nor strips under the canvas). The strips are
+taken out and put back (the page's `skraftEdges`) once the loading screen is gone — Safari read
+it first, and kept its colours — and when the app's theme changes: the app gives the page those
+two colours (`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`),
+then calls it. The grounds are solid, the root's the title bar's colour, the body's the
+panels'. `theme-color` stays,
+for the browsers that take it.
+
+**Within the safe areas.** The page asks for the whole screen (`viewport-fit=cover`) and keeps the
+canvas within the safe areas (`env(safe-area-inset-*)` with the strips' lines as the body's
+padding): the panels' colour shows beside it (a notch held sideways) and under it (the home
+indicator). The body is fixed: iOS counts the status bar in `100vh`, and a page that could scroll
+was left shifted up by it after a rotation. In Safari the browser's bars keep the page clear of
+these areas: the insets are then nought.
 
 *Why*: the system's bar and the swipe are the phone's; the app's own controls stay out of them.
 Re-adding the app to the home screen is needed for iOS to take a change of these.
