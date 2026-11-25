@@ -19,7 +19,8 @@ model.skraft
 ├── view.json                   how it was last seen (workspace, cameras), when there is something to say
 ├── breps/<name>.json           the B-reps it is made of
 ├── cache/<name>.json           the B-reps computed from them
-└── textures/<name>.<png|jpg>   the images of the materials' textures, as they came (stored)
+├── textures/<name>.<png|jpg>   the images of the materials' textures, as they came (stored)
+└── thumbnail.png               a picture of the model, for the start page (stored)
 ```
 
 - **`manifest.json`**, read first: the format, its version (a newer one is refused:
@@ -55,6 +56,16 @@ model.skraft
   (128 bits of the BLAKE3 hash of its bytes) and its kind's extension, not compressed again;
   `document.json`'s `assets` names them with their kind (`"<id>": "jpeg"`). A file naming an
   image it does not have is refused.
+- **`thumbnail.png`**: what the model looks like, for the start page's recent files
+  ([File tabs](../ui/file-tabs.md#start-page)). Drawn at each save by the viewport's renderer
+  (`Viewport::file_picture`): a parallel iso view framed on the whole model as the library's
+  thumbnails, 480 × 270 pixels, in the light look whatever the theme, on a clear ground — drawn
+  on black then on white, each pixel's coverage read from their difference —, so that the card
+  shows it on the view's ground of any palette and mode. When the save cannot draw it (the
+  document not shown, nothing drawn yet, the web, which cannot wait for the GPU), the one the
+  file carried is written again. Read alone (`Document::file_thumbnail`), without the rest of
+  the file; absent, or past 4 MB, the file has no picture. Optional: older files open as
+  they are.
 - **No dates** in the ZIP (1980-01-01) and entries in a fixed order: the same document gives
   the same bytes.
 

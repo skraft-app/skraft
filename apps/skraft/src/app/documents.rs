@@ -17,6 +17,9 @@ impl SkraftApp {
             match read.and_then(|b| Document::from_file(&b).map(|d| (d, Document::file_view(&b))).map_err(|e| e.to_string())) {
                 Ok((doc, view)) => {
                     self.open_document(doc, Some(path.clone()), &view);
+                    if let Ok(bytes) = std::fs::read(path) {
+                        self.keep_file_picture(&bytes);
+                    }
                     tabs.push(self.docs.active_index());
                 }
                 Err(e) => {
@@ -354,12 +357,38 @@ impl SkraftApp {
 
     /// Saves document `id`: to its file, else (or if `ask`) where the user says.
     fn save_document(&mut self, id: DocId, ask: bool) {
+        self.draw_file_picture(id);
         let Some(d) = self.docs.iter().find(|d| d.id == id) else { return };
         let path = if ask { None } else { d.path.clone() };
         // The name offered: its file's, else the default one.
         let name = d.path.as_deref().map(file_name).map(|n| n.trim_end_matches(&format!(".{}", file::EXTENSION)).to_owned());
         let name = name.unwrap_or_else(|| t!("default_name.file"));
         let view = FileView { workspace: Some(d.workspace.id.to_owned()), camera: Some(d.editor.camera.seen()), board: d.sheet.seen() };
-        file::save(id, d.editor.document(), &view, d.editor.history().revision(), path.as_deref(), &name, &self.inbox, &self.ctx);
+        let saved = file::Saved { document: d.editor.document(), view: &view, thumbnail: d.thumbnail.as_deref() };
+        file::save(id, saved, d.editor.history().revision(), path.as_deref(), &name, &self.inbox, &self.ctx);
+    }
+
+    /// Draws document `id`'s picture of its model for its file (docs/io/file-format.md), in the
+    /// light look whatever the theme: a file reads the same on every machine. Kept from its
+    /// file when it is not shown or has nothing drawn yet (desktop: the web cannot wait for
+    /// the GPU).
+    fn draw_file_picture(&mut self, id: DocId) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(state) = self.render_state.as_ref() else { return };
+            let Some(d) = self.docs.iter_mut().find(|d| d.id == id) else { return };
+            if let Some(png) = self.viewport.file_picture(state, id, &d.editor, &Theme::light()) {
+                d.thumbnail = Some(png.into());
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = id;
+    }
+
+    /// The picture of its model `bytes` (a file just opened) carries, kept by the document shown.
+    pub(super) fn keep_file_picture(&mut self, bytes: &[u8]) {
+        if let Some(d) = self.docs.active_mut() {
+            d.thumbnail = Document::file_thumbnail(std::io::Cursor::new(bytes)).map(Into::into);
+        }
     }
 }

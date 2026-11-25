@@ -32,6 +32,9 @@ use crate::workspaces::{self, Stage, Workspace};
 
 pub struct SkraftApp {
     ctx: egui::Context,
+    /// The GPU the window draws with: a saved file's picture of its model is drawn with it
+    /// (docs/io/file-format.md).
+    render_state: Option<egui_wgpu::RenderState>,
     /// The documents open, one per file tab (docs/ui/file-tabs.md); none shown: the
     /// start page.
     docs: Docs,
@@ -294,6 +297,7 @@ impl SkraftApp {
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
         let mut app = SkraftApp {
             ctx: cc.egui_ctx.clone(),
+            render_state: cc.wgpu_render_state.clone(),
             docs,
             last_shown: None,
             closing: None,

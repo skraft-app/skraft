@@ -445,6 +445,19 @@ fn a_file_keeps_how_it_was_seen_beside_the_document() {
 }
 
 #[test]
+fn a_file_carries_a_picture_of_its_model_read_alone() {
+    let doc = Document::new();
+    let plain = doc.to_file().unwrap();
+    assert_eq!(Document::file_thumbnail(std::io::Cursor::new(&plain)), None);
+    let png = b"\x89PNG not really".to_vec();
+    let file = doc.to_file_pictured(&FileView::default(), Some(&png)).unwrap();
+    assert_eq!(Document::file_thumbnail(std::io::Cursor::new(&file)), Some(png));
+    // The document reads as without it.
+    assert_eq!(Document::from_file(&file).unwrap(), doc);
+    assert_eq!(Document::file_thumbnail(std::io::Cursor::new(b"not a zip")), None);
+}
+
+#[test]
 fn guides_belong_to_their_component() {
     let mut h = History::new(Document::new());
     let root = h.document().root();

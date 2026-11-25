@@ -100,6 +100,7 @@ impl SkraftApp {
             Ok((doc, skraft_model::Content::Model)) => {
                 self.add_recent_file(&name);
                 self.open_document(doc, Some(name), &Document::file_view(&bytes));
+                self.keep_file_picture(&bytes);
             }
             // Materials alone: into the shown document; from the start page, a new one.
             Ok((materials, skraft_model::Content::Materials)) => {
