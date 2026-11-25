@@ -61,9 +61,14 @@ pub fn fit_width(ctx: &egui::Context, width: f32, frame: &egui::Frame) -> f32 {
     width.min(ctx.content_rect().width() - frame.total_margin().sum().x - 2.0 * FLOAT_GAP).max(120.0)
 }
 
+/// Below this (points), a screen is a phone's: on its width, the windows and boxes are held under
+/// the title bar ([`narrow_screen`], whatever the pointer); on its short side under a finger, the
+/// window takes the compact arrangement (`window::form`, docs/ui/touch.md).
+pub const PHONE_SIDE: f32 = 600.0;
+
 /// A screen too narrow for the windows' own sizes (a phone's, docs/ui/touch.md).
 pub fn narrow_screen(ctx: &egui::Context) -> bool {
-    ctx.content_rect().width() < 600.0
+    ctx.content_rect().width() < PHONE_SIDE
 }
 
 /// The bottom of the window's title bar, which tells it every frame: where windows and boxes go

@@ -24,7 +24,7 @@ pub const DOUBLE_TAP: f64 = 0.4;
 
 /// A touch screen whose short side is below this (points) is a phone's: compact either way up.
 /// A tablet's is wider (an iPad mini's 744).
-pub const COMPACT_SIDE: f32 = 600.0;
+pub const COMPACT_SIDE: f32 = crate::kit::style::PHONE_SIDE;
 
 /// What the window's form is read from: the pointer (a finger or not), and a form forced for
 /// testing — `SKRAFT_FORM=compact` (desktop) or `?form=compact` (web) in the page's address.
