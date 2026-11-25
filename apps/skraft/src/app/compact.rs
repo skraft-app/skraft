@@ -68,13 +68,14 @@ impl SkraftApp {
             });
         }
         let strip = egui::Panel::bottom("compact_ribbon").resizable(false).show(ui, |ui| {
-            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
+            let seen = ui.available_width();
+            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: Some(seen) };
             let width = ribbon::natural_width(ui.ctx(), &view);
-            egui::ScrollArea::horizontal()
             // Dragged from the first touch on (egui's default waits to have seen a touch screen).
+            egui::ScrollArea::horizontal()
                 .id_salt("compact_ribbon")
-                .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
                 .scroll_source(egui::scroll_area::ScrollSource::ALL)
+                .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
         });
         strip.response.rect.top()
     }

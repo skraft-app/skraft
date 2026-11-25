@@ -65,7 +65,7 @@ text near a phone's usual 16 pt.
   the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
   the screen), the quick tools and the toasts float over it as on the desktop.
 - **The ribbon, in one strip** scrolled sideways with a finger, at the bottom: the workspace's
-  cell, the tabs, every group.
+  cell, the tabs (centred on what is seen of the strip), every group.
 - **The cards' tabs** under it (Navigateur, Infos, Matières, Bibliothèque); held sideways, in the
   bar at the top, where they fit, so the view keeps its height. A tab raises its card from the
   bottom over half the stage, a tap on its header takes it to the stage's whole height and back,

@@ -317,6 +317,9 @@ pub struct View<'a> {
     pub workspace: &'static Workspace,
     pub prefs: &'a Prefs,
     pub views: &'a [CommandView],
+    /// The width seen of a ribbon wider than that, scrolled sideways (a phone's strip,
+    /// docs/ui/touch.md): its tabs are centred on what is seen first.
+    pub seen: Option<f32>,
 }
 
 impl View<'_> {
@@ -436,11 +439,11 @@ fn tab_font() -> FontId {
 }
 
 /// `inset`: the card's inner margin, which the band spans to reach the card's edges.
-fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
+fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, seen: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
     let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
     let shown = w.tabs.iter().position(|t| t.id == tab.id);
     let ids: Vec<_> = w.tabs.iter().map(|t| egui::Id::unique(("ribbon_tab", t.id))).collect();
-    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, Corners::RoundRight, &[]) {
+    if let Some(k) = tabs_seen(ui, &labels, &ids, shown, (width, seen), inset, Corners::RoundRight, &[]) {
         actions.push(Action::Ribbon(Change::Tab(w.tabs[k].id)));
     }
 }
@@ -470,6 +473,22 @@ pub fn tab_strip(
     corners: Corners,
     handles: &[&'static str],
 ) -> Option<usize> {
+    tabs_seen(ui, labels, ids, shown, (width, width), inset, corners, handles)
+}
+
+/// A [`tab_strip`] `width.0` wide whose tabs are centred on its first `width.1`, what is seen of
+/// it.
+#[allow(clippy::too_many_arguments)]
+fn tabs_seen(
+    ui: &mut egui::Ui,
+    labels: &[String],
+    ids: &[egui::Id],
+    shown: Option<usize>,
+    (width, seen): (f32, f32),
+    inset: egui::Margin,
+    corners: Corners,
+    handles: &[&'static str],
+) -> Option<usize> {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
     let visuals = ui.visuals().clone();
     let band =
@@ -482,8 +501,9 @@ pub fn tab_strip(
     };
     ui.painter().rect_filled(band, egui::CornerRadius { nw, ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
-    // Centered on the card; from its left edge when narrower than the tabs.
-    let mut x = (row.center().x - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::window::tabs::TAB_RADIUS);
+    // Centered on what is seen of the card; from its left edge when narrower than the tabs.
+    let middle = row.left() + seen.min(width) / 2.0;
+    let mut x = (middle - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::window::tabs::TAB_RADIUS);
     let font = tab_font();
     let mut clicked = None;
     // The shown tab drawn last: its curves over its neighbours' hover.
@@ -630,7 +650,9 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
     let w = v.workspace;
     let tab = v.prefs.tab(v.workspace);
     ui.set_width(width);
-    tab_row(ui, w, tab, width, inset, actions);
+    // What is seen of the groups' width, a strip scrolled sideways.
+    let seen = v.seen.map_or(width, |s| s - WORKSPACE_WIDTH - GROUP_GAP);
+    tab_row(ui, w, tab, width, seen, inset, actions);
     ui.add_space(TAB_GAP_BELOW);
 
     let labels = v.prefs.labels;
