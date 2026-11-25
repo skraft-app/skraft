@@ -51,6 +51,27 @@ struct Gesture {
     tool_mods: egui::Modifiers,
 }
 
+/// A touch on the view (docs/ui/touch.md). The first finger drives egui's pointer, as a mouse's
+/// left button: what it does is the tool's, unless the touch navigates.
+#[derive(Default)]
+struct Touch {
+    /// A second finger came down: the touch pans and pinches, and the pointer reaches the tool
+    /// no more until every finger is lifted.
+    fingers: bool,
+    /// The select tool's one-finger drag: an orbit, not a selection rectangle.
+    orbit: bool,
+    /// The tool was given a drag by a finger, not yet ended: given up (Esc) if the touch
+    /// turns into navigation.
+    tool_drag: bool,
+}
+
+impl Touch {
+    /// The pointer is the touch's navigation's, not the tool's.
+    fn navigates(&self) -> bool {
+        self.fingers || self.orbit
+    }
+}
+
 #[derive(Default)]
 pub struct Viewport {
     renderer: Option<render::Renderer>,
@@ -60,6 +81,7 @@ pub struct Viewport {
     /// The last wheel or pinch zoom (egui's clock).
     last_zoom: f64,
     gesture: Option<Gesture>,
+    touch: Touch,
     /// The modifiers the tool saw last, and those hidden from it till released (Shift, Ctrl,
     /// Alt, Command), pressed during a gesture.
     tool_mods: egui::Modifiers,
@@ -520,6 +542,8 @@ impl Viewport {
             }
         }
 
+        self.touch_input(ui, response, rect, editor, nav);
+
         // Priority to the button: during a gesture the tool keeps the modifiers it had; one
         // pressed then stays hidden from it until released.
         let tool_mods = self.tool_modifiers(mods, mac);
@@ -535,6 +559,14 @@ impl Viewport {
             return self.dragged_in_input(ctx, rect, editor, modifiers(ctx, tool_mods));
         }
         let hover = response.hover_pos();
+        // A touch navigating: the tool sees nothing of it, and the touch's own end must not
+        // reach it either (the first finger lifted would be a click).
+        if self.touch.navigates() {
+            if !ui.input(|i| i.any_touches() || i.pointer.primary_down()) {
+                self.touch = Touch::default();
+            }
+            return;
+        }
 
         // Hover: tools follow the cursor; off the view or over a panel, they hide what follows it.
         match hover {
@@ -556,6 +588,7 @@ impl Viewport {
                 editor.input(ToolInput::Click { px: local(p), mods: m });
             } else if response.drag_started_by(Primary) {
                 let from = ui.input(|i| i.pointer.press_origin()).unwrap_or(p);
+                self.touch.tool_drag = ui.input(|i| i.any_touches());
                 editor.input(ToolInput::DragStart { px: local(from), mods: m });
                 editor.input(ToolInput::Drag { px: local(p) });
             } else if response.dragged_by(Primary) && response.drag_delta() != egui::Vec2::ZERO {
@@ -563,6 +596,7 @@ impl Viewport {
             }
             // Started and released in the same frame: ended too.
             if response.drag_stopped_by(Primary) {
+                self.touch.tool_drag = false;
                 editor.input(ToolInput::DragEnd { px: local(p), mods: m });
             }
         }
@@ -600,9 +634,60 @@ impl Viewport {
                 }
             }
         }
-        if (zoom - 1.0).abs() > 1e-4 {
+        if (zoom - 1.0).abs() > 1e-4 && !ui.input(|i| i.any_touches()) {
             burst(editor, &mut self.last_zoom);
             editor.zoom(zoom_at(p), (zoom as f64).ln() / (1.0f64 / 0.85).ln() * nav.zoom_rate());
+        }
+    }
+
+    /// The touch's navigation (docs/ui/touch.md): two fingers pan and pinch, wherever the tool
+    /// is; one finger orbits with the select tool. A touch that turns into navigation gives up
+    /// the drag the tool had from it.
+    fn touch_input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, editor: &mut Editor, nav: &Navigation) {
+        let local = |p: egui::Pos2| DVec2::new((p.x - rect.min.x) as f64, (p.y - rect.min.y) as f64);
+        let (touching, multi) = ui.input(|i| (i.any_touches(), i.multi_touch()));
+        if !touching {
+            return;
+        }
+        // Begins in the view: its first finger came down on it.
+        let ours = self.touch.navigates() || response.is_pointer_button_down_on();
+        let give_up = |touch: &mut Touch, editor: &mut Editor| {
+            if std::mem::take(&mut touch.tool_drag) {
+                editor.input(ToolInput::Key { key: skraft_tools::Key::Escape, mods: Modifiers::default() });
+            }
+            editor.leave();
+        };
+        if let Some(m) = multi.filter(|_| ours) {
+            if !self.touch.fingers {
+                give_up(&mut self.touch, editor);
+                self.last_hover = None;
+                self.touch = Touch { fingers: true, ..Touch::default() };
+                editor.nav_begin_about(local(m.center_pos), nav.style.pivot);
+            }
+            let d = m.translation_delta;
+            editor.pan(DVec2::new(d.x as f64, d.y as f64));
+            if (m.zoom_delta - 1.0).abs() > 1e-4 {
+                // Exact: the model follows the fingers (a step is 0.85 of the distance).
+                editor.zoom(local(m.center_pos), (m.zoom_delta as f64).ln() / (1.0f64 / 0.85).ln());
+            }
+            return;
+        }
+        if self.touch.fingers {
+            return; // one of them lifted: nothing more till they all are
+        }
+        use egui::PointerButton::Primary;
+        if !self.touch.orbit && editor.tool_kind() == skraft_tools::ToolKind::Select && response.drag_started_by(Primary) {
+            let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
+            give_up(&mut self.touch, editor);
+            self.last_hover = None;
+            self.touch.orbit = true;
+            editor.nav_begin_about(local(from), nav.style.pivot);
+        }
+        if self.touch.orbit && response.dragged_by(Primary) {
+            let sign = |invert: bool| if invert { -1.0 } else { 1.0 };
+            let d = response.drag_delta();
+            let rate = DVec2::new(sign(nav.mouse_invert_x), sign(nav.mouse_invert_y)) * nav.orbit_rate();
+            editor.orbit(DVec2::new(d.x as f64, d.y as f64) * rate);
         }
     }
 

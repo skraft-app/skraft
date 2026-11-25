@@ -62,3 +62,4 @@ state and link the records behind it.
 | 0053 | [The desktop app detects new versions but does not install them](0053-update-check-without-self-install.md) | accepted (2026-11-23; built) |
 | 0054 | [Changing a component's axes: one operation, dimensions read on the axes](0054-changing-a-components-axes.md) | accepted (2026-11-23; « Retourner » dropped as designed, 2026-11-24) |
 | 0055 | [Linked bodies: a part imprints its final solid in the parts it enters](0055-linked-bodies-through-imprints.md) | accepted (2026-11-23; steps 1 to 4 built) |
+| 0056 | [Touch screens: a phone looks at a model, a tablet models](0056-touch-screens-phone-views-tablet-models.md) | accepted (2026-11-25; step 1 built) |
