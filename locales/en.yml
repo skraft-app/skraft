@@ -52,6 +52,7 @@ key:
 
 window:
   untitled: "Untitled"
+  zoom: "%{percent}%"
 
 menu:
   app:
@@ -550,6 +551,7 @@ prefs:
     light: "Light"
     dark: "Dark"
     palette: "Palette"
+    zoom: "Interface zoom"
     palettes:
       navy: "Navy"
       warm: "Warm"

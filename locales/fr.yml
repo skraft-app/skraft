@@ -63,6 +63,8 @@ key:
 window:
   # The title of a document never saved.
   untitled: "Sans titre"
+  # The interface's zoom, shown a moment when ⌘+ or ⌘− changes it (%{percent}: 125).
+  zoom: "%{percent} %"
 
 menu:
   # The macOS app menu, titled with the app's name (%{app}).
@@ -620,6 +622,8 @@ prefs:
     light: "Clair"
     dark: "Sombre"
     palette: "Palette"
+    # The interface's zoom, also changed by ⌘+ and ⌘−.
+    zoom: "Zoom de l'interface"
     palettes:
       navy: "Marine"
       warm: "Chaud"
