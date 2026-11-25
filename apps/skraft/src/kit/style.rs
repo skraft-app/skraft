@@ -51,13 +51,24 @@ pub fn window_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -
 /// A window's content width: `width`, or less in a narrow window (a phone's,
 /// docs/ui/touch.md) — the window's frame and a gap on either side kept within the screen.
 pub fn window_width(ctx: &egui::Context, width: f32) -> f32 {
-    let frame = egui::Frame::window(&ctx.global_style()).total_margin().sum().x;
-    width.min(ctx.content_rect().width() - frame - 2.0 * FLOAT_GAP).max(120.0)
+    fit_width(ctx, width, &egui::Frame::window(&ctx.global_style()))
 }
+
+/// The content width of something floating in `frame` (a window, a modal box, a toast): `width`,
+/// or less in a narrow window, the frame and a [`FLOAT_GAP`] on either side kept within the
+/// screen.
+pub fn fit_width(ctx: &egui::Context, width: f32, frame: &egui::Frame) -> f32 {
+    width.min(ctx.content_rect().width() - frame.total_margin().sum().x - 2.0 * FLOAT_GAP).max(120.0)
+}
+
+/// Below this (points), a screen is a phone's: on its width, the windows and boxes are held under
+/// the title bar ([`narrow_screen`], whatever the pointer); on its short side under a finger, the
+/// window takes the compact arrangement (`window::form`, docs/ui/touch.md).
+pub const PHONE_SIDE: f32 = 600.0;
 
 /// A screen too narrow for the windows' own sizes (a phone's, docs/ui/touch.md).
 pub fn narrow_screen(ctx: &egui::Context) -> bool {
-    ctx.content_rect().width() < 600.0
+    ctx.content_rect().width() < PHONE_SIDE
 }
 
 /// The bottom of the window's title bar, which tells it every frame: where windows and boxes go
@@ -72,13 +83,34 @@ fn under_the_bar(ctx: &egui::Context) -> egui::Pos2 {
     egui::pos2(ctx.content_rect().center().x, top + FLOAT_GAP)
 }
 
-/// `window` placed at `pos` (by its pivot) the first time; on a narrow screen, held just under the
-/// title bar and not to be moved — where it was left may be off the screen.
-pub fn window_at<'a>(window: egui::Window<'a>, ctx: &egui::Context, pos: egui::Pos2) -> egui::Window<'a> {
+/// One of the app's windows (About, the preferences, the updates, the journal), under `id` (its
+/// title changes with the language): its title bar's frame and close button, never collapsed nor
+/// resized (unless the caller says so), `width` wide or less on a narrow screen ([`window_width`]);
+/// the first time at `at` (by its pivot; none: where egui puts it) — on a narrow screen held just
+/// under the title bar, and not to be moved: where it was left may be off the screen. Its content
+/// goes in a [`window_body`] when it may be taller or wider than a phone.
+pub fn app_window<'a>(
+    ctx: &egui::Context,
+    title: impl Into<egui::WidgetText>,
+    id: egui::Id,
+    open: &'a mut bool,
+    width: f32,
+    at: Option<(egui::Align2, egui::Pos2)>,
+) -> egui::Window<'a> {
+    let window = egui::Window::new(title)
+        .id(id)
+        .title_frame(window_title_frame(ctx))
+        .open(open)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(window_width(ctx, width))
+        .max_width(window_width(ctx, f32::INFINITY));
     if narrow_screen(ctx) {
         window.movable(false).pivot(egui::Align2::CENTER_TOP).current_pos(under_the_bar(ctx))
+    } else if let Some((pivot, pos)) = at {
+        window.pivot(pivot).default_pos(pos)
     } else {
-        window.default_pos(pos)
+        window
     }
 }
 

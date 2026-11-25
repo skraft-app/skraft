@@ -410,6 +410,15 @@ journal:
     tools: "Outils"
     operations: "Opérations"
     jobs: "Calculs"
+  # The lists filtering the events: what kinds, caused by whom. {shown}: what_all, what_none or
+  # what_count.
+  what: "Quoi : %{shown}"
+  what_all: "tout"
+  what_none: "rien"
+  what_count: "%{shown}/%{total}"
+  what_tip: "Les sortes d'événements affichées"
+  who: "Qui : %{who}"
+  who_tip: "Les événements de qui : l'utilisateur, le pilotage distant ou les deux"
   # Who caused an entry: the person at the window, or a client of the control channel (an
   # agent, a script).
   origin:

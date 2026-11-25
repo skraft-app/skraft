@@ -360,6 +360,13 @@ journal:
     tools: "Tools"
     operations: "Operations"
     jobs: "Jobs"
+  what: "What: %{shown}"
+  what_all: "all"
+  what_none: "none"
+  what_count: "%{shown}/%{total}"
+  what_tip: "The kinds of events shown"
+  who: "Who: %{who}"
+  who_tip: "Whose events: the user's, the remote control's or both"
   origin:
     all: "All"
     user: "User"

@@ -189,7 +189,8 @@ In `apps/skraft/src/kit/widgets.rs`:
   navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when
   hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
   floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
-  is dimmed rather than disabled.
+  is dimmed rather than disabled. `natural` keeps an icon's own colours (the app's mark in the
+  compact title bar).
 - **`pin_row`**, a command's row and its pin, in the menus choosing what a bar shows (the
   ribbon's groups, the ▾ of the view bar and of the quick tools).
 - **The one text field**, framed, its outline telling its state, typed two ways:
@@ -220,6 +221,8 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`tick`**, the check box: egui's, the Preferences' look, with a third state (`Covered`,
   through a row above it: egui's indeterminate mark).
 - **`warning`**, the ⚠ before an error to correct.
+- **`keypad`**, the numeric keypad the measurements box opens under a finger
+  ([Touch screens](touch.md#the-keypad)).
 - **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
   one ([Links](../model/bodies.md#links)): in the navigator, left of a part's eye, in its ink;
   **`linked_badge`**, the same chain small on the corner of a linked body's sign.
@@ -229,7 +232,13 @@ Elsewhere:
 - **`style.rs`**: the cards' frames and margins (`card_frame`, `option_card`, `hover_card`,
   `CARD_MARGIN`), the gap around the floating cards (`FLOAT_GAP`), the bars' sizes
   (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
-  sections and grids, the hover texts (`Tip`).
+  sections and grids, the hover texts (`Tip`); the app's windows (`app_window`: their frame, their
+  width, where they open, held under the title bar on a phone; `window_body`, their content
+  scrolled when larger than the screen), a modal box's place (`modal_area`), the width of what
+  floats over a narrow screen (`window_width`, `fit_width`: the toasts, the modal boxes), a
+  phone's side (`PHONE_SIDE`).
+- **`kit::touch::TwoFingers`**: two fingers panning and pinching a stage, hidden from its tools
+  (the 3D view's, the sheet's; [Touch screens](touch.md)).
 - **`app::modal`**: a modal box (its frame, its buttons' padding, its title).
 - **The shared slots**: the « Navigateur » and « Infos sur l'entité » cards take their content
   from the workspace shown (`workspaces::common::cards`, `workspaces::drawing::cards`).

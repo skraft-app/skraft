@@ -139,6 +139,8 @@ const MAX: usize = 6;
 const WIDTH: f32 = 380.0;
 /// The room under the toasts, above the status bar, and between them (points).
 const GAP: f32 = 10.0;
+/// The room inside a toast's frame (points).
+const MARGIN: egui::Margin = egui::Margin { left: 12, right: 10, top: 8, bottom: 10 };
 /// The countdown bar's height (points).
 const BAR: f32 = 1.0;
 /// The corners of a toast and of its button (points).
@@ -213,7 +215,7 @@ impl Toasts {
         let now = ctx.input(|i| i.time);
         let center = ctx.content_rect().center().x;
         // Narrower in a narrow window (a phone's), its margins and a gap on either side.
-        let width = WIDTH.min(ctx.content_rect().width() - 2.0 * GAP - 22.0).max(120.0);
+        let width = crate::kit::style::fit_width(ctx, WIDTH, &egui::Frame::popup(&ctx.global_style()).inner_margin(MARGIN));
         let mut closed = Vec::new();
         egui::Area::new(egui::Id::unique("toasts"))
             .order(egui::Order::Foreground)
@@ -232,7 +234,7 @@ impl Toasts {
                         .fill(ground)
                         .stroke(egui::Stroke::new(1.0, border))
                         .corner_radius(RADIUS)
-                        .inner_margin(egui::Margin { left: 12, right: 10, top: 8, bottom: 10 });
+                        .inner_margin(MARGIN);
                     let r = frame.show(ui, |ui| {
                         ui.set_width(width);
                         // One row: the text, then its buttons at the right end, all centered on

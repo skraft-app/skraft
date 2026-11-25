@@ -116,7 +116,7 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
         ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
         None
     });
-    // Windows and boxes stand under it on a narrow screen (`style::window_at`).
+    // Windows and boxes stand under it on a narrow screen (`style::app_window`).
     crate::kit::style::set_bar_bottom(ui.ctx(), shown.response.rect.bottom());
     shown.inner
 }
@@ -204,10 +204,12 @@ fn compact_contents(
 ) -> Option<egui::Rect> {
     let find = |id: &str| views.iter().find(|v| v.id == id);
     mark(ui, find("view.home"), actions);
-    let ink = ui.visuals().text_color();
-    let icon = egui::Image::new(icons::MENU).fit_to_exact_size(egui::Vec2::splat(COMPACT_ICON)).tint(ink);
-    let button = egui::Button::image(icon).min_size(egui::Vec2::splat(COMPACT_BUTTON));
-    menu_button(ui, "titlebar:menu", button, None, |ui| {
+    // The menu: lit while open, as the desktop's menus' buttons.
+    let menu = egui::Id::unique("titlebar_compact_menu");
+    let open = egui::Popup::is_id_open(ui.ctx(), menu);
+    let r = IconButton::new(icons::MENU, COMPACT_BUTTON, COMPACT_ICON).look(Look::Veil).lit(open).show(ui);
+    crate::kit::handles::publish(|| "titlebar:menu".to_owned(), r.rect);
+    egui::Popup::menu(&r).id(menu).style(crate::kit::style::menu).show(|ui| {
         menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions);
         ui.separator();
         menu_items(ui, ["app.command_palette", "app.preferences"].into_iter().filter_map(find), actions);
@@ -249,13 +251,8 @@ fn mark(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action>
     const MARK: f32 = 20.0;
     const TILE: f32 = 824.0 / 1024.0;
     let home = home.filter(|v| v.enabled);
-    let sense = if home.is_some() { egui::Sense::click() } else { egui::Sense::hover() };
-    let (rect, r) = ui.allocate_exact_size(egui::Vec2::splat(COMPACT_BUTTON), sense);
-    if let Some(fill) = veil(ui, &r).filter(|_| home.is_some()) {
-        ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
-    }
-    egui::Image::new(icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
-    crate::kit::handles::publish(|| "titlebar:mark".to_owned(), rect);
+    let r = IconButton::new(icons::APP, COMPACT_BUTTON, MARK / TILE).look(Look::Veil).natural().enabled(home.is_some()).show(ui);
+    crate::kit::handles::publish(|| "titlebar:mark".to_owned(), r.rect);
     if let Some(v) = home
         && r.tip(v.tip()).clicked()
     {
