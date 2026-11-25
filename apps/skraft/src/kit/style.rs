@@ -43,16 +43,15 @@ pub const FLOAT_GAP: f32 = 8.0;
 /// docs/ui/touch.md), the window itself kept within the screen by [`window_width`].
 pub fn window_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let height = ui.ctx().content_rect().height() * 0.8;
-    let width = window_width(ui.ctx(), f32::INFINITY);
+    // Its scroll bar within the window's width: the body no wider than the title bar.
+    let width = window_width(ui.ctx(), f32::INFINITY) - ui.spacing().scroll.allocated_width();
     egui::ScrollArea::both().id_salt("window_body").max_width(width).max_height(height).show(ui, add).inner
 }
 
 /// A window's content width: `width`, or less in a narrow window (a phone's,
 /// docs/ui/touch.md) — the window's frame and a gap on either side kept within the screen.
 pub fn window_width(ctx: &egui::Context, width: f32) -> f32 {
-    let style = ctx.global_style();
-    // The frame's margins, and the room of the body's scroll bar ([`window_body`]).
-    let frame = egui::Frame::window(&style).total_margin().sum().x + style.spacing.scroll.allocated_width();
+    let frame = egui::Frame::window(&ctx.global_style()).total_margin().sum().x;
     width.min(ctx.content_rect().width() - frame - 2.0 * FLOAT_GAP).max(120.0)
 }
 

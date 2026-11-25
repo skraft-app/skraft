@@ -52,11 +52,12 @@ impl SkraftApp {
             // Up to the title bar's line: the window's margin and a spacing above the content.
             let m = ui.style().spacing.window_margin;
             let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
-            // The window as wide as its tabs at least (it takes its content's width), but no
-            // wider than the screen leaves (a phone's): the tabs then cut at the right end. Out of
-            // the body's scroll, their band reaches the title bar and the window's sides.
+            // The window as wide as its tabs (it takes its content's width) when the screen leaves
+            // room for them; else (a phone's) as wide as it is, the tabs scrolled. Out of the
+            // body's scroll, their band reaches the title bar and the window's sides.
             let tabs_width = crate::window::ribbon::tab_strip_width(ui.painter(), &labels);
-            let width = ui.available_width().max(tabs_width.min(crate::kit::style::window_width(ui.ctx(), f32::INFINITY)));
+            let fits = tabs_width <= crate::kit::style::window_width(ui.ctx(), f32::INFINITY);
+            let width = if fits { ui.available_width().max(tabs_width) } else { ui.available_width() };
             if let Some(k) =
                 crate::window::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::window::ribbon::Corners::Square, &[])
             {
