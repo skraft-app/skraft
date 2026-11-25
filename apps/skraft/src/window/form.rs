@@ -33,18 +33,41 @@ pub struct Probe {
     /// The primary pointer is a finger (CSS `pointer: coarse`): targets are made larger.
     pub coarse: bool,
     forced: Option<Form>,
+    /// A key was typed on a keyboard (a tablet's, plugged in): the shortcuts are shown again.
+    keyboard: bool,
 }
 
 impl Probe {
     /// Reads the platform once, at launch.
     pub fn read() -> Probe {
         let forced = forced();
-        Probe { coarse: coarse() || forced == Some(Form::Compact), forced }
+        Probe { coarse: coarse() || forced == Some(Form::Compact), forced, keyboard: false }
     }
 
     /// The form for a window of `size` (points).
     pub fn form(&self, size: egui::Vec2) -> Form {
         self.forced.unwrap_or(if self.coarse && size.min_elem() < COMPACT_SIDE { Form::Compact } else { Form::Desktop })
+    }
+
+    /// Whether the keyboard shortcuts are shown (menus, tool tips, the palette): not under a
+    /// finger, until a key is typed on a keyboard (docs/ui/touch.md#keyboard-shortcuts).
+    pub fn shows_shortcuts(&self) -> bool {
+        !self.coarse || self.keyboard
+    }
+
+    /// Reads this frame's events for a key typed on a keyboard. The system's on-screen
+    /// keyboard only types into a text field, which then wants the keys: not counted.
+    pub fn watch_keyboard(&mut self, ctx: &egui::Context) {
+        if !self.shows_shortcuts() {
+            // Asked before `input`, which holds the context's lock.
+            let typing = ctx.egui_wants_keyboard_input();
+            ctx.input(|i| self.read_keys(&i.events, typing));
+        }
+    }
+
+    /// A frame's `events`; `typing`: a text field takes them.
+    fn read_keys(&mut self, events: &[egui::Event], typing: bool) {
+        self.keyboard |= !typing && events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }));
     }
 
     /// Forced compact: the desktop window may be as small as a phone.
@@ -90,13 +113,28 @@ mod tests {
 
     #[test]
     fn a_touch_screen_is_compact_when_its_short_side_is_a_phones() {
-        let touch = Probe { coarse: true, forced: None };
+        let touch = Probe { coarse: true, forced: None, keyboard: false };
         assert_eq!(touch.form(egui::vec2(390.0, 844.0)), Form::Compact);
         assert_eq!(touch.form(egui::vec2(844.0, 390.0)), Form::Compact);
         assert_eq!(touch.form(egui::vec2(1024.0, 768.0)), Form::Desktop);
         // A small window under a mouse stays the desktop's.
-        let mouse = Probe { coarse: false, forced: None };
+        let mouse = Probe { coarse: false, forced: None, keyboard: false };
         assert_eq!(mouse.form(egui::vec2(640.0, 400.0)), Form::Desktop);
-        assert_eq!(Probe { coarse: false, forced: Some(Form::Compact) }.form(egui::vec2(1280.0, 800.0)), Form::Compact);
+        assert_eq!(Probe { coarse: false, forced: Some(Form::Compact), keyboard: false }.form(egui::vec2(1280.0, 800.0)), Form::Compact);
+    }
+
+    #[test]
+    fn a_touch_screen_shows_the_shortcuts_once_a_key_is_typed() {
+        assert!(Probe { coarse: false, forced: None, keyboard: false }.shows_shortcuts());
+        let mut touch = Probe { coarse: true, forced: None, keyboard: false };
+        touch.read_keys(&[egui::Event::Text("a".into())], false);
+        assert!(!touch.shows_shortcuts(), "text alone is not a keyboard's key");
+        let key = egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        touch.read_keys(std::slice::from_ref(&key), true);
+        assert!(!touch.shows_shortcuts(), "a key typed into a text field may be the on-screen keyboard's");
+        touch.read_keys(&[key], false);
+        assert!(touch.shows_shortcuts());
+        touch.read_keys(&[], false);
+        assert!(touch.shows_shortcuts(), "for the rest of the session");
     }
 }

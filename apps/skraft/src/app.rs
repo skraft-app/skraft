@@ -498,6 +498,9 @@ impl eframe::App for SkraftApp {
                 o.input_options.max_double_click_delay = crate::window::form::DOUBLE_TAP;
             });
         }
+        if matches!(self.driving.origin(), skraft_tools::journal::Origin::User) {
+            self.probe.watch_keyboard(&ctx);
+        }
         if ctx.input(|i| i.any_touches()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

@@ -191,8 +191,12 @@ In `apps/skraft/src/kit/widgets.rs`:
   floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
   is dimmed rather than disabled. `natural` keeps an icon's own colours (the app's mark in the
   compact title bar).
-- **`pin_row`**, a command's row and its pin, in the menus choosing what a bar shows (the
-  ribbon's groups, the ▾ of the view bar and of the quick tools).
+- **`pin_menu`**, the menus choosing what a bar shows (the ribbon's groups, the ▾ of the view
+  bar and of the quick tools; `pin_list` in a submenu): each command's row and its pin, all
+  rows one width so the pins line up; a row run closes the menu, a pin clicked leaves it open;
+  a checked row is lit, or a check box column shows the toggles' states (the view bar's); no
+  tip on a row (it would say its label again); the note under them wraps within the rows'
+  width, never widening the menu.
 - **The one text field**, framed, its outline telling its state, typed two ways:
   **`framed_field`** applies a value once typed (Enter or a click away; Esc puts it back: the
   entity info, the tool options), **`live_field`** keeps each keystroke for a modal box that

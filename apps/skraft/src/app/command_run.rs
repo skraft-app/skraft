@@ -181,7 +181,7 @@ impl SkraftApp {
     }
 
     /// Every command as the menus, the tool bar and the palette show it now: those available
-    /// in the workspace shown.
+    /// in the workspace shown, with their shortcuts unless they are hidden.
     pub(super) fn command_views(&self) -> Vec<CommandView> {
         let mac = self.mac();
         let w = self.workspace();
@@ -199,7 +199,8 @@ impl SkraftApp {
                 enabled: self.enabled(c.id),
                 checked: self.checked(c.id),
                 waiting: self.waiting(c.id),
-                shortcut: self.keymap.get(c.id).map(|s| s.display(mac)),
+                // Not under a finger: the one place that decides it (docs/ui/touch.md#keyboard-shortcuts).
+                shortcut: self.probe.shows_shortcuts().then(|| self.keymap.get(c.id)).flatten().map(|s| s.display(mac)),
             })
             .collect()
     }

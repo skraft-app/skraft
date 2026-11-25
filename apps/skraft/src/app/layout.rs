@@ -795,7 +795,14 @@ impl SkraftApp {
         actions: &mut Vec<Action>,
     ) -> (bool, f32) {
         let card = |style: &egui::Style| card_frame(style);
-        let ribbon_view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: None, narrow: false };
+        let ribbon_view = ribbon::View {
+            workspace: self.workspace(),
+            prefs: &self.prefs.ribbon,
+            views,
+            seen: None,
+            narrow: false,
+            shortcuts: self.probe.shows_shortcuts(),
+        };
         let frame_x = card(&ctx.global_style()).total_margin().sum().x;
         let natural = ribbon::natural_width(ctx, &ribbon_view);
         let (_, free, _) = self.columns(area, margin);
