@@ -98,8 +98,7 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
     // opens through it onto the view.
     let height = if bar.compact { COMPACT_HEIGHT } else { HEIGHT };
     let panel = egui::Panel::top("title_bar").exact_size(height).resizable(false).show_separator_line(false).frame(frame);
-    panel
-        .show(ui, |ui| {
+    let shown = panel.show(ui, |ui| {
             ui.set_style(style);
             if bar.integrated {
                 move_window(ui);
@@ -113,8 +112,10 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
             let ground = bar.ground.map(|(fill, ink)| tabs::Ground { bottom: rect.bottom(), fill, ink });
             ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
             None
-        })
-        .inner
+        });
+    // Windows and boxes stand under it on a narrow screen (`style::window_at`).
+    crate::kit::style::set_bar_bottom(ui.ctx(), shown.response.rect.bottom());
+    shown.inner
 }
 
 /// Gives the bar's free areas their window behaviour: a drag carries the window, a double-click

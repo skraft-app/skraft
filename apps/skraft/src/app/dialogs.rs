@@ -312,7 +312,7 @@ pub(crate) fn modal<R>(
     // Narrower in a narrow window (a phone's, docs/ui/touch.md): its margins and a gap on either
     // side.
     let width = width.min(ctx.content_rect().width() - 2.0 * (MODAL_MARGIN as f32 + 8.0)).max(120.0);
-    egui::Modal::new(id).frame(frame).show(ctx, |ui| {
+    egui::Modal::new(id).area(crate::kit::style::modal_area(ctx, id)).frame(frame).show(ctx, |ui| {
         ui.set_width(width);
         ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
         ui.heading(title);
