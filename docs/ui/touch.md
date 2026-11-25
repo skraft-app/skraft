@@ -22,6 +22,12 @@ fingers; a phone's screen gets the compact arrangement, a tablet's keeps the des
 - **Two fingers pan and pinch, with any tool**: the model follows the fingers — moved together,
   it slides by as much; spread or brought together, it grows or shrinks by their distance,
   about their middle. The gesture's pivot is set where it begins, as an orbit's.
+- **A long press** (a finger held still 0.5 s, `form::LONG_PRESS`, egui's click time under a
+  finger; iOS's) is the right click: a row's or a card's menu opens, and stays open once the
+  finger is lifted. With the select tool, a finger that then moves draws a selection rectangle
+  instead of turning the view (`Touch::marquee`: egui gives a long-pressed widget no drag, so the
+  view gives the tool its drag itself). A frame comes every 0.1 s while a finger is down, for the
+  press to become long though nothing moves.
 - **On a drawing's board, two fingers pan and pinch it** the same way; one finger is the sheet's
   tool's, as the mouse's left button, but with the select tool a finger dragged from nothing
   pans the board (from a view or a shape it still moves it: the board has no other way).

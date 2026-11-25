@@ -61,6 +61,9 @@ struct Touch {
     fingers: bool,
     /// The select tool's one-finger drag: an orbit, not a selection rectangle.
     orbit: bool,
+    /// The select tool's long press: a selection rectangle the finger draws, driven here (egui
+    /// gives a long-pressed widget no drag), till it is lifted.
+    marquee: Option<egui::Pos2>,
     /// The tool was given a drag by a finger, not yet ended: given up (Esc) if the touch
     /// turns into navigation.
     tool_drag: bool,
@@ -69,7 +72,7 @@ struct Touch {
 impl Touch {
     /// The pointer is the touch's navigation's, not the tool's.
     fn navigates(&self) -> bool {
-        self.fingers || self.orbit
+        self.fingers || self.orbit || self.marquee.is_some()
     }
 }
 
@@ -779,11 +782,42 @@ impl Viewport {
             }
             return;
         }
+        // A long press with the select tool: the finger draws a selection rectangle from where
+        // it came down, given to the tool as a drag, till it is lifted.
+        let mods = Modifiers { toggle: self.latched.shift, ..Modifiers::default() };
+        let (down, at) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos()));
+        if self.touch.marquee.is_none()
+            && response.long_touched()
+            && editor.tool_kind() == skraft_tools::ToolKind::Select
+            && let Some(from) = ui.input(|i| i.pointer.press_origin())
+        {
+            self.touch.marquee = Some(from);
+            editor.input(ToolInput::DragStart { px: local(from), mods });
+        }
+        if let Some(last) = self.touch.marquee {
+            let at = at.unwrap_or(last);
+            if down {
+                if at != last {
+                    editor.input(ToolInput::Drag { px: local(at) });
+                    self.touch.marquee = Some(at);
+                }
+            } else {
+                editor.input(ToolInput::DragEnd { px: local(at), mods });
+                self.touch.marquee = None;
+            }
+            return;
+        }
         if hidden || !ui.input(|i| i.any_touches()) {
             return;
         }
         use egui::PointerButton::Primary;
-        if !self.touch.orbit && editor.tool_kind() == skraft_tools::ToolKind::Select && response.drag_started_by(Primary) {
+        // A finger held still first (a long press): the drag is the tool's, a selection rectangle.
+        let (dist, duration) = ui.ctx().options(|o| (o.input_options.max_click_dist, o.input_options.max_click_duration));
+        let held = ui.input(|i| {
+            let still = i.pointer.press_origin().zip(i.pointer.latest_pos()).is_some_and(|(a, b)| a.distance(b) <= dist);
+            still && i.pointer.press_start_time().is_some_and(|t| i.time - t >= duration)
+        });
+        if !held && !self.touch.orbit && editor.tool_kind() == skraft_tools::ToolKind::Select && response.drag_started_by(Primary) {
             let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
             give_up(&mut self.touch, editor);
             self.last_hover = None;

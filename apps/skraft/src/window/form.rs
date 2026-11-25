@@ -17,6 +17,10 @@ pub enum Form {
 /// text, together — the text near a phone's usual 16 pt.
 pub const TOUCH_ZOOM: f32 = 1.2;
 
+/// Under a finger, a press held this long (s) is a long press — the right click, or with the select
+/// tool the start of a selection rectangle — and no more a click (egui's 0.8 s; iOS's 0.5).
+pub const LONG_PRESS: f64 = 0.5;
+
 /// A touch screen whose short side is below this (points) is a phone's: compact either way up.
 /// A tablet's is wider (an iPad mini's 744).
 pub const COMPACT_SIDE: f32 = 600.0;

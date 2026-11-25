@@ -438,6 +438,14 @@ impl eframe::App for SkraftApp {
         if ctx.zoom_factor() != self.probe.zoom() {
             ctx.set_zoom_factor(self.probe.zoom());
         }
+        // A press held still is a long press after LONG_PRESS: under a finger, egui is told, and
+        // a frame comes while a finger is down though nothing moves, to see it.
+        if self.probe.coarse {
+            ctx.options_mut(|o| o.input_options.max_click_duration = crate::window::form::LONG_PRESS);
+        }
+        if ctx.input(|i| i.any_touches()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         self.form = self.probe.form(ctx.content_rect().size());
         // This frame's input: the user's, or a client's real events (`ui.*`).
         let origin = self.driving.origin();
