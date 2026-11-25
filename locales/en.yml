@@ -325,6 +325,9 @@ start:
   import: "Import a STEP or SKP File"
   recent: "Recent Files"
   no_recent: "No recent files"
+  today: "Today"
+  yesterday: "Yesterday"
+  missing: "File not found"
 
 palette:
   title: "$t(common.command_palette)"

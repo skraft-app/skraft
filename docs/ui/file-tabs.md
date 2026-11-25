@@ -113,7 +113,12 @@ or `view.home` (« Page d'accueil »), the tabs staying open. The app's mark, it
 is (« Modeleur 3D sur de vrais solides »), then New, Open and Import as `LabelButton`s, New the
 main one (filled with the selection's colours, as a modal box's ok); on one line, stacked full
 width (320 at most) when the line does not fit (a narrow window, a phone). Under them the
-recent files (desktop). Behind, a drafting grid in the accent's colour, a line every 24 points
+recent files (desktop) as cards, four on a line (two when narrower than 150 each): the picture
+of each one's model its file carries ([File format](../io/file-format.md)) on the view's
+ground, or the app's mark, faint, for a file without one; its name, and when it last changed
+(« Aujourd'hui », « Hier », else its date; « Fichier introuvable »). Hovered, outlined in the
+accent; a click opens it, its path in the tip. The pictures are read from the files alone and
+decoded off the interface's thread (`start::Pictures`), read again when a file changes. Behind, a drafting grid in the accent's colour, a line every 24 points
 and a stronger one every fifth, fading out from a little above the middle towards the edges.
 Every colour is the theme's (palette and mode); the update badge stays in the title bar,
 which the page keeps (`apps/skraft/src/window/start.rs`). No tab is selected; the ribbon, the dock, the option bar and the
