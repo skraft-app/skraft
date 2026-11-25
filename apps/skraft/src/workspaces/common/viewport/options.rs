@@ -63,11 +63,15 @@ fn shows_body_sign(editor: &Editor) -> bool {
 
 /// A group's name before its buttons, after a separator but for the first of its card: grey, a
 /// caption — its buttons are what the eye looks for.
+/// Centred on the buttons' height whatever the row did before (docs/ui/interface.md#widgets).
 fn option_group(ui: &mut egui::Ui, first: &mut bool, label: &str, tip: &str) {
     if !std::mem::take(first) {
         ui.separator();
     }
-    ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).tip(tip);
+    let text = egui::RichText::new(label).color(ui.visuals().weak_text_color());
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let width = ui.painter().layout_no_wrap(label.to_owned(), font, egui::Color32::PLACEHOLDER).size().x;
+    ui.add_sized(egui::vec2(width, OPTION_HEIGHT), egui::Label::new(text)).tip(tip);
 }
 
 /// The context card (docs/ui/interface.md#context-card), left of the tool's: what a pick takes
