@@ -190,8 +190,13 @@ pub fn ui(
         draw_other_sheets(&painter, view, &board, aids, None, e, e.document().drawing(), title, ready, lines, &mut st.views, &mut others);
         carry_composition(ui, e, st, paper_room, &board, view, None);
         if board.columns.is_empty() {
-            let at = fit.unwrap_or(rect).center();
-            ui.painter().text(at, egui::Align2::CENTER_CENTER, t!("drawing.no_sheet_hint"), egui::FontId::proportional(14.0), ink);
+            // Wrapped in a narrow stage (a phone's), centred line by line.
+            let room = fit.unwrap_or(rect);
+            let mut job =
+                egui::text::LayoutJob::simple(t!("drawing.no_sheet_hint"), egui::FontId::proportional(14.0), ink, room.width() - 32.0);
+            job.halign = egui::Align::Center;
+            let galley = ui.painter().layout_job(job);
+            ui.painter().galley(room.center() - egui::vec2(0.0, galley.size().y / 2.0), galley, ink);
         }
         if double {
             st.refit();
