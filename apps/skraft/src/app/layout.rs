@@ -733,11 +733,17 @@ impl SkraftApp {
     fn stage_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, i: usize, area: egui::Rect, view: egui::Rect, margin: f32) {
         let theme = self.theme;
         let stage = self.workspace().stage;
-        // A sheet is framed in what the ribbon (as last drawn) and the side columns leave.
-        let sheet_room = self.ribbon_last_bottom.map(|b| {
-            let (_, free, _) = self.columns(view, margin);
-            egui::Rect::from_x_y_ranges(free, (b + margin).clamp(area.top(), area.bottom())..=area.bottom())
-        });
+        // A sheet is framed in what the ribbon (as last drawn) and the side columns leave; in the
+        // compact arrangement, which has neither over the stage, in the whole of it (else the
+        // framing, waiting to know its room, would come back at every frame and undo any pan).
+        let sheet_room = if self.form == crate::window::form::Form::Compact {
+            Some(area)
+        } else {
+            self.ribbon_last_bottom.map(|b| {
+                let (_, free, _) = self.columns(view, margin);
+                egui::Rect::from_x_y_ranges(free, (b + margin).clamp(area.top(), area.bottom())..=area.bottom())
+            })
+        };
         let (viewport, docs, prefs) = (&mut self.viewport, &mut self.docs, &self.prefs);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             // Beside the view, the stage's ground is the view's (the table's card over it).
