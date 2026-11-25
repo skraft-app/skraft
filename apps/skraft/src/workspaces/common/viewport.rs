@@ -73,6 +73,11 @@ impl Touch {
     }
 }
 
+/// The magnifier's side (points), how much it magnifies, its gap to the finger.
+const LOUPE_SIDE: f32 = 120.0;
+const LOUPE_ZOOM: f32 = 2.0;
+const LOUPE_GAP: f32 = 40.0;
+
 #[derive(Default)]
 pub struct Viewport {
     renderer: Option<render::Renderer>,
@@ -418,9 +423,71 @@ impl Viewport {
         // Last: the lengths stay above everything (markers, tooltip, marquee), placed clear of
         // the cursor, the markers, the tooltip and the crosses.
         paint_labels(ui.painter(), rect, editor, typed, clear);
+        // Under a finger, what it hides, magnified above it.
+        if let Some(finger) = response.hover_pos().filter(|_| self.loupe_shown(ui, editor)) {
+            self.paint_loupe(ui, rect, finger, footprint, editor, theme);
+        }
         if stats {
             self.paint_stats(ui, rect, editor);
         }
+    }
+
+    /// The magnifier is shown: a finger is down for the tool (not navigating), with any tool but
+    /// select (docs/ui/touch.md#the-magnifier).
+    fn loupe_shown(&self, ui: &egui::Ui, editor: &Editor) -> bool {
+        ui.input(|i| i.any_touches() && i.pointer.primary_down())
+            && !self.touch.navigates()
+            && editor.tool_kind() != skraft_tools::ToolKind::Select
+            && self.texture.is_some()
+    }
+
+    /// The magnifier (docs/ui/touch.md#the-magnifier): what is under the finger at `finger`,
+    /// magnified, in a card above it (beside it near the view's top) — the view's picture, and
+    /// the points, marks and inference drawn over it, through a scaled layer.
+    fn paint_loupe(&self, ui: &egui::Ui, rect: egui::Rect, finger: egui::Pos2, footprint: egui::Rect, editor: &Editor, theme: &Theme) {
+        let Some((texture, _)) = self.texture else { return };
+        let side = LOUPE_SIDE;
+        let seen = egui::Rect::from_center_size(finger, egui::Vec2::splat(side / LOUPE_ZOOM));
+        // Above the finger, clear of it; beside it, on the roomier side, when the view's top is
+        // too near.
+        let above = finger - egui::vec2(0.0, LOUPE_GAP + side / 2.0);
+        let center = if above.y - side / 2.0 >= rect.top() {
+            above
+        } else {
+            let dx = LOUPE_GAP + side / 2.0;
+            let x = if finger.x - rect.left() > rect.right() - finger.x { finger.x - dx } else { finger.x + dx };
+            egui::pos2(x, finger.y.max(rect.top() + side / 2.0))
+        };
+        // Within the view, near its edges too.
+        let room = rect.shrink(4.0);
+        let center = egui::pos2(
+            center.x.clamp(room.left() + side / 2.0, (room.right() - side / 2.0).max(room.left() + side / 2.0)),
+            center.y.clamp(room.top() + side / 2.0, (room.bottom() - side / 2.0).max(room.top() + side / 2.0)),
+        );
+        let card = egui::Rect::from_center_size(center, egui::Vec2::splat(side));
+        let ctx = ui.ctx();
+        let frame_layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("loupe"));
+        let marks_layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("loupe_marks"));
+        let painter = ctx.layer_painter(frame_layer);
+        let radius = 10.0;
+        painter.add(
+            egui::epaint::Shadow { offset: [0, 3], blur: 12, spread: 0, color: egui::Color32::from_black_alpha(60) }.as_shape(card, radius),
+        );
+        // The view's picture under the finger, its part `seen`.
+        let uv = egui::Rect::from_min_max(((seen.min - rect.min) / rect.size()).to_pos2(), ((seen.max - rect.min) / rect.size()).to_pos2());
+        let mut image = egui::epaint::RectShape::filled(card, radius, egui::Color32::WHITE);
+        image.brush = Some(std::sync::Arc::new(egui::epaint::Brush { fill_texture_id: texture, uv }));
+        painter.add(image);
+        // The overlays, drawn as over the view but magnified onto the card.
+        let scale = egui::emath::TSTransform::new(card.center().to_vec2() - finger.to_vec2() * LOUPE_ZOOM, LOUPE_ZOOM);
+        ctx.set_transform_layer(marks_layer, scale);
+        ctx.move_to_top(frame_layer);
+        ctx.move_to_top(marks_layer);
+        let marks = ctx.layer_painter(marks_layer).with_clip_rect(seen.shrink(1.0 / LOUPE_ZOOM));
+        paint_overlay_points(&marks, rect, editor, theme);
+        paint_marks(&marks, rect, editor, theme);
+        paint_inference(&marks, rect, finger, footprint, editor, theme);
+        painter.rect_stroke(card, radius, egui::Stroke::new(1.5, ui.visuals().window_stroke.color), egui::StrokeKind::Outside);
     }
 
     /// The render statistics, in the top right corner of what the floating cards leave free.

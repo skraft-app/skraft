@@ -45,6 +45,18 @@ fingers; a phone's screen gets the compact arrangement, a tablet's keeps the des
   showed what was under it (a height preview, a lit part), hidden when the gesture begins.
 - The gestures are fixed, not part of the navigation style.
 
+## The magnifier
+
+A finger hides what it points at. While a finger is down for the tool — any tool but select, the
+touch not navigating —, a card above it (beside it, on the roomier side, near the view's top;
+always within the view) shows what is under it magnified twice: the view's picture, and the
+points, marks and inference drawn over it, the inference's tooltip with them. It goes when the
+finger is lifted.
+
+It is drawn from the view's own picture (its texture, the part under the finger) and the
+overlays drawn again in a layer scaled about the finger (`Viewport::paint_loupe`), so it costs no
+second render.
+
 ## The compact arrangement
 
 **When**: the primary pointer is a finger (CSS `pointer: coarse`) and the window's short side is
