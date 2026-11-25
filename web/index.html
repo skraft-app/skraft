@@ -70,7 +70,8 @@
     #loader i { display: block; width: 100%; height: 100%; background: #ee7a12;
                 transform: scaleX(0); transform-origin: left; transition: transform .15s linear; }
     #loader.failed i { background: #c8352b; transform: scaleX(1); }
-    /* The build's stamp (scripts/build-web.sh): which page is served. */
+    /* The version, and the build's stamp but on a release (scripts/build-web.sh): which page is
+       served. */
     #loader small { margin-top: -16px; font: 11px ui-monospace, monospace;
                     color: color-mix(in srgb, var(--skraft-ink, #111) 35%, var(--skraft-bottom, #fbfaf6)); }
     /* The browser's own words for what failed, under the bar: not the app's text (its catalogs
