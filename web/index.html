@@ -2,7 +2,12 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Added to a phone's home screen: the app's own window, the status bar's text light over the
+       title bar's dark band (docs/ui/touch.md#safe-areas). -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="robots" content="noindex">
   <title>Skraft</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -15,6 +20,13 @@
     html, body { overscroll-behavior: none; -webkit-user-select: none; user-select: none;
                  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
     canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+    /* The app within the screen's safe areas (a phone's notch, status bar, home indicator): the
+       page around it in the title bar's colour above, the panels' elsewhere, which the app sets
+       from its theme (docs/ui/touch.md#safe-areas). */
+    body { box-sizing: border-box;
+           padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+           background: linear-gradient(to bottom, var(--skraft-top, #3a342e) env(safe-area-inset-top),
+                                       var(--skraft-bottom, #eceef0) env(safe-area-inset-top)); }
     #loader { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 24px;
               align-items: center; justify-content: center; background: #fbfaf6; }
     /* The negative margin takes back the empty border of the logo's image. */

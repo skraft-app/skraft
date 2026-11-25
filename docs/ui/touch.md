@@ -138,15 +138,26 @@ under the other. A strip of tabs wider than its room (the preferences') scrolls 
 finger, a wheel or a trackpad, faded at the ends that hide some, the band staying as it is
 (`ribbon::tab_strip`, every strip of tabs).
 
-The page keeps the browser's safe areas (no `viewport-fit=cover`): Safari keeps it clear of the
-notch and the home indicator, which the app would otherwise have to read from CSS and leave
-free itself.
 
 What scrolls under a finger here does so from the first touch on (`ScrollSource::ALL`): egui's
 default waits to have seen a touch screen, and the first drag went nowhere.
 
 *Why*: a phone is for looking at a model, but the user wants every tool within reach; the view
 stays the largest thing on the screen, and a card is read over it rather than instead of it.
+
+## Safe areas
+
+Added to a phone's home screen, the page is the app's own window, edge to edge: under the status
+bar (where iOS blurs what is drawn) and the home indicator's swipe. `web/index.html` asks for the
+whole screen (`viewport-fit=cover`), then keeps the app's canvas within the safe areas
+(`env(safe-area-inset-*)` as the body's padding): the page shows around it, in the title bar's
+colour above — the status bar's text light over it (`black-translucent`) — and the panels'
+below and beside it. The app gives those two colours to the page from its theme
+(`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`), as it changes.
+In Safari the browser's own bars keep the page clear of these areas: the insets are then nought.
+
+*Why*: Safari left them to its bars; in its own window the app had its title bar blurred under
+the status bar and its bottom tabs where a swipe goes home.
 
 ## How it is built
 

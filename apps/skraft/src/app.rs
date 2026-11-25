@@ -38,6 +38,9 @@ pub struct SkraftApp {
     compact: compact::Compact,
     /// The measurements box's keypad is open (docs/ui/touch.md#the-keypad).
     keypad: bool,
+    /// The page's colours around the app, as last given (web, docs/ui/touch.md#safe-areas).
+    #[cfg(target_arch = "wasm32")]
+    page_colors: Option<(egui::Color32, egui::Color32)>,
     /// The GPU the window draws with: a saved file's picture of its model is drawn with it
     /// (docs/io/file-format.md).
     render_state: Option<egui_wgpu::RenderState>,
@@ -320,6 +323,8 @@ impl SkraftApp {
             form: Default::default(),
             compact: Default::default(),
             keypad: false,
+            #[cfg(target_arch = "wasm32")]
+            page_colors: None,
             render_state: cc.wgpu_render_state.clone(),
             start: Default::default(),
             docs,
@@ -411,6 +416,15 @@ impl SkraftApp {
         }
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
         self.theme = Theme::of(self.prefs.palette, mode);
+        // The page around the app takes the title bar's colour above, the panels' below.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let colors = (viewport::color(self.theme.ui.title_bar.ground), ctx.global_style().visuals.panel_fill);
+            if self.page_colors != Some(colors) {
+                crate::system::web::set_page_colors(colors.0, colors.1);
+                self.page_colors = Some(colors);
+            }
+        }
     }
 
     /// The interface's zoom and its preference kept together (docs/ui/interface.md#interface-zoom):
