@@ -182,6 +182,12 @@ impl Tool for SelectTool {
         true
     }
 
+    fn leave(&mut self) {
+        self.hover = None;
+        self.hover_part = None;
+        self.hover_guide = None;
+    }
+
     fn reset(&mut self) {
         self.hover = None;
         self.hover_part = None;
