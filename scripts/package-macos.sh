@@ -2,7 +2,8 @@
 # Packages a release build for macOS into dist/release/Skraft-<version>-macos-<arch>.dmg:
 # Skraft.app (ad-hoc signed, not notarized; LICENSE.txt and THIRD-PARTY-LICENSES.txt in its
 # Resources, the latter from cargo-about: scripts/third-party-licenses.sh) and a link to
-# /Applications to drop it on.
+# /Applications to drop it on, laid out on a background by dmgbuild (packaging/macos/
+# dmg-settings.py), installed in a throwaway Python environment.
 #   scripts/package-macos.sh aarch64-apple-darwin   (after cargo build --release --target …)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,7 +14,7 @@ exe="target/$target/release/skraft"
 [ -f "$exe" ] || { echo "no $exe: build it first" >&2; exit 1; }
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
-app="$work/dmg/Skraft.app"
+app="$work/Skraft.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$exe" "$app/Contents/MacOS/skraft"
 sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
@@ -29,10 +30,13 @@ done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/Skraft.icns"
 
 codesign --force --deep --sign - "$app"
-ln -s /Applications "$work/dmg/Applications"
 
+python3 -m venv "$work/venv"
+"$work/venv/bin/pip" install --quiet --disable-pip-version-check dmgbuild==2.0.0
 mkdir -p dist/release
 out="dist/release/Skraft-$version-macos-$arch.dmg"
 rm -f "$out"
-hdiutil create -volname "Skraft $version" -srcfolder "$work/dmg" -fs HFS+ -format UDZO -ov "$out" > /dev/null
+"$work/venv/bin/dmgbuild" -s packaging/macos/dmg-settings.py \
+  -D app="$app" -D icon="$app/Contents/Resources/Skraft.icns" -D background=packaging/macos/dmg-background.png \
+  "Skraft $version" "$out" > /dev/null
 echo "$out"
