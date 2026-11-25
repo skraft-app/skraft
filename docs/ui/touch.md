@@ -147,7 +147,9 @@ stays the largest thing on the screen, and a card is read over it rather than in
 
 ## Safe areas
 
-Added to a phone's home screen, the page is the app's own window, down to the home indicator's
+Added to a phone's home screen, the app's icon is `web/apple-touch-icon.png` (iOS takes no SVG
+there): the full-bleed mark, `apps/skraft/assets/app-icon-full.png`, at 180 px, the system rounding
+its corners. The page is the app's own window, down to the home indicator's
 swipe, under the status bar: opaque, painted by iOS in the system's light or dark — no page sets
 its colour there (iOS 26 takes neither `theme-color`, nor the page's ground, nor a status bar
 style). `web/index.html` sets no status bar style: iOS 26 lays a frosted band over a page drawn
