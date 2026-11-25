@@ -268,6 +268,12 @@ pub fn methods() -> Vec<Method> {
         ),
         m("ui.move", "The real pointer moved to a point, a handle or a world point.", false, schema::<UiPointerParams>),
         m("ui.drag", "A real drag: pressed, moved in steps, let go.", false, schema::<UiDragParams>),
+        m(
+            "ui.touch",
+            "Real fingers on a touch screen: each down at `from`, moved to `to` in steps, lifted (two: pan and pinch).",
+            false,
+            schema::<UiTouchParams>,
+        ),
         m("ui.key", "A real key pressed and let go (egui's names), with modifiers.", false, schema::<UiKeyParams>),
         m("ui.text", "Real text typed, in the field with the focus.", false, schema::<UiTextParams>),
         m("ui.scroll", "The real wheel at a place (zooms the view).", false, schema::<UiScrollParams>),

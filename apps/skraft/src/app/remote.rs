@@ -72,7 +72,7 @@ impl SkraftApp {
     /// Takes one request: answered now, or once a later frame has what it waits for.
     fn serve(&mut self, asker: crate::system::driving::Asker, ctx: &egui::Context, frame: &eframe::Frame) {
         use skraft_control::Error;
-        use skraft_control::params::{UiDragParams, UiKeyParams, UiPointerParams, UiScrollParams, UiTextParams, WaitParams};
+        use skraft_control::params::{UiDragParams, UiKeyParams, UiPointerParams, UiScrollParams, UiTextParams, UiTouchParams, WaitParams};
         let call = &asker.call;
         let frames = match call.method.as_str() {
             "app.wait" => match call.params::<WaitParams>() {
@@ -110,6 +110,20 @@ impl SkraftApp {
                     p.button,
                     crate::system::driving::modifiers(&p.mods),
                 ))
+            }),
+            "ui.touch" => call.params::<UiTouchParams>().and_then(|p| {
+                if p.fingers.is_empty() {
+                    return Err(Error::BadParams("no finger".into()));
+                }
+                let fingers = p
+                    .fingers
+                    .iter()
+                    .map(|f| {
+                        let from = self.ui_where(&f.from)?;
+                        Ok((from, f.to.as_ref().map(|t| self.ui_where(t)).transpose()?.unwrap_or(from)))
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+                Ok(crate::system::driving::touch(&fingers, p.steps.unwrap_or(8).min(1000)))
             }),
             "ui.key" => call.params::<UiKeyParams>().and_then(|p| {
                 let key = egui::Key::from_name(&p.key)

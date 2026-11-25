@@ -472,6 +472,25 @@ pub struct UiDragParams {
     pub mods: UiMods,
 }
 
+/// `ui.touch`: fingers on the screen, as a touch screen gives them (docs/ui/touch.md).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UiTouchParams {
+    /// One path per finger, in the order they come down (a frame apart); the first one also
+    /// moves the pointer, as the platforms emulate it.
+    pub fingers: Vec<UiFinger>,
+    /// The moves in between (default 8; 0: a tap).
+    pub steps: Option<usize>,
+}
+
+/// One finger of `ui.touch`: down at `from`, moved to `to` (default: stays), lifted.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UiFinger {
+    pub from: UiWhere,
+    pub to: Option<UiWhere>,
+}
+
 /// `ui.key`.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
