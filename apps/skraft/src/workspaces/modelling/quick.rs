@@ -2,13 +2,13 @@
 //! buttons at the centre of what was made, each starting a tool on it; the user pins the
 //! commands it shows, as the ribbon's.
 
-use egui::{Popup, Rect, Sense, StrokeKind, vec2};
+use egui::{Rect, Sense, StrokeKind, vec2};
 use skraft_i18n::t;
 
 use crate::commands::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::kit::widgets::{IconButton, Look, PinEvent, PinItem, PinMenu, PinTexts, pin_menu};
+use crate::kit::widgets::{IconButton, Look, PinEvent, PinItem, PinMenu, PinTexts, pin_menu, unpin_menu};
 
 /// The commands the card can show, in its order.
 pub const COMMANDS: &[&str] =
@@ -84,13 +84,15 @@ fn button(ui: &mut egui::Ui, c: &CommandView, actions: &mut Vec<Action>) -> Opti
     if response.clicked() && c.enabled {
         actions.push(Action::QuickTool(c.id));
     }
-    Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
-        if ui.button(t!("quick_tools.unpin")).clicked() {
-            actions.push(Action::QuickPin(c.id));
-        }
-    });
+    if unpin_menu(&response, &PIN_TEXTS, None) {
+        actions.push(Action::QuickPin(c.id));
+    }
     Some(crate::workspaces::common::viewport::pins::Item { id: c.id, rect, response, icon })
 }
+
+/// The pin's texts, in the ▾ menu and a button's right click.
+const PIN_TEXTS: PinTexts =
+    PinTexts { tip: |on| if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") }, note: || t!("quick_tools.menu_note") };
 
 /// The ▾ button: every command the card can show, each with its pin.
 fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actions: &mut Vec<Action>) {
@@ -102,15 +104,7 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
     }
     crate::window::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
     let response = response.tip(t!("quick_tools.choose"));
-    let menu = PinMenu {
-        id: egui::Id::unique("quick_tools_menu"),
-        align: None,
-        checks: false,
-        texts: PinTexts {
-            tip: |on| if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") },
-            note: || t!("quick_tools.menu_note"),
-        },
-    };
+    let menu = PinMenu { id: egui::Id::unique("quick_tools_menu"), align: None, checks: false, texts: PIN_TEXTS };
     let items = || {
         COMMANDS.iter().filter_map(|id| views.iter().find(|v| v.id == *id)).map(|c| PinItem::command(c, pinned.contains(&c.id))).collect()
     };

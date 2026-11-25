@@ -197,6 +197,8 @@ In `apps/skraft/src/kit/widgets.rs`:
   a checked row is lit, or a check box column shows the toggles' states (the view bar's); no
   tip on a row (it would say its label again); the note under them wraps within the rows'
   width, never widening the menu.
+- **`unpin_menu`**, the right click on a button these menus pinned: « Retirer de… » (the pin's
+  tip), then the bar's own items if it has some (the ribbon's), after a separator.
 - **The one text field**, framed, its outline telling its state, typed two ways:
   **`framed_field`** applies a value once typed (Enter or a click away; Esc puts it back: the
   entity info, the tool options), **`live_field`** keeps each keystroke for a modal box that

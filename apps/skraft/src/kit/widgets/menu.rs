@@ -114,6 +114,22 @@ pub(crate) fn pin_list(ui: &mut egui::Ui, items: &[PinItem], checks: bool, texts
     event
 }
 
+/// Right click on a pinned button: its menu, « Retirer de… » (the pin's tip when pinned), then
+/// `more`, the bar's own items, after a separator. True when it was chosen.
+pub(crate) fn unpin_menu(response: &egui::Response, texts: &PinTexts, more: Option<&mut dyn FnMut(&mut egui::Ui)>) -> bool {
+    let mut unpin = false;
+    egui::Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
+        // Its label in the check boxes' column the bar's items may have.
+        let column = more.is_some();
+        unpin = ui.add(crate::kit::style::menu_item((texts.tip)(true), None, column)).clicked();
+        if let Some(more) = more {
+            ui.separator();
+            more(ui);
+        }
+    });
+    unpin
+}
+
 /// The least width of a pin row's button, the same in every pin menu: the pins line up in a
 /// column the longest label still fits before.
 const PIN_ROW_WIDTH: f32 = 240.0;
