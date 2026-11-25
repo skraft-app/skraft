@@ -2,8 +2,9 @@
 # Packages a release build for Windows into dist/release/: Skraft-<version>-windows-<arch>.msi
 # (WiX 5, packaging/windows/skraft.wxs) and the bare executable zipped (no install), each with
 # LICENSE.txt and THIRD-PARTY-LICENSES.txt.
-# Runs in Git Bash on Windows, the WiX tool installed (dotnet tool install --global wix --version 5.0.2)
-# and cargo-about (scripts/third-party-licenses.sh).
+# Runs in Git Bash on Windows, the WiX tool and its UI extension installed (dotnet tool install
+# --global wix --version 5.0.2; wix extension add --global WixToolset.UI.wixext/5.0.2) and
+# cargo-about (scripts/third-party-licenses.sh).
 #   scripts/package-windows.sh x86_64-pc-windows-msvc   (after cargo build --release --target …)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,8 +24,9 @@ scripts/third-party-licenses.sh "$work/THIRD-PARTY-LICENSES.txt" > /dev/null
 
 mkdir -p dist/release
 name="Skraft-$version-windows-$arch"
-wix build packaging/windows/skraft.wxs -arch "$wix_arch" \
+wix build packaging/windows/skraft.wxs -arch "$wix_arch" -ext WixToolset.UI.wixext \
   -d Version="$version" -d ExeFile="$exe" -d IconFile=apps/skraft/assets/app-icon.ico \
+  -d DialogBmp=packaging/windows/dialog.bmp -d BannerBmp=packaging/windows/banner.bmp \
   -d LicenseFile="$(native "$work/LICENSE.txt")" -d NoticesFile="$(native "$work/THIRD-PARTY-LICENSES.txt")" \
   -o "dist/release/$name.msi"
 rm -f "dist/release/$name.msi.wixpdb" "dist/release/$name.wixpdb"

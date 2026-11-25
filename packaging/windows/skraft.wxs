@@ -3,16 +3,29 @@
   Start menu shortcut, an entry in Apps & features, the .skraft documents opened with it (a
   double click starts the app with the file as its argument, src/opened.rs), its license and
   the third-party notices beside it. A newer version replaces the installed one.
-  Variables: Version (x.y.z), ExeFile, IconFile, LicenseFile, NoticesFile.
+  Its wizard, in English: Welcome, Ready to install, the progress, Finish, on Skraft's pictures
+  (dialog.bmp 493 x 312, its left 164 px shown; banner.bmp 493 x 58). No license to accept:
+  the GPL asks none to install, and LICENSE.txt is installed beside the app. WixUI_InstallDir
+  with its Next and Back rerouted past the license and folder pages, as WiX documents; repair
+  and removal keep its pages.
+  Variables: Version (x.y.z), ExeFile, IconFile, LicenseFile, NoticesFile, DialogBmp, BannerBmp.
   The UpgradeCode identifies the product across versions: never change it.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="Skraft" Manufacturer="L'Air du Bois" Version="$(Version)" UpgradeCode="056EB52C-EBAB-4A03-BC5D-A5CD57A747C7" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Skraft is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="AppIcon" SourceFile="$(IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="99" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="99" Condition="NOT Installed" />
+    </UI>
+    <WixVariable Id="WixUIDialogBmp" Value="$(DialogBmp)" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />
 
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="ProgramFiles64Folder">
