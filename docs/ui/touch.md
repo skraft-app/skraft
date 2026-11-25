@@ -117,7 +117,9 @@ phone's usual 16 pt. egui's zoom is the interface zoom's preference times this
 - **The ribbon, in one strip** scrolled sideways with a finger, under the bar at the top, where
   it is on the desktop: the workspace's cell, the tabs (centred on what is seen of the strip),
   every group.
-- **The cards' tabs** at the bottom (Navigateur, Infos, Matières, Bibliothèque); held sideways, in the
+- **The cards' tabs** at the bottom, those of the cards the workspace shows
+  ([Workspaces](workspaces.md#panels): all four in modelling, none in the parts list, which then
+  has no tabs, three in drawing); held sideways, in the
   bar at the top, where they fit, so the view keeps its height. A tab raises its card from the
   bottom over half the stage; its header, dragged, sets its height (let go low, it goes down),
   tapped, takes it to the stage's whole height and back to half; its tab again lowers it. One card at a time; the paint tool raises « Matières ».

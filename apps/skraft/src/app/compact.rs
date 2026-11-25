@@ -58,10 +58,16 @@ impl SkraftApp {
                 .scroll_source(egui::scroll_area::ScrollSource::ALL)
                 .show(ui, |ui| card.show(ui, |ui| ribbon::ribbon(ui, &view, width, inset, actions)));
         });
-        let in_bar = bar_room.filter(|r| screen.width() > screen.height() && r.width() >= CARDS.len() as f32 * TAB_MIN_WIDTH);
+        // The cards the workspace shows (docs/ui/workspaces.md#panels): none, no tabs.
+        let cards = self.compact_cards();
+        if self.compact.card.is_some_and(|c| !cards.contains(&c)) {
+            self.compact.card = None;
+        }
+        let in_bar = bar_room.filter(|r| screen.width() > screen.height() && r.width() >= cards.len() as f32 * TAB_MIN_WIDTH);
         // The top of what is at the bottom, for the toasts above it.
         let mut bottom = screen.bottom();
         match in_bar {
+            _ if cards.is_empty() => {}
             Some(room) => {
                 egui::Area::new(egui::Id::unique("compact_cards_in_bar")).fixed_pos(room.min).order(egui::Order::Foreground).show(
                     &ctx,
@@ -70,14 +76,14 @@ impl SkraftApp {
                         crate::kit::style::title_bar(&ctx, &mut style);
                         ui.set_style(style);
                         ui.allocate_space(room.size());
-                        self.card_tabs(ui, room);
+                        self.card_tabs(ui, &cards, room);
                     },
                 );
             }
             None => {
                 let panel = egui::Panel::bottom("compact_cards").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
                     let row = ui.max_rect();
-                    self.card_tabs(ui, row)
+                    self.card_tabs(ui, &cards, row)
                 });
                 bottom = panel.response.rect.top();
             }
@@ -97,10 +103,16 @@ impl SkraftApp {
         bottom
     }
 
+    /// The cards of the workspace shown, in their tabs' order.
+    fn compact_cards(&self) -> Vec<PanelId> {
+        let shown = self.workspace().panels;
+        CARDS.into_iter().filter(|p| shown.is_none_or(|s| s.contains(p))).collect()
+    }
+
     /// The cards' tabs in `row`, as wide as each other: a tap raises its card, again lowers it.
-    fn card_tabs(&mut self, ui: &mut egui::Ui, row: egui::Rect) {
-        let width = row.width() / CARDS.len() as f32;
-        for (k, id) in CARDS.into_iter().enumerate() {
+    fn card_tabs(&mut self, ui: &mut egui::Ui, cards: &[PanelId], row: egui::Rect) {
+        let width = row.width() / cards.len() as f32;
+        for (k, &id) in cards.iter().enumerate() {
             let rect = egui::Rect::from_min_size(egui::pos2(row.left() + k as f32 * width, row.top()), egui::vec2(width, row.height()));
             let lit = self.compact.card == Some(id);
             let r = ui.interact(rect, egui::Id::unique(("compact_tab", id)), egui::Sense::click());
