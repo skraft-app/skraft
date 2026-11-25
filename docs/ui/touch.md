@@ -173,7 +173,10 @@ for the browsers that take it.
 canvas within the safe areas (`env(safe-area-inset-*)` with the strips' lines as the body's
 padding): the panels' colour shows beside it (a notch held sideways) and under it (the home
 indicator). The body is fixed: iOS counts the status bar in `100vh`, and a page that could scroll
-was left shifted up by it after a rotation. In Safari the browser's bars keep the page clear of
+was left shifted up by it after a rotation. A home-screen app is still left scrolled by that
+height after portrait → landscape → portrait, which nothing shows but which moves every touch
+as much off its target (eframe reads it against the canvas's rect): the page goes back to its
+top as soon as it scrolls. In Safari the browser's bars keep the page clear of
 these areas: the insets are then nought.
 
 *Why*: the system's bar and the swipe are the phone's; the app's own controls stay out of them.

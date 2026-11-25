@@ -93,6 +93,13 @@
     // A mouse wheel's events are re-dispatched in lines, as winit gives them natively, so the
     // viewport zooms; a trackpad's go through (web/wheel.js).
     const canvas = document.getElementById("skraft");
+    // A home-screen app on iOS is left scrolled by its status bar's height after a turn to
+    // landscape and back: the fixed body shows nothing of it, but the touches' coordinates and
+    // the canvas's rect then disagree by as much and every touch lands off. The page is put back
+    // at its top (docs/ui/touch.md#safe-areas).
+    const unscroll = () => { if (scrollX || scrollY) scrollTo(0, 0); };
+    addEventListener("scroll", unscroll);
+    addEventListener("resize", unscroll);
     const linesOf = wheelLines(navigator.vendor);
     window.addEventListener("wheel", (e) => {
       if (!e.isTrusted || e.target !== canvas) return;
