@@ -85,13 +85,12 @@ pub fn set_page_colors(top: egui::Color32, bottom: egui::Color32) {
     let style = root.style();
     let _ = style.set_property("--skraft-top", &hex(top));
     let _ = style.set_property("--skraft-bottom", &hex(bottom));
-    // Safari reads its bars' colours from the edges' strips only as they appear: out and back.
-    if let Some(body) = document.body() {
-        for id in ["edge-top", "edge-bottom"] {
-            if let Some(strip) = document.get_element_by_id(id) {
-                strip.remove();
-                let _ = body.append_child(&strip);
-            }
-        }
+    // Safari reads its bars' colours from the edges' strips only as they appear: the page's
+    // `skraftEdges` (web/index.html) puts them out and back.
+    if let Some(edges) = web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"skraftEdges".into()).ok())
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+    {
+        let _ = edges.call0(&JsValue::NULL);
     }
 }

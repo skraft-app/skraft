@@ -42,7 +42,7 @@
        strips, the title bar's colour and the panels', in a line the app's canvas leaves free
        above it and below it (the body's padding) — the app takes them out and puts them back when
        its theme changes. */
-    :root { --edge: 12px; }
+    :root { --edge: 11px; }
     .edge { position: fixed; left: 0; right: 0; height: var(--edge); z-index: 10; pointer-events: none; }
     #edge-top { top: 0; background-color: var(--skraft-top, #3a342e); }
     #edge-bottom { bottom: 0; background-color: var(--skraft-bottom, #fbfaf6); }
@@ -97,6 +97,16 @@
     // result (an Uint8Array of PNG for a screenshot), rejected with an Error.
     window.skraft = { call: (method, params) => skraftCall(method, params ?? null) };
 
+    // Safari reads its bars' colours from the edges' strips only as they appear (see .edge): out
+    // and back, once the loading screen — which it read first — is gone, and when the app's theme
+    // changes (the app calls it).
+    window.skraftEdges = () => {
+      for (const id of ["edge-top", "edge-bottom"]) {
+        const strip = document.getElementById(id);
+        if (strip) { strip.remove(); document.body.append(strip); }
+      }
+    };
+
     // The loading screen, without text but the app's name drawn: the catalogs are in the wasm
     // it waits for. Progress
     // counts decompressed bytes against the sizes `scripts/build-web.sh` writes here, since a
@@ -142,6 +152,7 @@
       await kernel;
       await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame)));
       loader.remove();
+      window.skraftEdges();
     } catch (err) {
       console.error("Skraft failed to load", err);
       if (hidden) {

@@ -157,11 +157,13 @@ drawn under the status bar, `black-translucent` or `black`, the title bar blurre
 neither `theme-color` nor a gradient: it takes the colour of a fixed element it sees touching the
 window's top or bottom edge, read as that element appears. The page has two such strips,
 `#edge-top` in the title bar's colour and `#edge-bottom` in the panels', in lines the app's canvas
-leaves free above it and below it (the body's padding, `--edge`: 12 px; tried on an iPhone, 1 px
-was not taken, and strips under the canvas were not seen). The app gives the page those two
-colours from its theme (`system::web::set_page_colors`: CSS variables `--skraft-top`,
-`--skraft-bottom`) and takes the strips out and puts them back, for Safari to read them again; the
-grounds are solid, the root's the title bar's colour, the body's the panels'. `theme-color` stays,
+leaves free above it and below it (the body's padding, `--edge`: 11 px, the least Safari takes —
+tried on an iPhone, 1, 3, 6, 9 and 10 px were not, nor strips under the canvas). The strips are
+taken out and put back (the page's `skraftEdges`) once the loading screen is gone — Safari read
+it first, and kept its colours — and when the app's theme changes: the app gives the page those
+two colours (`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`),
+then calls it. The grounds are solid, the root's the title bar's colour, the body's the
+panels'. `theme-color` stays,
 for the browsers that take it.
 
 **Within the safe areas.** The page asks for the whole screen (`viewport-fit=cover`) and keeps the
