@@ -309,6 +309,9 @@ pub(crate) fn modal<R>(
     body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::ModalResponse<R> {
     let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN));
+    // Narrower in a narrow window (a phone's, docs/ui/touch.md): its margins and a gap on either
+    // side.
+    let width = width.min(ctx.content_rect().width() - 2.0 * (MODAL_MARGIN as f32 + 8.0)).max(120.0);
     egui::Modal::new(id).frame(frame).show(ctx, |ui| {
         ui.set_width(width);
         ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
