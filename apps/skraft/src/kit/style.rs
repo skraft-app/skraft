@@ -40,12 +40,14 @@ pub const CARD_MARGIN: f32 = 6.0;
 pub const FLOAT_GAP: f32 = 8.0;
 
 /// A window's body: scrolled both ways when the window is smaller than it (a phone's,
-/// docs/ui/touch.md), the window itself kept within the screen by [`window_width`].
+/// docs/ui/touch.md), the window itself kept within the screen by [`window_width`]. As high as
+/// its content up to 80 % of the screen, whatever height the window had: egui's window keeps
+/// its last size (420 pt at first) and a body scrolling within it would never make it grow.
 pub fn window_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let height = ui.ctx().content_rect().height() * 0.8;
     // Its scroll bar within the window's width: the body no wider than the title bar.
     let width = window_width(ui.ctx(), f32::INFINITY) - ui.spacing().scroll.allocated_width();
-    egui::ScrollArea::both().id_salt("window_body").max_width(width).max_height(height).show(ui, add).inner
+    egui::ScrollArea::both().id_salt("window_body").max_width(width).max_height(height).min_scrolled_height(height).show(ui, add).inner
 }
 
 /// A window's content width: `width`, or less in a narrow window (a phone's,

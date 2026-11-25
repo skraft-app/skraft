@@ -240,7 +240,8 @@ Elsewhere:
   (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
   sections and grids, the hover texts (`Tip`); the app's windows (`app_window`: their frame, their
   width, where they open, held under the title bar on a phone; `window_body`, their content
-  scrolled when larger than the screen), a modal box's place (`modal_area`), the width of what
+  as high as its content up to 80 % of the screen, then scrolled — egui's window keeps its
+  last size, 420 pt at first, and a body scrolling within it would never make it grow), a modal box's place (`modal_area`), the width of what
   floats over a narrow screen (`window_width`, `fit_width`: the toasts, the modal boxes), a
   phone's side (`PHONE_SIDE`).
 - **`kit::touch::TwoFingers`**: two fingers panning and pinching a stage, hidden from its tools
