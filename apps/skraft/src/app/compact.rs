@@ -41,16 +41,22 @@ impl SkraftApp {
     ) -> f32 {
         let ctx = ui.ctx().clone();
         let screen = ctx.content_rect();
-        // The ribbon under the title bar, where it is on the desktop.
-        egui::Panel::top("compact_ribbon").resizable(false).show(ui, |ui| {
+        // The ribbon under the title bar, where it is on the desktop: from edge to edge, at least
+        // the window's width, its card's margins inside what scrolls (its tab band reaches into
+        // them, as on the desktop).
+        let style = ctx.global_style();
+        let card = crate::kit::style::card_frame(&style).corner_radius(0).stroke(egui::Stroke::NONE).shadow(egui::Shadow::NONE);
+        let inset = card.inner_margin;
+        let panel = egui::Frame::side_top_panel(&style).inner_margin(0);
+        egui::Panel::top("compact_ribbon").resizable(false).frame(panel).show(ui, |ui| {
             let seen = ui.available_width();
-            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: Some(seen) };
-            let width = ribbon::natural_width(ui.ctx(), &view);
+            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: Some(seen - inset.sum().x) };
+            let width = ribbon::natural_width(ui.ctx(), &view).max(seen - inset.sum().x);
             // Dragged from the first touch on (egui's default waits to have seen a touch screen).
             egui::ScrollArea::horizontal()
                 .id_salt("compact_ribbon")
                 .scroll_source(egui::scroll_area::ScrollSource::ALL)
-                .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
+                .show(ui, |ui| card.show(ui, |ui| ribbon::ribbon(ui, &view, width, inset, actions)));
         });
         let in_bar = bar_room.filter(|r| screen.width() > screen.height() && r.width() >= CARDS.len() as f32 * TAB_MIN_WIDTH);
         // The top of what is at the bottom, for the toasts above it.
