@@ -114,14 +114,15 @@ phone's usual 16 pt. egui's zoom is the interface zoom's preference times this
   on the desktop when the list is narrower than its columns), or
   the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
   the screen), the quick tools and the toasts float over it as on the desktop.
-- **The ribbon, in one strip** scrolled sideways with a finger, at the bottom: the workspace's
-  cell, the tabs (centred on what is seen of the strip), every group.
-- **The cards' tabs** under it (Navigateur, Infos, Matières, Bibliothèque); held sideways, in the
+- **The ribbon, in one strip** scrolled sideways with a finger, under the bar at the top, where
+  it is on the desktop: the workspace's cell, the tabs (centred on what is seen of the strip),
+  every group.
+- **The cards' tabs** at the bottom (Navigateur, Infos, Matières, Bibliothèque); held sideways, in the
   bar at the top, where they fit, so the view keeps its height. A tab raises its card from the
   bottom over half the stage; its header, dragged, sets its height (let go low, it goes down),
   tapped, takes it to the stage's whole height and back to half; its tab again lowers it. One card at a time; the paint tool raises « Matières ».
-- **The measurements box** above the strip while the tool takes a typed value (the system
-  keyboard for now). No status bar: its hints speak of keys and a mouse.
+- **The measurements box** above the cards' tabs while the tool takes a typed value (its keypad,
+  [below](#the-keypad)). No status bar: its hints speak of keys and a mouse.
 
 The page keeps the browser's safe areas (no `viewport-fit=cover`): Safari keeps it clear of the
 notch and the home indicator, which the app would otherwise have to read from CSS and leave

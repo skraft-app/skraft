@@ -21,8 +21,9 @@ rectangle where it should have turned the model, and two fingers did nothing use
   chosen automatically**, by the screen's width and a coarse pointer (a finger), with no
   preference.
 - **The compact arrangement** (decided 2026-11-25): every workspace (modelling, parts list,
-  drawing); the view takes the screen; a bar at the top (menu, the document, undo and redo); a
-  bar at the bottom with the whole ribbon as one strip scrolled sideways, then the cards; a card
+  drawing); the view takes the screen; a bar at the top (menu, the document, undo and redo), the
+  whole ribbon under it as one strip scrolled sideways (at the bottom at first; moved up on
+  trying it, 2026-11-25: where it is on the desktop); the cards' tabs at the bottom; a card
   rises from the bottom, one at a time, half or full height, the view still usable above it. The
   file tabs, the status bar and the docked columns are not shown; the VCB shows while the tool
   takes a typed value.

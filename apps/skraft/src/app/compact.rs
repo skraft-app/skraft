@@ -27,8 +27,9 @@ const TAB_MIN_WIDTH: f32 = 96.0;
 const CARDS: [PanelId; 4] = [PanelId::Navigator, PanelId::EntityInfo, PanelId::Materials, PanelId::Library];
 
 impl SkraftApp {
-    /// The bars at the bottom of the window, laid out before the stage, which takes the room
-    /// above them: the cards' tabs at the bottom, the ribbon's strip above. Gives their top.
+    /// The bars laid out before the stage, which takes the room between them: the ribbon's strip
+    /// under the title bar, the cards' tabs at the bottom (the measurements box above them while it
+    /// takes a value). Gives the top of those at the bottom.
     /// Held sideways, the cards' tabs go to the room `bar_room` the title bar leaves, when they
     /// fit there: the view keeps its height.
     pub(super) fn compact_bars(
@@ -40,7 +41,20 @@ impl SkraftApp {
     ) -> f32 {
         let ctx = ui.ctx().clone();
         let screen = ctx.content_rect();
+        // The ribbon under the title bar, where it is on the desktop.
+        egui::Panel::top("compact_ribbon").resizable(false).show(ui, |ui| {
+            let seen = ui.available_width();
+            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: Some(seen) };
+            let width = ribbon::natural_width(ui.ctx(), &view);
+            // Dragged from the first touch on (egui's default waits to have seen a touch screen).
+            egui::ScrollArea::horizontal()
+                .id_salt("compact_ribbon")
+                .scroll_source(egui::scroll_area::ScrollSource::ALL)
+                .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
+        });
         let in_bar = bar_room.filter(|r| screen.width() > screen.height() && r.width() >= CARDS.len() as f32 * TAB_MIN_WIDTH);
+        // The top of what is at the bottom, for the toasts above it.
+        let mut bottom = screen.bottom();
         match in_bar {
             Some(room) => {
                 egui::Area::new(egui::Id::unique("compact_cards_in_bar")).fixed_pos(room.min).order(egui::Order::Foreground).show(
@@ -55,34 +69,26 @@ impl SkraftApp {
                 );
             }
             None => {
-                egui::Panel::bottom("compact_cards").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
+                let panel = egui::Panel::bottom("compact_cards").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
                     let row = ui.max_rect();
                     self.card_tabs(ui, row)
                 });
+                bottom = panel.response.rect.top();
             }
         }
         // The measurements box while the tool takes a typed value; the tool's hint is the
         // status bar's, which is not shown.
         if self.vcb_takes() {
-            egui::Panel::bottom("compact_vcb").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
+            let panel = egui::Panel::bottom("compact_vcb").exact_size(TABS_HEIGHT).resizable(false).show(ui, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some(status) = self.vcb_box(ui) {
                         self.driving.message(&status);
                     }
                 })
             });
+            bottom = panel.response.rect.top();
         }
-        let strip = egui::Panel::bottom("compact_ribbon").resizable(false).show(ui, |ui| {
-            let seen = ui.available_width();
-            let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views, seen: Some(seen) };
-            let width = ribbon::natural_width(ui.ctx(), &view);
-            // Dragged from the first touch on (egui's default waits to have seen a touch screen).
-            egui::ScrollArea::horizontal()
-                .id_salt("compact_ribbon")
-                .scroll_source(egui::scroll_area::ScrollSource::ALL)
-                .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
-        });
-        strip.response.rect.top()
+        bottom
     }
 
     /// The cards' tabs in `row`, as wide as each other: a tap raises its card, again lowers it.
