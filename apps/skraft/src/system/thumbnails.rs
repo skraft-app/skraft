@@ -31,6 +31,7 @@ pub struct Content {
 
 impl Content {
     /// The whole model: the root's content, as placed in the world.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn model(doc: &Document) -> Content {
         Content::of(doc, doc.root())
     }

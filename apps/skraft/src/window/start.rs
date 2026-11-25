@@ -12,6 +12,7 @@ use crate::docs::file_name;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::LabelButton;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::system::images::{Decoder, Size};
 
 /// The app's mark, its tile as wide (as in the title bar): the icon's tile fills 824 of its
@@ -37,6 +38,7 @@ const CARD_PICTURE: f32 = 124.0 / 220.0;
 const CARD_TEXT: f32 = 52.0;
 const CARD_RADIUS: u8 = 8;
 /// The pictures are decoded this large (the files' are 480 × 270).
+#[cfg(not(target_arch = "wasm32"))]
 const PICTURE_SIDE: u32 = 480;
 
 /// The drafting grid: a line every `GRID_STEP` points, every `GRID_MAJOR`th stronger, in the
@@ -56,6 +58,7 @@ const GRID_MIDDLE: f32 = 0.42;
 #[derive(Default)]
 pub(crate) struct Pictures {
     seen: HashMap<String, Seen>,
+    #[cfg(not(target_arch = "wasm32"))]
     decoder: Decoder,
 }
 

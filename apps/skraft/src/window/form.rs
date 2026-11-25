@@ -48,6 +48,7 @@ impl Probe {
     }
 
     /// Forced compact: the desktop window may be as small as a phone.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn forced_compact(&self) -> bool {
         self.forced == Some(Form::Compact)
     }
