@@ -6,6 +6,7 @@ use crate::kit::icons;
 mod button;
 mod field;
 mod form;
+mod keypad;
 mod menu;
 mod segmented;
 mod tree;
@@ -13,6 +14,7 @@ mod tree;
 pub(crate) use button::{Confirm, IconButton, Look, OPTION_HEIGHT, VEIL_RADIUS, backed, confirm_buttons, option_button, unframed, veil};
 pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, live_field, rename_field};
 pub(crate) use form::{FormField, form_message, form_row, warning_box};
+pub(crate) use keypad::{KeypadAct, keypad};
 pub(crate) use menu::{PinRow, command_item, is_toggle, pin_row};
 pub(crate) use segmented::{Segment, segmented, segmented_sized};
 pub(crate) use tree::{

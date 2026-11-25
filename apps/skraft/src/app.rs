@@ -36,6 +36,8 @@ pub struct SkraftApp {
     probe: crate::window::form::Probe,
     form: crate::window::form::Form,
     compact: compact::Compact,
+    /// The measurements box's keypad is open (docs/ui/touch.md#the-keypad).
+    keypad: bool,
     /// The documents open, one per file tab (docs/ui/file-tabs.md); none shown: the
     /// start page.
     docs: Docs,
@@ -308,6 +310,7 @@ impl SkraftApp {
             probe,
             form: Default::default(),
             compact: Default::default(),
+            keypad: false,
             docs,
             last_shown: None,
             closing: None,

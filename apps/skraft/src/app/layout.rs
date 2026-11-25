@@ -468,12 +468,43 @@ impl SkraftApp {
         }
         let (label, value) = measure.unwrap_or_else(|| (t!("status.measurements"), String::new()));
         let mut text = if d.vcb.is_empty() { value } else { d.vcb.clone() };
-        let r = ui.add_enabled(takes, egui::TextEdit::singleline(&mut text).desired_width(160.0));
+        // Under a finger, the box opens the app's keypad rather than the system's keyboard
+        // (docs/ui/touch.md#the-keypad).
+        let mut entered = false;
+        let r = if self.probe.coarse {
+            let height = ui.spacing().interact_size.y;
+            let r =
+                ui.add_enabled(takes, egui::Button::new(text.clone()).min_size(egui::vec2(160.0, height)).selected(self.keypad && takes));
+            if r.clicked() {
+                self.keypad = !self.keypad;
+            }
+            self.keypad &= takes;
+            if self.keypad {
+                let area = egui::Area::new(egui::Id::unique("vcb_keypad"))
+                    .order(egui::Order::Foreground)
+                    .pivot(egui::Align2::RIGHT_BOTTOM)
+                    .fixed_pos(r.rect.right_top() - egui::vec2(0.0, 8.0))
+                    .constrain(true);
+                area.show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        if crate::kit::widgets::keypad(ui, &mut d.vcb) == Some(crate::kit::widgets::KeypadAct::Enter) {
+                            entered = true;
+                        }
+                    })
+                });
+            }
+            r
+        } else {
+            let r = ui.add_enabled(takes, egui::TextEdit::singleline(&mut text).desired_width(160.0));
+            if r.changed() {
+                d.vcb = text.clone();
+            }
+            entered = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            r
+        };
         crate::kit::handles::publish_enabled(|| "vcb".into(), r.rect, takes);
-        if r.changed() {
-            d.vcb = text.clone();
-        }
-        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !d.vcb.is_empty() {
+        if entered && !d.vcb.is_empty() {
+            self.keypad = false;
             let typed = std::mem::take(&mut d.vcb);
             if sheet {
                 d.sheet.typed = Some(typed);
@@ -719,6 +750,9 @@ impl SkraftApp {
             crate::workspaces::common::viewport::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
         if doc.editor.tool_awaits_validation() {
             crate::workspaces::common::viewport::steps::validation(ctx, view.center().x, free_top, actions);
+        } else if self.probe.coarse && doc.editor.tool_under_way() && !doc.editor.busy() {
+            // Under a finger, no Esc key: ✗ steps the operation back (docs/ui/touch.md#modifiers).
+            crate::workspaces::common::viewport::steps::step_back(ctx, view.center().x, free_top, actions);
         }
         // The quick tools' card, at the centre of what was just made (docs/tools/quick-tools.md).
         if let Some(at) = doc.editor.quick_card() {
@@ -750,9 +784,6 @@ impl SkraftApp {
                 ui.painter().rect_filled(area, 0.0, viewport::color(theme.ui.view));
             }
             if let Some(d) = docs.iter_mut().nth(i) {
-        } else if self.probe.coarse && doc.editor.tool_under_way() && !doc.editor.busy() {
-            // Under a finger, no Esc key: ✗ steps the operation back (docs/ui/touch.md#modifiers).
-            crate::workspaces::common::viewport::steps::step_back(ctx, view.center().x, free_top, actions);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(view), |ui| {
                     if stage == Stage::Sheet {
                         // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).

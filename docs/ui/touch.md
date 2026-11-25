@@ -83,6 +83,14 @@ finger reaches for during an operation.
 waits for no validation, ✗ stands where the validation's ✗ and ✓ go, under the tool's card: it
 steps the operation back. Undo and redo are in the title bar.
 
+## The keypad
+
+Under a finger the measurements box is a button: it opens the app's keypad above it, not the
+system's keyboard, which would cover half the screen and the model. Its keys: the digits, the
+system's decimal and list separators, the minus, erasing, and « Valider » (Enter), which gives the
+value to the tool and closes it; it closes too when the box no longer takes a value, or when the
+box is tapped again. A keyboard plugged into the tablet still types into the box from anywhere
+(`kit/widgets/keypad.rs`).
 
 ## The compact arrangement
 

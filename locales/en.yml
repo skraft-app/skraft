@@ -322,6 +322,10 @@ compact:
   # The entity info card's tab, short.
   entity_info: "Info"
 
+# The measurements box's keypad under a finger (docs/ui/touch.md#the-keypad).
+keypad:
+  enter: "Enter"
+
 start:
   title: "Skraft"
   new: "New Document"
