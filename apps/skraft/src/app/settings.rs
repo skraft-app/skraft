@@ -175,8 +175,11 @@ impl SkraftApp {
         }
     }
 
-    /// Raccourcis: every command with its shortcut; « Modifier » waits for the next key
-    /// (Échap cancels, Retour arrière removes it).
+    /// Raccourcis (docs/ui/interface.md#shortcuts): a search line, then every command under
+    /// its menu's name, a row each across the window — its icon, its label, its shortcut as
+    /// keys —; a click on a row waits for the next key (Échap cancels, Retour arrière removes
+    /// it, a click on the row again lets go); ↺ puts back a changed one, ⚠ names the commands
+    /// sharing it.
     fn shortcut_settings(&mut self, ui: &mut egui::Ui) {
         let mac = self.mac();
         if let Some(id) = self.capturing {
@@ -189,53 +192,199 @@ impl SkraftApp {
             match pressed {
                 Some((egui::Key::Escape, _)) => self.capturing = None,
                 Some((egui::Key::Backspace | egui::Key::Delete, m)) if !m.any() => {
-                    self.prefs.shortcuts.insert(id.to_owned(), String::new());
+                    self.set_shortcut(id, None);
                     self.capturing = None;
                 }
                 Some((key, m)) => {
-                    let s = Shortcut { key, command: m.command, shift: m.shift, alt: m.alt };
-                    self.prefs.shortcuts.insert(id.to_owned(), s.text());
+                    self.set_shortcut(id, Some(Shortcut { key, command: m.command, shift: m.shift, alt: m.alt }));
                     self.capturing = None;
                 }
                 None => {}
             }
         }
-        ui.weak(t!("prefs.shortcuts.intro"));
-        ui.add_space(4.0);
-        let mut reset = None;
-        egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
-            egui::Grid::new("shortcuts").num_columns(3).spacing([12.0, 4.0]).striped(true).show(ui, |ui| {
-                for c in COMMANDS.iter().filter(|c| c.menu != Menu::Debug) {
-                    ui.label((c.label)()).tip(c.id);
-                    let current = self.keymap.get(c.id);
-                    let text = current.map_or("—".to_owned(), |s| s.display(mac));
-                    let conflict = current.is_some_and(|s| !self.keymap.conflicts(c.id, s, workspaces::share).is_empty());
-                    if self.capturing == Some(c.id) {
-                        ui.strong("…");
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.label(text);
-                            if conflict {
-                                ui.add(crate::kit::widgets::warning(ui));
-                            }
-                        });
+        ui.add(egui::Label::new(egui::RichText::new(t!("prefs.shortcuts.intro")).weak()).wrap());
+        ui.add_space(crate::kit::search::GAP);
+        let searched = self.shortcut_search.clone();
+        crate::kit::search::field(ui, egui::Id::unique("prefs_shortcuts"), "prefs.shortcuts", &mut self.shortcut_search, |_, _| {});
+        ui.add_space(crate::kit::search::GAP);
+        let found: Vec<&crate::commands::Command> =
+            COMMANDS.iter().filter(|c| c.menu != Menu::Debug && crate::commands::matches(&self.shortcut_search, c)).collect();
+        // As high whatever the search lets through: the window does not jump as it is typed.
+        let height = (ui.ctx().content_rect().height() * 0.5).clamp(160.0, 460.0);
+        let mut act = None;
+        let mut list =
+            egui::ScrollArea::vertical().id_salt("shortcuts").auto_shrink([false, false]).min_scrolled_height(height).max_height(height);
+        // A new search shows what it finds from the top (as the command palette).
+        if self.shortcut_search != searched {
+            list = list.vertical_scroll_offset(0.0);
+        }
+        list.show(ui, |ui| {
+            for (k, c) in found.iter().enumerate() {
+                if k == 0 || found[k - 1].menu != c.menu {
+                    if k > 0 {
+                        ui.add_space(6.0);
                     }
-                    ui.horizontal(|ui| {
-                        if ui.small_button(t!("prefs.shortcuts.edit")).clicked() {
-                            self.capturing = Some(c.id);
-                        }
-                        if self.prefs.shortcuts.contains_key(c.id) && ui.small_button(t!("prefs.shortcuts.default")).clicked() {
-                            reset = Some(c.id);
-                        }
-                    });
-                    ui.end_row();
+                    palette_header(ui, c.menu);
                 }
-            });
+                let current = self.keymap.get(c.id);
+                let row = ShortcutRow {
+                    command: c,
+                    keys: current.map(|s| s.keys(mac)),
+                    fixed: crate::commands::fixed_key(c.id),
+                    capturing: self.capturing == Some(c.id),
+                    changed: self.prefs.shortcuts.contains_key(c.id),
+                    default: c.shortcut.and_then(Shortcut::parse).map(|s| s.display(mac)),
+                    shared: current
+                        .map(|s| self.keymap.conflicts(c.id, s, workspaces::share))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|id| crate::commands::find(id).map(|c| (c.label)()))
+                        .collect(),
+                };
+                if let Some(a) = shortcut_row(ui, &row) {
+                    act = Some((c.id, a));
+                }
+            }
+            if found.is_empty() {
+                ui.weak(t!("palette.none"));
+            }
         });
-        if let Some(id) = reset {
-            self.prefs.shortcuts.remove(id);
+        match act {
+            Some((id, RowAct::Capture)) => self.capturing = if self.capturing == Some(id) { None } else { Some(id) },
+            Some((id, RowAct::Reset)) => {
+                self.prefs.shortcuts.remove(id);
+                if self.capturing == Some(id) {
+                    self.capturing = None;
+                }
+            }
+            None => {}
         }
     }
+
+    /// Gives the command `id` the shortcut `s` (`None`: none); its default kept as no change.
+    fn set_shortcut(&mut self, id: &'static str, s: Option<Shortcut>) {
+        let default = crate::commands::find(id).and_then(|c| c.shortcut).and_then(Shortcut::parse);
+        if s == default {
+            self.prefs.shortcuts.remove(id);
+        } else {
+            self.prefs.shortcuts.insert(id.to_owned(), s.map_or_else(String::new, |s| s.text()));
+        }
+    }
+}
+
+/// What a row of the Raccourcis tab shows.
+struct ShortcutRow<'a> {
+    command: &'a crate::commands::Command,
+    /// Its shortcut's keys, none without one.
+    keys: Option<Vec<String>>,
+    /// The key it answers outside the shortcuts (Delete for « Effacer »): shown, not changed.
+    fixed: Option<String>,
+    /// Waiting for the key to give it.
+    capturing: bool,
+    /// The user's, not the default.
+    changed: bool,
+    /// The default shortcut, as shown.
+    default: Option<String>,
+    /// The commands having the same shortcut in a workspace that has this one.
+    shared: Vec<String>,
+}
+
+/// What a click on a row asks.
+enum RowAct {
+    /// Waits for the key (or lets go).
+    Capture,
+    /// Puts the default back.
+    Reset,
+}
+
+/// A row of the Raccourcis tab, the window's width (as the command palette's rows): the
+/// command's icon and label on the left; on the right its keys (lit while waiting for one, a
+/// dash for none), before them ↺ when changed and ⚠ when shared; filled when hovered. A command
+/// with a fixed key (« Effacer ») shows it hollow, its row neither clicked nor filled, its tip
+/// saying so.
+fn shortcut_row(ui: &mut egui::Ui, row: &ShortcutRow) -> Option<RowAct> {
+    use crate::kit::widgets::{Keycaps, keycaps};
+    const HEIGHT: f32 = 30.0;
+    const PAD: f32 = 8.0;
+    const ICON: f32 = 16.0;
+    const BUTTON: f32 = 22.0;
+    let c = row.command;
+    let sense = if row.fixed.is_some() { egui::Sense::hover() } else { egui::Sense::click() };
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), HEIGHT), sense);
+    crate::kit::handles::publish(|| format!("prefs.shortcut:{}", c.id), rect);
+    let visuals = ui.visuals().clone();
+    let fill = if row.capturing {
+        Some(visuals.selection.bg_fill.gamma_multiply(0.5))
+    } else if r.hovered() && row.fixed.is_none() {
+        Some(visuals.widgets.hovered.weak_bg_fill)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter().rect_filled(rect, visuals.widgets.hovered.corner_radius, fill);
+    }
+    let y = rect.center().y;
+    let mut act = None;
+    // Right to left: the keys, ⚠, ↺.
+    let mut right = rect.right() - PAD;
+    if let Some(key) = &row.fixed {
+        right = keycaps(ui, std::slice::from_ref(key), egui::pos2(right, y), Keycaps::Fixed).left();
+    } else if row.capturing {
+        right = keycaps(ui, &[t!("prefs.shortcuts.capture")], egui::pos2(right, y), Keycaps::Lit).left();
+    } else if let Some(keys) = &row.keys {
+        right = keycaps(ui, keys, egui::pos2(right, y), Keycaps::Plain).left();
+    } else {
+        let g = ui.painter().layout_no_wrap("—".to_owned(), egui::TextStyle::Body.resolve(ui.style()), visuals.weak_text_color());
+        right -= g.size().x;
+        ui.painter().galley(egui::pos2(right, y - g.size().y / 2.0), g, visuals.weak_text_color());
+    }
+    right -= PAD;
+    if !row.shared.is_empty() && !row.capturing {
+        let side = ui.text_style_height(&egui::TextStyle::Body);
+        let at = egui::Rect::from_center_size(egui::pos2(right - side / 2.0, y), egui::Vec2::splat(side));
+        crate::kit::widgets::warning(ui).paint_at(ui, at);
+        ui.interact(at, r.id.with("shared"), egui::Sense::hover()).tip(t!("prefs.shortcuts.shared", commands = row.shared.join(", ")));
+        right = at.left() - PAD / 2.0;
+    }
+    if row.changed {
+        let at = egui::Rect::from_center_size(egui::pos2(right - BUTTON / 2.0, y), egui::Vec2::splat(BUTTON));
+        let tip = match &row.default {
+            Some(s) => t!("prefs.shortcuts.reset", shortcut = s),
+            None => t!("prefs.shortcuts.reset_none"),
+        };
+        let b = crate::kit::widgets::IconButton::new(crate::kit::icons::UNDO, BUTTON, 14.0)
+            .ink(visuals.weak_text_color())
+            .show_at(ui, at, r.id.with("reset"))
+            .tip(tip);
+        if b.clicked() {
+            act = Some(RowAct::Reset);
+        }
+        right = at.left() - PAD / 2.0;
+    }
+    let mut left = rect.left() + PAD;
+    let ink = visuals.text_color();
+    if let Some(icon) = crate::kit::icons::command(c.id) {
+        let at = egui::Rect::from_center_size(egui::pos2(left + ICON / 2.0, y), egui::Vec2::splat(ICON));
+        egui::Image::new(icon).tint(visuals.weak_text_color()).paint_at(ui, at);
+    }
+    left += ICON + PAD;
+    let label = egui::WidgetText::from((c.label)()).color(ink).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (right - left).max(0.0),
+        egui::TextStyle::Body,
+    );
+    ui.painter().galley(egui::pos2(left, y - label.size().y / 2.0), label, ink);
+    if let Some(key) = &row.fixed {
+        // Its only tip: no ↺ nor ⚠ on such a row.
+        r.tip(t!("prefs.shortcuts.fixed", key = key));
+        return None;
+    }
+    // No tip of its own: egui shows one at a time, and the row's would hide ↺'s and ⚠'s.
+    if act.is_none() && r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        act = Some(RowAct::Capture);
+    }
+    act
 }
 
 /// The language (every text changes at once), reopening the documents, the undo histories'

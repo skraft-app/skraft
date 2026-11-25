@@ -665,9 +665,15 @@ prefs:
     panels: "Panneaux"
     ribbon_labels: "Libellés du ruban"
   shortcuts:
-    intro: "Cliquer « Modifier », puis taper le raccourci (Échap : annuler, ⌫ : aucun)."
-    edit: "Modifier"
-    default: "Défaut"
+    intro: "Cliquer une commande, puis taper son raccourci (Échap : annuler, ⌫ : aucun)."
+    # In the key cap of the command waiting for its shortcut.
+    capture: "Taper le raccourci"
+    reset: "Revenir au raccourci par défaut : %{shortcut}"
+    reset_none: "Revenir au défaut : aucun raccourci"
+    # The tip of a command's key that cannot be changed (« Effacer »'s Delete).
+    fixed: "Touche fixe : %{key} efface la sélection, sauf quand l'outil actif s'en sert"
+    # The tip of the warning sign of a shortcut two commands of a workspace share.
+    shared: "Aussi le raccourci de : %{commands}"
 
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
 # The parts list, the « Liste des pièces » workspace's stage (docs/ui/parts-list.md).

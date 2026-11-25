@@ -138,7 +138,7 @@ prompt), `toast.<i>`, `toast.<i>.action`,
 `validation:cancel`, `validation:ok` (the steps bar's buttons), `vcb`,
 `viewport`, the navigator's (either tree, [Drawing](ui/drawing.md) lists the drawing's):
 `navigator:occurrence:<id>` and `navigator:body:<id>` (its rows, those laid out),
-`navigator:eye:<id>`, `navigator:sign:<id>`, `navigator:search`, `navigator:menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open), `imprint.around`, `.deep`, `.ok`, `.cancel` (« Empreindre »'s confirmation), `info:imprint_around`, `_deep` (a linked body's entity info). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
+`navigator:eye:<id>`, `navigator:sign:<id>`, `navigator:search`, `navigator:menu:move_out`, `:unlink`, `:reseat`, `:bring`, `:separate` (a row's menu, open), `imprint.around`, `.deep`, `.ok`, `.cancel` (« Empreindre »'s confirmation), `info:imprint_around`, `_deep` (a linked body's entity info), `prefs.shortcuts:search`, `prefs.shortcut:<command id>` (the Preferences' *Shortcuts* tab, its rows). `ui.handles` (`prefix`) lists them with `pixels_per_point`. `ui.screenshot`: the
 whole window (egui's `request_screenshot`), PNG. `ui.messages` (`clear`): the status bar's
 texts as they changed, the last 200, with their time.
 
