@@ -30,6 +30,11 @@ pub struct Content {
 }
 
 impl Content {
+    /// The whole model: the root's content, as placed in the world.
+    pub fn model(doc: &Document) -> Content {
+        Content::of(doc, doc.root())
+    }
+
     fn of(doc: &Document, component: Id) -> Content {
         // The material its occurrences show when they all carry the same one.
         let mut common: Option<Option<Id>> = None;

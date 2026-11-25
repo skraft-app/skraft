@@ -10,7 +10,9 @@ mod menu;
 mod segmented;
 mod tree;
 
-pub(crate) use button::{Confirm, IconButton, Look, OPTION_HEIGHT, VEIL_RADIUS, backed, confirm_buttons, option_button, unframed, veil};
+pub(crate) use button::{
+    Confirm, IconButton, LabelButton, Look, OPTION_HEIGHT, VEIL_RADIUS, backed, confirm_buttons, option_button, unframed, veil,
+};
 pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, live_field, rename_field};
 pub(crate) use form::{FormField, form_message, form_row, warning_box};
 pub(crate) use menu::{PinRow, command_item, is_toggle, pin_row};

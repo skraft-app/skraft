@@ -361,12 +361,18 @@ update:
   failed: "Impossible de vérifier les mises à jour."
 start:
   title: "Skraft"
+  # Under the name: what the app is.
+  tagline: "Modeleur 3D sur de vrais solides"
   new: "Nouveau document"
   open: "Ouvrir un fichier"
   import: "Importer un fichier STEP ou SKP"
   recent: "Fichiers récents"
   # Desktop: the browser keeps no paths.
   no_recent: "Aucun fichier récent"
+  # When a recent file last changed, under its name.
+  today: "Aujourd'hui"
+  yesterday: "Hier"
+  missing: "Fichier introuvable"
 
 # The command palette (Cmd/Ctrl+K).
 palette:

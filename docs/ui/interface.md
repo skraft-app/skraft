@@ -207,6 +207,9 @@ In `apps/skraft/src/kit/widgets.rs`:
   the dim ink, in the accent's when what it points at is picked or typed: the mouse of the
   Preferences to its gestures, « Empreindre »'s tenon to its clearances.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
+- **`LabelButton`**, a large button, an icon before its label (the start page's): the main one
+  filled and outlined with the selection's colours, the others framed as a field; measured,
+  then drawn where its caller lays it out.
 - **`confirm_buttons`**, the buttons closing a modal box: its main one, filled, then the one
   cancelling; Enter and Esc stay the box's.
 - **`tree_row`** and the drag ghost, the rows of the navigators and the lists; **`tree_line`**,

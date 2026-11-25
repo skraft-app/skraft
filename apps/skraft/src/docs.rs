@@ -22,6 +22,9 @@ pub struct Doc {
     pub path: Option<String>,
     /// The history revision when last saved or opened (modified if it differs).
     pub saved_at: u64,
+    /// The picture of its model its file carries (a PNG, docs/io/file-format.md): written
+    /// again when a save cannot draw a new one.
+    pub thumbnail: Option<std::sync::Arc<[u8]>>,
     /// What is being typed into the measurements box.
     pub vcb: String,
     /// Its navigator's rows unfolded, and what they are kept by.
@@ -149,6 +152,7 @@ impl Docs {
             editor,
             path,
             saved_at: 0,
+            thumbnail: None,
             vcb: String::new(),
             navigator: Default::default(),
             library: Default::default(),

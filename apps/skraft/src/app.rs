@@ -32,6 +32,11 @@ use crate::workspaces::{self, Stage, Workspace};
 
 pub struct SkraftApp {
     ctx: egui::Context,
+    /// The GPU the window draws with: a saved file's picture of its model is drawn with it
+    /// (docs/io/file-format.md).
+    render_state: Option<egui_wgpu::RenderState>,
+    /// The start page's pictures of the recent files' models.
+    start: crate::window::start::Pictures,
     /// The documents open, one per file tab (docs/ui/file-tabs.md); none shown: the
     /// start page.
     docs: Docs,
@@ -294,6 +299,8 @@ impl SkraftApp {
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
         let mut app = SkraftApp {
             ctx: cc.egui_ctx.clone(),
+            render_state: cc.wgpu_render_state.clone(),
+            start: Default::default(),
             docs,
             last_shown: None,
             closing: None,
@@ -465,7 +472,8 @@ impl eframe::App for SkraftApp {
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
         } else {
-            egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
+            egui::CentralPanel::default()
+                .show(ui, |ui| crate::window::start::show(ui, &self.theme, &self.prefs.recent_files, &mut self.start, &mut actions));
         }
         self.secondary_windows(&ctx, &views, &mut actions);
         drop_hint(&ctx);
