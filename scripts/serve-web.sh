@@ -17,6 +17,9 @@
 #   2. Settings → Profile Downloaded → Install;
 #   3. Settings → General → About → Certificate Trust Settings → full trust for « mkcert ».
 # The pages are served with `Cache-Control: no-cache`: a build made again is taken on reload.
+# The wasm, the scripts and the page go compressed (55 MB of wasm → 14), as a host serves them:
+# brotli at its level 5 when its command is there (`brew install brotli`), else gzip; each file
+# compressed on its first request and kept in target/serve-web/encoded/ while it is unchanged.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -64,8 +67,43 @@ else
   echo "http://localhost:$port"
 fi
 
-exec env SERVE_BIND="$bind" SERVE_PORT="$port" SERVE_CERT="$cert" SERVE_KEY="$key" python3 -I - <<'EOF'
-import functools, http.server, os, ssl, sys
+command -v brotli >/dev/null || echo "no brotli command: gzip instead (brew install brotli)"
+
+exec env SERVE_BIND="$bind" SERVE_PORT="$port" SERVE_CERT="$cert" SERVE_KEY="$key" SERVE_CACHE=target/serve-web/encoded \
+  python3 -I - <<'EOF'
+import email.utils, functools, gzip, http.server, os, shutil, ssl, subprocess, sys, threading
+
+ROOT = "dist/web"
+CACHE = os.environ["SERVE_CACHE"]
+BROTLI = shutil.which("brotli")
+COMPRESSED = {".wasm", ".js", ".html", ".css", ".json", ".svg", ".txt"}
+locks, locks_lock = {}, threading.Lock()
+
+def encoded(path, stat, coding):
+    """The file compressed with `coding`, made again when the file changed."""
+    out = os.path.join(CACHE, os.path.relpath(path, ROOT) + "." + coding)
+    stamp, want = out + ".stamp", f"{stat.st_mtime_ns} {stat.st_size}"
+    with locks_lock:
+        lock = locks.setdefault(out, threading.Lock())
+    with lock:
+        try:
+            with open(stamp) as f:
+                if f.read() == want and os.path.exists(out):
+                    return out
+        except OSError:
+            pass
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        if coding == "br":
+            data = subprocess.run([BROTLI, "-c", "-q", "5", path], check=True, capture_output=True).stdout
+        else:
+            with open(path, "rb") as f:
+                data = gzip.compress(f.read(), 6)
+        with open(out + ".part", "wb") as f:
+            f.write(data)
+        os.replace(out + ".part", out)
+        with open(stamp, "w") as f:
+            f.write(want)
+        return out
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm", ".js": "text/javascript"}
@@ -73,6 +111,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
+
+    def send_head(self):
+        path = self.translate_path(self.path)
+        accepted = self.headers.get("Accept-Encoding", "")
+        coding = "br" if BROTLI and "br" in accepted else "gzip" if "gzip" in accepted else None
+        if coding is None or os.path.splitext(path)[1] not in COMPRESSED or not os.path.isfile(path):
+            return super().send_head()
+        stat = os.stat(path)
+        since = self.headers.get("If-Modified-Since")
+        if since:
+            try:
+                if int(stat.st_mtime) <= email.utils.parsedate_to_datetime(since).timestamp():
+                    self.send_response(304)
+                    self.end_headers()
+                    return None
+            except (TypeError, ValueError, IndexError, OverflowError):
+                pass
+        f = open(encoded(path, stat, coding), "rb")
+        self.send_response(200)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Encoding", coding)
+        self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
+        self.send_header("Last-Modified", self.date_time_string(stat.st_mtime))
+        self.send_header("Vary", "Accept-Encoding")
+        self.end_headers()
+        return f
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
@@ -97,7 +161,7 @@ class Server(http.server.ThreadingHTTPServer):
             return
         super().handle_error(request, client_address)
 
-server = Server((os.environ["SERVE_BIND"], int(os.environ["SERVE_PORT"])), functools.partial(Handler, directory="dist/web"))
+server = Server((os.environ["SERVE_BIND"], int(os.environ["SERVE_PORT"])), functools.partial(Handler, directory=ROOT))
 if os.environ["SERVE_CERT"]:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(os.environ["SERVE_CERT"], os.environ["SERVE_KEY"])
