@@ -750,6 +750,9 @@ impl SkraftApp {
                 ui.painter().rect_filled(area, 0.0, viewport::color(theme.ui.view));
             }
             if let Some(d) = docs.iter_mut().nth(i) {
+        } else if self.probe.coarse && doc.editor.tool_under_way() && !doc.editor.busy() {
+            // Under a finger, no Esc key: ✗ steps the operation back (docs/ui/touch.md#modifiers).
+            crate::workspaces::common::viewport::steps::step_back(ctx, view.center().x, free_top, actions);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(view), |ui| {
                     if stage == Stage::Sheet {
                         // A sheet of the drawing instead of the 3D view (docs/ui/drawing.md).

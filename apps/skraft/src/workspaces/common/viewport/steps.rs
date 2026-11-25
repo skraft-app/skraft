@@ -56,7 +56,17 @@ pub fn validation(ctx: &egui::Context, center: f32, top: f32, actions: &mut Vec<
         .pivot(Align2::CENTER_TOP)
         .fixed_pos(pos2(center, top))
         .order(egui::Order::Foreground)
-        .show(ctx, |ui| buttons(ui, actions));
+        .show(ctx, |ui| buttons(ui, true, actions));
+}
+
+/// ✗ alone, where the validation goes: under a finger, Esc while a tool's operation is under way
+/// (docs/ui/touch.md#modifiers).
+pub fn step_back(ctx: &egui::Context, center: f32, top: f32, actions: &mut Vec<Action>) {
+    egui::Area::new(egui::Id::unique("validation"))
+        .pivot(Align2::CENTER_TOP)
+        .fixed_pos(pos2(center, top))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| buttons(ui, false, actions));
 }
 
 /// The step's sentence on its own lines (`\n` only), unless it is wider than `room`: then
@@ -120,15 +130,17 @@ fn number(painter: &egui::Painter, square: Rect, name: &str, (fill, line, text):
 }
 
 /// ✗ (Esc) and ✓ (Enter), OCL's red and green squares.
-fn buttons(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
-    let width = 2.0 * BUTTON + BUTTON_GAP;
+/// ✗ and, with `enter`, ✓.
+fn buttons(ui: &mut egui::Ui, enter: bool, actions: &mut Vec<Action>) {
+    let width = if enter { 2.0 * BUTTON + BUTTON_GAP } else { BUTTON };
     let (rect, _) = ui.allocate_exact_size(vec2(width, BUTTON), Sense::hover());
     let cancel = Rect::from_min_size(rect.min, vec2(BUTTON, BUTTON));
     let ok = Rect::from_min_size(pos2(rect.right() - BUTTON, rect.top()), vec2(BUTTON, BUTTON));
-    for (r, level, key, name, tip) in [
+    let both = [
         (cancel, Level::Error, Key::Escape, "validation:cancel", t!("steps.cancel")),
         (ok, Level::Success, Key::Enter, "validation:ok", t!("steps.validate")),
-    ] {
+    ];
+    for (r, level, key, name, tip) in both.into_iter().take(if enter { 2 } else { 1 }) {
         let response = ui.interact(r, ui.scope_id().with(name), Sense::click()).tip(tip);
         crate::kit::handles::publish(|| name.into(), r);
         let dark = ui.visuals().dark_mode;

@@ -79,6 +79,11 @@ keyboard's keys the tool takes (`options::touch_keys`):
 They come first in the card: on a phone the card is wider than the screen, and they are what a
 finger reaches for during an operation.
 
+**Esc**: under a finger, while a tool's operation is under way (`Editor::tool_under_way`) and it
+waits for no validation, ✗ stands where the validation's ✗ and ✓ go, under the tool's card: it
+steps the operation back. Undo and redo are in the title bar.
+
+
 ## The compact arrangement
 
 **When**: the primary pointer is a finger (CSS `pointer: coarse`) and the window's short side is

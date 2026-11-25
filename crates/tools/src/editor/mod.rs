@@ -638,6 +638,11 @@ impl Editor {
         self.tool.kind()
     }
 
+    /// Is the tool in the middle of an operation (Esc would step back)?
+    pub fn tool_under_way(&self) -> bool {
+        self.tool.busy()
+    }
+
     /// The status bar's text: the kernel at work, else the last message, else the tool's hint.
     /// The notices since the last call, oldest first: the app shows them as toasts.
     pub fn take_notices(&mut self) -> Vec<Notice> {
