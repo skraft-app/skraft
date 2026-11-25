@@ -165,7 +165,7 @@ impl SkraftApp {
         };
         match event {
             Some(CardEvent::Grabbed(drag)) => self.panel_drag = Some(drag),
-            Some(CardEvent::Tapped) => {}
+            Some(CardEvent::Tapped | CardEvent::Pulled(_) | CardEvent::Let) => {}
             Some(CardEvent::Dropped) => {
                 if let (Some(d), Some(p)) = (self.panel_drag.take(), pointer) {
                     let (side, .., before) = target(p);
@@ -247,6 +247,11 @@ impl SkraftApp {
                     if edges.sheet.is_some() {
                         if head.clicked() {
                             event = Some(CardEvent::Tapped);
+                        } else if head.dragged() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                            event = Some(CardEvent::Pulled(head.drag_delta().y));
+                        } else if head.drag_stopped() {
+                            event = Some(CardEvent::Let);
                         }
                     } else if head.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -867,6 +872,11 @@ pub(super) enum CardEvent {
     Dropped,
     /// Its header tapped, risen from the bottom: it goes to its full height or back.
     Tapped,
+    /// Its header dragged up or down this much (points), risen from the bottom: its height
+    /// follows.
+    Pulled(f32),
+    /// That drag let go.
+    Let,
 }
 
 pub(super) fn panel_title(id: PanelId) -> String {
