@@ -148,16 +148,18 @@ stays the largest thing on the screen, and a card is read over it rather than in
 ## Safe areas
 
 Added to a phone's home screen, the page is the app's own window, down to the home indicator's
-swipe. Its status bar is opaque, in the title bar's colour: `web/index.html` sets no status bar
-style — iOS 26 lays a frosted band over a page drawn under the status bar, `black-translucent`
-or not, the title bar blurred with it — and the document's own ground (the root's, under the
-body) and its `theme-color` are the title bar's, which the app sets again from its theme (`system::web::set_page_colors`, with the CSS variables
-`--skraft-top` and `--skraft-bottom`). The page asks for the whole screen (`viewport-fit=cover`)
-and keeps the app's canvas within the safe areas (`env(safe-area-inset-*)` as the body's
-padding): the panels' colour shows under it and beside it (the home indicator, a notch held
-sideways). The body is fixed: iOS counts the status bar in `100vh`, and a page that could scroll
-was left shifted up by it after a rotation. In Safari the browser's bars keep the page clear of
-these areas: the insets are then nought.
+swipe, under the status bar: opaque, painted by iOS in the system's light or dark — no page sets
+its colour there (iOS 26 takes neither `theme-color`, nor the page's ground, nor a status bar
+style). `web/index.html` sets no status bar style: iOS 26 lays a frosted band over a page drawn
+under the status bar, `black-translucent` or `black`, the title bar blurred with it. Its
+`theme-color` is the title bar's, which the app sets again from its theme
+(`system::web::set_page_colors`, with the CSS variables `--skraft-top` and `--skraft-bottom`):
+Safari tints its own bar with it. The page asks for the whole screen (`viewport-fit=cover`) and
+keeps the app's canvas within the safe areas (`env(safe-area-inset-*)` as the body's padding): the
+panels' colour shows under it and beside it (the home indicator, a notch held sideways). The body
+is fixed: iOS counts the status bar in `100vh`, and a page that could scroll was left shifted up by
+it after a rotation. In Safari the browser's bars keep the page clear of these areas: the insets
+are then nought.
 
 *Why*: the system's bar and the swipe are the phone's; the app's own controls stay out of them.
 Re-adding the app to the home screen is needed for iOS to take a change of these.

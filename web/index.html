@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <!-- Added to a phone's home screen: the app's own window, under an opaque status bar in the
-       title bar's colour (theme-color, set again by the app from its theme). No status bar style:
-       iOS 26 blurs a page drawn under it, black-translucent or not (docs/ui/touch.md#safe-areas). -->
+  <!-- Added to a phone's home screen: the app's own window, under the system's opaque status bar.
+       No status bar style: iOS 26 blurs a page drawn under it, black-translucent or not. The theme
+       colour (set again by the app from its theme) tints Safari's own bar (docs/ui/touch.md#safe-areas). -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#3a342e">
@@ -24,9 +24,6 @@
     /* The app within the screen's safe areas (a phone's notch, status bar, home indicator): the
        page around it in the title bar's colour above, the panels' elsewhere, which the app sets
        from its theme (docs/ui/touch.md#safe-areas). */
-    /* The document's own ground, under the body: in the title bar's colour, which iOS gives the
-       opaque status bar of a phone's web app (it ignores theme-color there). */
-    html { background: var(--skraft-top, #3a342e); }
     /* Fixed: the page never scrolls, not even by the status bar's height iOS counts in 100vh,
        which left it shifted up after a rotation. */
     body { position: fixed; inset: 0; height: auto; box-sizing: border-box;
