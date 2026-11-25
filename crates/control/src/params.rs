@@ -481,6 +481,12 @@ pub struct UiTouchParams {
     pub fingers: Vec<UiFinger>,
     /// The moves in between (default 8; 0: a tap).
     pub steps: Option<usize>,
+    /// Put the fingers down first (default); false: they are down already, from a call that did
+    /// not lift them, and go on from `from`.
+    pub press: Option<bool>,
+    /// Lift them at the end (default); false: they stay down, for a screenshot or a long press,
+    /// till a call with `press` false.
+    pub lift: Option<bool>,
 }
 
 /// One finger of `ui.touch`: down at `from`, moved to `to` (default: stays), lifted.

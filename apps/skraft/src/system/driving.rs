@@ -278,7 +278,7 @@ pub fn drag(
 /// they all move in `steps` together, then lift in the reverse order, the first one last. The
 /// first finger also moves and presses the pointer, as egui-winit and eframe's web runner
 /// emulate it — the viewport has to tell that pointer from a mouse's.
-pub fn touch(fingers: &[(egui::Pos2, egui::Pos2)], steps: usize) -> Vec<(Vec<egui::Event>, egui::Modifiers)> {
+pub fn touch(fingers: &[(egui::Pos2, egui::Pos2)], steps: usize, press: bool, lift: bool) -> Vec<(Vec<egui::Event>, egui::Modifiers)> {
     let none = egui::Modifiers::NONE;
     let at = |i: usize, k: usize| {
         let (from, to) = fingers[i];
@@ -293,7 +293,7 @@ pub fn touch(fingers: &[(egui::Pos2, egui::Pos2)], steps: usize) -> Vec<(Vec<egu
     };
     let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: none };
     let mut frames = Vec::new();
-    for (i, &(from, _)) in fingers.iter().enumerate() {
+    for (i, &(from, _)) in fingers.iter().enumerate().filter(|_| press) {
         let mut events = vec![touch(i, egui::TouchPhase::Start, from)];
         if i == 0 {
             events.extend([egui::Event::PointerMoved(from), button(from, true)]);
@@ -307,7 +307,7 @@ pub fn touch(fingers: &[(egui::Pos2, egui::Pos2)], steps: usize) -> Vec<(Vec<egu
         }
         frames.push((events, none));
     }
-    for i in (0..fingers.len()).rev() {
+    for i in (0..fingers.len()).rev().filter(|_| lift) {
         let end = at(i, steps);
         let mut events = vec![touch(i, egui::TouchPhase::End, end)];
         if i == 0 {
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn a_touch_presses_the_pointer_with_its_first_finger_only() {
         let (a, b) = (egui::pos2(0.0, 0.0), egui::pos2(10.0, 0.0));
-        let frames = touch(&[(a, a + egui::vec2(0.0, 5.0)), (b, b)], 2);
+        let frames = touch(&[(a, a + egui::vec2(0.0, 5.0)), (b, b)], 2, true, true);
         // Down one after the other, two moves, lifted the second first.
         assert_eq!(frames.len(), 2 + 2 + 2);
         let presses: Vec<(usize, bool)> = frames
@@ -379,6 +379,10 @@ mod tests {
             |i: usize| frames[i].0.iter().filter(|e| matches!(e, egui::Event::Touch { phase: egui::TouchPhase::Start, .. })).count();
         assert_eq!((starts(0), starts(1)), (1, 1));
         assert!(matches!(frames[5].0.last(), Some(egui::Event::PointerGone)));
+        // Held, then lifted by a second call: the two halves of the same touch.
+        let held = touch(&[(a, b)], 2, true, false);
+        let lifted = touch(&[(b, b)], 0, false, true);
+        assert_eq!((held.len(), lifted.len()), (1 + 2, 1));
     }
 
     #[test]

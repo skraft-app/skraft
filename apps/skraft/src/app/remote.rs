@@ -123,7 +123,8 @@ impl SkraftApp {
                         Ok((from, f.to.as_ref().map(|t| self.ui_where(t)).transpose()?.unwrap_or(from)))
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
-                Ok(crate::system::driving::touch(&fingers, p.steps.unwrap_or(8).min(1000)))
+                let (press, lift) = (p.press.unwrap_or(true), p.lift.unwrap_or(true));
+                Ok(crate::system::driving::touch(&fingers, p.steps.unwrap_or(8).min(1000), press, lift))
             }),
             "ui.key" => call.params::<UiKeyParams>().and_then(|p| {
                 let key = egui::Key::from_name(&p.key)

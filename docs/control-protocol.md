@@ -115,7 +115,8 @@ and tasks, serialisable): an operation's job that failed, a recipe that skipped 
 for one edge), `ui.text`, `ui.scroll` — each at `where`: a window point (`pos`), a handle's
 centre (`handle`) or a world point's pixel in the viewport (`at`), with `button` and `mods`
 (`shift`, `ctrl`, `alt`, `command`). `ui.touch` puts `fingers` down (each its `from` and `to`,
-`steps` in between, 0 a tap) as a touch screen gives them ([Touch screens](ui/touch.md)). They are egui events queued one frame at a time
+`steps` in between, 0 a tap; `lift` false keeps them down, `press` false goes on with fingers
+kept down) as a touch screen gives them ([Touch screens](ui/touch.md)). They are egui events queued one frame at a time
 (`apps/skraft/src/system/driving.rs`, one pointer event per frame, as SolidCraft; `raw_input_hook`
 feeds them, the modifiers as `ModifiersChanged` events, egui 0.37 having no modifiers in
 `RawInput`) and answered at the frame after the last one, once the widgets took them in; the
