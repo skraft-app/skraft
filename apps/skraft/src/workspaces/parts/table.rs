@@ -179,8 +179,10 @@ fn lit(editor: &Editor, row: &Row) -> bool {
 
 const ROW_HEIGHT: f32 = 22.0;
 
-/// The parts list of the shown document, filling `ui`.
-pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, actions: &mut Vec<Action>) {
+/// The parts list of the shown document, filling `ui`. With `sideways` (a phone's,
+/// docs/ui/touch.md), or narrower than its columns, at least as wide as them, the whole table
+/// scrolled both ways (its header then scrolled too).
+pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sideways: bool, actions: &mut Vec<Action>) {
     let units = editor.document().settings().units.clone();
     let mut sort = state.sort;
     let rows = state.rows(editor);
@@ -196,83 +198,102 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, action
     // A header's room: its text and the sort's chevron.
     let dim_width = |c: Column| numbers.max(width(c.header(&units)) + 16.0).max(64.0) + 12.0;
     let dim_widths = [Column::Length, Column::Width, Column::Thickness].map(dim_width);
-    let mut table = TableBuilder::new(ui)
-        .striped(true)
-        .resizable(false)
-        .sense(Sense::click())
-        .cell_layout(Layout::left_to_right(Align::Center))
-        .column(TableColumn::remainder().at_least(120.0).clip(true))
-        .column(TableColumn::initial(130.0).at_least(80.0).clip(true));
-    for w in dim_widths {
-        table = table.column(TableColumn::exact(w));
-    }
-    table = table.column(TableColumn::exact(56.0));
-    table
-        .header(ROW_HEIGHT + 2.0, |mut header| {
-            for c in Column::ALL {
-                header.col(|ui| {
-                    let layout = if c.numeric() { Layout::right_to_left(Align::Center) } else { Layout::left_to_right(Align::Center) };
-                    ui.with_layout(layout, |ui| {
-                        let shown = sort.column == c;
-                        let ink = if shown { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
-                        let label = egui::Label::new(egui::RichText::new(c.header(&units)).color(ink).strong())
-                            .sense(Sense::click())
-                            .selectable(false);
-                        let response = ui.add(label);
-                        crate::kit::handles::publish(|| format!("parts_list_header:{c:?}").to_lowercase(), response.rect);
-                        if shown {
-                            let (rect, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                            // Up: ascending.
-                            let angle = if sort.ascending { std::f32::consts::PI } else { 0.0 };
-                            crate::kit::icons::chevron(ui, rect.center(), 10.0, ink, angle);
+    // The columns' least widths: the name's, the material's, the dimensions', the quantity's.
+    let least = 120.0 + 80.0 + dim_widths.iter().sum::<f32>() + 56.0 + 5.0 * ui.spacing().item_spacing.x;
+    let sideways = sideways || ui.available_width() < least;
+    let mut draw = |ui: &mut egui::Ui| {
+        let mut table = TableBuilder::new(ui)
+            .vscroll(!sideways)
+            // Sideways, the drag of a finger is the outer area's.
+            .drag_to_scroll(if sideways { egui::scroll_area::DragScroll::Never } else { egui::scroll_area::DragScroll::OnTouch })
+            .striped(true)
+            .resizable(false)
+            .sense(Sense::click())
+            .cell_layout(Layout::left_to_right(Align::Center))
+            .column(TableColumn::remainder().at_least(120.0).clip(true))
+            .column(TableColumn::initial(130.0).at_least(80.0).clip(true));
+        for w in dim_widths {
+            table = table.column(TableColumn::exact(w));
+        }
+        table = table.column(TableColumn::exact(56.0));
+        table
+            .header(ROW_HEIGHT + 2.0, |mut header| {
+                for c in Column::ALL {
+                    header.col(|ui| {
+                        let layout = if c.numeric() { Layout::right_to_left(Align::Center) } else { Layout::left_to_right(Align::Center) };
+                        ui.with_layout(layout, |ui| {
+                            let shown = sort.column == c;
+                            let ink = if shown { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
+                            let label = egui::Label::new(egui::RichText::new(c.header(&units)).color(ink).strong())
+                                .sense(Sense::click())
+                                .selectable(false);
+                            let response = ui.add(label);
+                            crate::kit::handles::publish(|| format!("parts_list_header:{c:?}").to_lowercase(), response.rect);
+                            if shown {
+                                let (rect, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                                // Up: ascending.
+                                let angle = if sort.ascending { std::f32::consts::PI } else { 0.0 };
+                                crate::kit::icons::chevron(ui, rect.center(), 10.0, ink, angle);
+                            }
+                            if response.clicked() {
+                                sort = if shown {
+                                    Sort { ascending: !sort.ascending, ..sort }
+                                } else {
+                                    Sort { column: c, ascending: !c.numeric() }
+                                };
+                            }
+                        });
+                    });
+                }
+            })
+            .body(|body| {
+                body.rows(ROW_HEIGHT, rows.len(), |mut row| {
+                    let r = &rows[row.index()];
+                    row.set_selected(lit(editor, r));
+                    let dim = |k: usize| r.dims.map_or_else(|| "—".to_owned(), |d| length(d[k]));
+                    let right = |ui: &mut egui::Ui, text: String| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.add(egui::Label::new(text).selectable(false)));
+                    };
+                    row.col(|ui| {
+                        ui.add(egui::Label::new(&r.name).selectable(false).truncate());
+                    });
+                    row.col(|ui| match &r.material_name {
+                        Some(m) => {
+                            ui.add(egui::Label::new(m).selectable(false).truncate());
                         }
-                        if response.clicked() {
-                            sort = if shown {
-                                Sort { ascending: !sort.ascending, ..sort }
-                            } else {
-                                Sort { column: c, ascending: !c.numeric() }
-                            };
+                        None => {
+                            ui.add(egui::Label::new(egui::RichText::new(t!("panel.materials.none")).weak()).selectable(false));
                         }
                     });
-                });
-            }
-        })
-        .body(|body| {
-            body.rows(ROW_HEIGHT, rows.len(), |mut row| {
-                let r = &rows[row.index()];
-                row.set_selected(lit(editor, r));
-                let dim = |k: usize| r.dims.map_or_else(|| "—".to_owned(), |d| length(d[k]));
-                let right = |ui: &mut egui::Ui, text: String| {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.add(egui::Label::new(text).selectable(false)));
-                };
-                row.col(|ui| {
-                    ui.add(egui::Label::new(&r.name).selectable(false).truncate());
-                });
-                row.col(|ui| match &r.material_name {
-                    Some(m) => {
-                        ui.add(egui::Label::new(m).selectable(false).truncate());
-                    }
-                    None => {
-                        ui.add(egui::Label::new(egui::RichText::new(t!("panel.materials.none")).weak()).selectable(false));
+                    row.col(|ui| right(ui, dim(0)));
+                    row.col(|ui| right(ui, dim(1)));
+                    row.col(|ui| right(ui, dim(2)));
+                    row.col(|ui| right(ui, r.quantity().to_string()));
+                    let response = row.response();
+                    crate::kit::handles::publish(
+                        || match r.material {
+                            Some(m) => format!("parts_list_row:{}:{}", r.part.0, m.0),
+                            None => format!("parts_list_row:{}", r.part.0),
+                        },
+                        response.rect,
+                    );
+                    if response.clicked() {
+                        actions.push(Action::SelectParts(r.paths.clone()));
                     }
                 });
-                row.col(|ui| right(ui, dim(0)));
-                row.col(|ui| right(ui, dim(1)));
-                row.col(|ui| right(ui, dim(2)));
-                row.col(|ui| right(ui, r.quantity().to_string()));
-                let response = row.response();
-                crate::kit::handles::publish(
-                    || match r.material {
-                        Some(m) => format!("parts_list_row:{}:{}", r.part.0, m.0),
-                        None => format!("parts_list_row:{}", r.part.0),
-                    },
-                    response.rect,
-                );
-                if response.clicked() {
-                    actions.push(Action::SelectParts(r.paths.clone()));
-                }
             });
+    };
+    // Narrower than its columns (a phone's): the whole table scrolled both ways, the drag of a
+    // finger reaching it (a table's own scroll would take it).
+    if sideways {
+        let area = egui::ScrollArea::both().id_salt("parts_list_sideways").auto_shrink(false);
+        area.scroll_source(egui::scroll_area::ScrollSource::ALL).show(ui, |ui| {
+            ui.set_width(least.max(ui.available_width()));
+            draw(ui)
         });
+    } else {
+        draw(ui);
+    }
     state.sort = sort;
 }
 

@@ -2,7 +2,7 @@
 
 use skraft_i18n::t;
 use skraft_model::{Scope, Sign, Units};
-use skraft_tools::{Editor, OptionValue, ToolKind, ToolOption};
+use skraft_tools::{Editor, Key, OptionValue, ToolKind, ToolOption};
 
 use crate::commands::Action;
 use crate::kit::style::Tip;
@@ -63,11 +63,15 @@ fn shows_body_sign(editor: &Editor) -> bool {
 
 /// A group's name before its buttons, after a separator but for the first of its card: grey, a
 /// caption — its buttons are what the eye looks for.
+/// Centred on the buttons' height whatever the row did before (docs/ui/interface.md#widgets).
 fn option_group(ui: &mut egui::Ui, first: &mut bool, label: &str, tip: &str) {
     if !std::mem::take(first) {
         ui.separator();
     }
-    ui.label(egui::RichText::new(label).color(ui.visuals().weak_text_color())).tip(tip);
+    let text = egui::RichText::new(label).color(ui.visuals().weak_text_color());
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let width = ui.painter().layout_no_wrap(label.to_owned(), font, egui::Color32::PLACEHOLDER).size().x;
+    ui.add_sized(egui::vec2(width, OPTION_HEIGHT), egui::Label::new(text)).tip(tip);
 }
 
 /// The context card (docs/ui/interface.md#context-card), left of the tool's: what a pick takes
@@ -125,6 +129,70 @@ pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Act
             }
         }
     });
+}
+
+/// What of the keyboard a finger finds in the tool's card (docs/ui/touch.md#modifiers): with the
+/// select tool, Shift (add or take away); with Move and Rotate, Shift, the copy and the axes; with
+/// the drawing and measuring tools, Shift and the axes.
+fn touch_keys_of(kind: ToolKind) -> (bool, bool, bool) {
+    match kind {
+        ToolKind::Select => (true, false, false),
+        ToolKind::Move | ToolKind::Rotate => (true, true, true),
+        ToolKind::Erase | ToolKind::Paint | ToolKind::Sample | ToolKind::Section | ToolKind::Boolean(_) => (false, false, false),
+        _ => (true, false, true),
+    }
+}
+
+/// Does the tool's card show keys under a finger?
+pub fn has_touch_keys(editor: &Editor) -> bool {
+    let (shift, copy, axes) = touch_keys_of(editor.tool_kind());
+    shift || copy || axes
+}
+
+/// The keyboard under a finger (docs/ui/touch.md#modifiers): Shift as a toggle held till the
+/// operation ends, the copy as its key tapped (the tool's own toggle), the axes as the arrows.
+pub fn touch_keys(ui: &mut egui::Ui, editor: &Editor, latched: &super::Latched, first: &mut bool, actions: &mut Vec<Action>) {
+    let kind = editor.tool_kind();
+    let (shift, copy, axes) = touch_keys_of(kind);
+    if !(shift || copy || axes) {
+        return;
+    }
+    option_group(ui, first, &t!("option_bar.touch.keys"), &t!("option_bar.touch.keys_tip"));
+    if shift {
+        let (label, tip) = if kind == ToolKind::Select {
+            (t!("option_bar.touch.add"), t!("option_bar.touch.add_tip"))
+        } else {
+            (t!("option_bar.touch.shift"), t!("option_bar.touch.shift_tip"))
+        };
+        if option_button(ui, "option:touch:shift", latched.shift, &label, &tip, None, None) {
+            actions.push(Action::LatchShift);
+        }
+    }
+    if copy
+        && option_button(
+            ui,
+            "option:touch:copy",
+            editor.tool_copying(),
+            &t!("option_bar.touch.copy"),
+            &t!("option_bar.touch.copy_tip"),
+            None,
+            None,
+        )
+    {
+        actions.push(Action::ToolKey(Key::Copy));
+    }
+    if axes {
+        let lock = editor.axis_lock();
+        for (k, key, label, tip) in [
+            (0, Key::Right, t!("option_bar.touch.x"), t!("option_bar.touch.x_tip")),
+            (1, Key::Left, t!("option_bar.touch.y"), t!("option_bar.touch.y_tip")),
+            (2, Key::Up, t!("option_bar.touch.z"), t!("option_bar.touch.z_tip")),
+        ] {
+            if option_button(ui, &format!("option:touch:axis:{k}"), lock == Some(k), &label, &tip, None, None) {
+                actions.push(Action::ToolKey(key));
+            }
+        }
+    }
 }
 
 /// The active tool's card (docs/ui/interface.md): its choices, each a segmented control after

@@ -301,8 +301,10 @@ const BUTTON_MIN_WIDTH: f32 = 50.0;
 const BUTTON_MAX_WIDTH: f32 = 74.0;
 const COMPACT_WIDTH: f32 = 34.0;
 const ICON: f32 = 24.0;
-/// How wide the cell that picks the workspace is; the ribbon starts with it.
+/// How wide the cell that picks the workspace is; the ribbon starts with it. Narrow: its icon
+/// alone.
 const WORKSPACE_WIDTH: f32 = 92.0;
+const WORKSPACE_NARROW_WIDTH: f32 = 44.0;
 /// The workspace's icon in its cell, and the gap between it and its name.
 const WORKSPACE_ICON: f32 = 28.0;
 const WORKSPACE_ICON_GAP: f32 = 4.0;
@@ -317,9 +319,19 @@ pub struct View<'a> {
     pub workspace: &'static Workspace,
     pub prefs: &'a Prefs,
     pub views: &'a [CommandView],
+    /// The width seen of a ribbon wider than that, scrolled sideways (a phone's strip,
+    /// docs/ui/touch.md): its tabs are centred on what is seen first.
+    pub seen: Option<f32>,
+    /// The workspace's cell as its icon alone (a phone's strip): its name is in its menu.
+    pub narrow: bool,
 }
 
 impl View<'_> {
+    /// The workspace's cell's width.
+    fn cell_width(&self) -> f32 {
+        if self.narrow { WORKSPACE_NARROW_WIDTH } else { WORKSPACE_WIDTH }
+    }
+
     fn command(&self, id: &str) -> Option<&CommandView> {
         self.views.iter().find(|v| v.id == id)
     }
@@ -343,14 +355,17 @@ fn workspace_cell(ui: &mut egui::Ui, v: &View, rect: Rect, inset: egui::Margin, 
         ui.painter().rect_filled(full, corners, ui.style().interact(&response).weak_bg_fill);
     }
     let ink = ui.visuals().text_color();
-    let label = ui.painter().layout_no_wrap((current.label)(), FontId::proportional(12.5), ink);
+    // Narrow, its icon alone: its name is its menu's.
+    let label = (!v.narrow).then(|| ui.painter().layout_no_wrap((current.label)(), FontId::proportional(12.5), ink));
     let line = rect.bottom() - GROUP_LABEL_HEIGHT;
-    let block = WORKSPACE_ICON + WORKSPACE_ICON_GAP + label.size().y;
+    let block = WORKSPACE_ICON + label.as_ref().map_or(0.0, |l| WORKSPACE_ICON_GAP + l.size().y);
     let top = (full.top() + line - block) / 2.0;
     let icon = Rect::from_min_size(pos2(full.center().x - WORKSPACE_ICON / 2.0, top), vec2(WORKSPACE_ICON, WORKSPACE_ICON));
     egui::Image::new(current.icon.clone()).tint(ink).paint_at(ui, icon);
-    let at = pos2(full.center().x - label.size().x / 2.0, icon.bottom() + WORKSPACE_ICON_GAP);
-    ui.painter().galley(at, label, ink);
+    if let Some(label) = label {
+        let at = pos2(full.center().x - label.size().x / 2.0, icon.bottom() + WORKSPACE_ICON_GAP);
+        ui.painter().galley(at, label, ink);
+    }
     // As a group label's chevron: weak, the text's colour when hovered.
     let chevron_ink = if hovered { ink } else { ui.visuals().weak_text_color() };
     chevron(ui, pos2(full.center().x, line + GROUP_LABEL_HEIGHT / 2.0), chevron_ink);
@@ -436,11 +451,11 @@ fn tab_font() -> FontId {
 }
 
 /// `inset`: the card's inner margin, which the band spans to reach the card's edges.
-fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
+fn tab_row(ui: &mut egui::Ui, w: &Workspace, tab: &Tab, width: f32, seen: f32, inset: egui::Margin, actions: &mut Vec<Action>) {
     let labels: Vec<String> = w.tabs.iter().map(|t| (t.label)()).collect();
     let shown = w.tabs.iter().position(|t| t.id == tab.id);
     let ids: Vec<_> = w.tabs.iter().map(|t| egui::Id::unique(("ribbon_tab", t.id))).collect();
-    if let Some(k) = tab_strip(ui, &labels, &ids, shown, width, inset, Corners::RoundRight, &[]) {
+    if let Some(k) = tabs_seen(ui, &labels, &ids, shown, (width, seen), inset, Corners::RoundRight, &[]) {
         actions.push(Action::Ribbon(Change::Tab(w.tabs[k].id)));
     }
 }
@@ -470,6 +485,22 @@ pub fn tab_strip(
     corners: Corners,
     handles: &[&'static str],
 ) -> Option<usize> {
+    tabs_seen(ui, labels, ids, shown, (width, width), inset, corners, handles)
+}
+
+/// A [`tab_strip`] `width.0` wide whose tabs are centred on its first `width.1`, what is seen of
+/// it.
+#[allow(clippy::too_many_arguments)]
+fn tabs_seen(
+    ui: &mut egui::Ui,
+    labels: &[String],
+    ids: &[egui::Id],
+    shown: Option<usize>,
+    (width, seen): (f32, f32),
+    inset: egui::Margin,
+    corners: Corners,
+    handles: &[&'static str],
+) -> Option<usize> {
     let (row, _) = ui.allocate_exact_size(vec2(width, TAB_ROW_HEIGHT), Sense::hover());
     let visuals = ui.visuals().clone();
     let band =
@@ -482,8 +513,28 @@ pub fn tab_strip(
     };
     ui.painter().rect_filled(band, egui::CornerRadius { nw, ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
-    // Centered on the card; from its left edge when narrower than the tabs.
-    let mut x = (row.center().x - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::window::tabs::TAB_RADIUS);
+    // Wider than the row (a phone's window): the tabs scroll sideways under a finger, a wheel or
+    // a trackpad, faded at the ends that hide some, the shown one brought into view when it
+    // changes (docs/ui/touch.md). The band stays as it is: only the tabs move.
+    let radius = crate::window::tabs::TAB_RADIUS;
+    let natural = tab_labels_width(ui.painter(), labels);
+    let overflow = (natural - (width - 2.0 * radius)).max(0.0);
+    let scroll_id = ids.first().map_or(egui::Id::NULL, |id| id.with("tabs_scroll"));
+    let (mut offset, was_shown) = ui.data(|d| d.get_temp::<(f32, Option<usize>)>(scroll_id)).unwrap_or((0.0, None));
+    let clip = Rect::from_x_y_ranges(row.x_range(), band.top()..=band.bottom());
+    if overflow > 0.0 {
+        let strip = ui.interact(clip, scroll_id.with("drag"), Sense::drag());
+        offset -= strip.drag_delta().x;
+        if strip.hovered() {
+            let d = ui.input(|i| i.smooth_scroll_delta);
+            offset -= if d.x != 0.0 { d.x } else { d.y };
+        }
+    }
+    // Centered on what is seen of the card; from its left edge when narrower than the tabs.
+    let middle = row.left() + seen.min(width) / 2.0;
+    let mut x =
+        if overflow > 0.0 { row.left() + radius - offset.clamp(0.0, overflow) } else { (middle - natural / 2.0).max(row.left() + radius) };
+    let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(if overflow > 0.0 { clip } else { ui.clip_rect() }));
     let font = tab_font();
     let mut clicked = None;
     // The shown tab drawn last: its curves over its neighbours' hover.
@@ -499,31 +550,70 @@ pub fn tab_strip(
             open = Some((label, rect));
             continue;
         }
-        let response = ui.interact(rect, ids[k], Sense::click());
+        // Only what is seen of it takes the pointer.
+        let seen_rect = if overflow > 0.0 { rect.intersect(clip) } else { rect };
+        if !seen_rect.is_positive() {
+            continue;
+        }
+        let response = ui.interact(seen_rect, ids[k], Sense::click());
         if let Some(fill) = crate::kit::widgets::veil(ui, &response) {
-            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::kit::widgets::VEIL_RADIUS, fill);
+            painter.rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::kit::widgets::VEIL_RADIUS, fill);
         }
         let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
-        ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
+        painter.text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
         if response.clicked() {
             clicked = Some(k);
         }
     }
-    // The band's edge, going round the shown tab.
+    // The band's edge, going round the shown tab — along the band where that tab is scrolled out.
     let line = visuals.widgets.noninteractive.bg_stroke;
-    match open {
+    match open.filter(|(_, rect)| overflow <= 0.0 || (rect.right() > clip.left() && rect.left() < clip.right())) {
         Some((label, rect)) => {
-            crate::window::tabs::open_tab(ui.painter(), rect, visuals.window_fill);
+            crate::window::tabs::open_tab(&painter, rect, visuals.window_fill);
             let outline = crate::window::tabs::open_tab_outline(rect, band.left(), band.right(), line.width / 2.0);
             ui.painter().add(egui::Shape::line(outline, line));
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), visuals.strong_text_color());
+            painter.text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), visuals.strong_text_color());
         }
         None => {
             ui.painter().hline(band.x_range(), band.bottom() - line.width / 2.0, line);
         }
     }
+    if overflow > 0.0 {
+        // The shown tab brought into view when it changed (a click, or set elsewhere).
+        let now_shown = clicked.or(shown);
+        if now_shown != was_shown
+            && let Some((_, rect)) = open.filter(|_| clicked.is_none())
+        {
+            offset += (rect.right() + radius - clip.right()).max(0.0) - (clip.left() + radius - rect.left()).max(0.0);
+        }
+        let offset = offset.clamp(0.0, overflow);
+        // The ends hiding tabs, faded into the band.
+        let fade = |from: f32, to: f32| {
+            let ground = visuals.faint_bg_color;
+            let clear = ground.gamma_multiply(0.0);
+            let (top, bottom) = (clip.top(), row.bottom() - line.width);
+            let mut mesh = egui::Mesh::default();
+            mesh.colored_vertex(pos2(from, top), ground);
+            mesh.colored_vertex(pos2(to, top), clear);
+            mesh.colored_vertex(pos2(to, bottom), clear);
+            mesh.colored_vertex(pos2(from, bottom), ground);
+            mesh.add_triangle(0, 1, 2);
+            mesh.add_triangle(0, 2, 3);
+            ui.painter().add(mesh);
+        };
+        if offset > 0.5 {
+            fade(clip.left(), clip.left() + TABS_FADE);
+        }
+        if offset < overflow - 0.5 {
+            fade(clip.right(), clip.right() - TABS_FADE);
+        }
+        ui.data_mut(|d| d.insert_temp(scroll_id, (offset, now_shown)));
+    }
     clicked
 }
+
+/// The width of a scrolled tab strip's fades.
+const TABS_FADE: f32 = 28.0;
 
 /// One group laid out: where it is, and how [`arrange`] placed it.
 struct Laid {
@@ -597,7 +687,7 @@ pub fn natural_width(ctx: &egui::Context, v: &View) -> f32 {
     let groups = span(&unreduced, &sizes, collapsed);
     let w = v.workspace;
     let tabs = tab_row_width(&painter, w);
-    (WORKSPACE_WIDTH + GROUP_GAP + groups.max(tabs)).ceil()
+    (v.cell_width() + GROUP_GAP + groups.max(tabs)).ceil()
 }
 
 /// The ribbon card's content, `width` wide: the workspace cell at the left, over the whole
@@ -611,13 +701,13 @@ pub fn ribbon(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, acti
     ui.set_width(width);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        let (cell, _) = ui.allocate_exact_size(vec2(WORKSPACE_WIDTH, height), Sense::hover());
+        let (cell, _) = ui.allocate_exact_size(vec2(v.cell_width(), height), Sense::hover());
         // The tab band from the separator, which is drawn over it, across the whole card.
         let band = egui::Margin { left: (GROUP_GAP / 2.0) as i8, ..inset };
         let sx = cell.right() + GROUP_GAP - band.leftf();
         workspace_cell(ui, v, cell, inset, sx, actions);
         ui.add_space(GROUP_GAP);
-        let content = (width - WORKSPACE_WIDTH - GROUP_GAP).max(0.0);
+        let content = (width - v.cell_width() - GROUP_GAP).max(0.0);
         ui.vertical(|ui| groups(ui, v, content, band, actions));
         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
         ui.painter().vline(sx, cell.top() - inset.topf()..=cell.bottom() + inset.bottomf(), stroke);
@@ -630,7 +720,9 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
     let w = v.workspace;
     let tab = v.prefs.tab(v.workspace);
     ui.set_width(width);
-    tab_row(ui, w, tab, width, inset, actions);
+    // What is seen of the groups' width, a strip scrolled sideways.
+    let seen = v.seen.map_or(width, |s| s - v.cell_width() - GROUP_GAP);
+    tab_row(ui, w, tab, width, seen, inset, actions);
     ui.add_space(TAB_GAP_BELOW);
 
     let labels = v.prefs.labels;

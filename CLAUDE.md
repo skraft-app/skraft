@@ -10,7 +10,8 @@ A simple, intuitive 3D modeller on real solids: exact B-reps computed by the Sol
   (it unifies the dependencies' features differently and rebuilds SolidCore from scratch).
 - Run the app from the debug build, `cargo run -p skraft` (`target/debug/skraft`); never
   `--release` to try something (a full rebuild).
-- Web: `scripts/build-web.sh` (into `dist/web`).
+- Web: `scripts/build-web.sh` (into `dist/web`), then `scripts/serve-web.sh` (`--https` for a
+  phone or a tablet on the local network: [docs/ui/touch.md](docs/ui/touch.md)).
 - Drive a running app: launch it with `SKRAFT_CONTROL=1` (and `SKRAFT_CONTROL_PORT` for a port
   of its own), then `scripts/control.sh <method> [json]` or the `skraft-mcp` server
   ([docs/control-protocol.md](docs/control-protocol.md)).

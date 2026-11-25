@@ -12,6 +12,8 @@ tabs have pages of their own.
 
 ## Layout
 
+On a phone's screen the window takes the compact arrangement instead: [Touch screens](touch.md#the-compact-arrangement).
+
 - Title bar at the top ([Title bar and native menus](title-bar.md)), status bar at the bottom
   with the measurements box (VCB) on the right; in between, the **3D view takes the whole
   width** and the panels **float over it** (anchored cards): **the ribbon at the top**, the
@@ -41,7 +43,7 @@ tabs have pages of their own.
   rendering is submitted during `update`, before egui paints.
 - Wheel ("line" units) = zoom; trackpad scroll ("point" units) = orbit, Shift = pan (the
   navigation style's trackpad gestures, [Navigation styles](navigation-styles.md)); pinch =
-  zoom. Browsers report wheel and trackpad both in pixels: `web/wheel.js` tells them apart, by
+  zoom; fingers on a touch screen: [Touch screens](touch.md). Browsers report wheel and trackpad both in pixels: `web/wheel.js` tells them apart, by
   `wheelDeltaY` in Chrome, by how a gesture starts in Safari (a wheel's first event is exactly
   4 px), and hands a wheel on in lines. Copy modifier: Option on macOS, Ctrl elsewhere (short
   tap = toggle, [Interaction](../tools/interaction.md)).

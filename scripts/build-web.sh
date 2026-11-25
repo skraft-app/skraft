@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the browser version into dist/web (serve that folder, e.g. `python3 -m http.server -d dist/web`):
+# Builds the browser version into dist/web (served by scripts/serve-web.sh):
 # the UI's wasm in pkg/, the kernel's in worker/ with the script that runs it in a web worker
 # (docs/model/kernel.md).
 #
@@ -27,15 +27,22 @@ package() {
   echo "$source" > "$stamp"
 }
 
+# The build's stamp, shown under the loading bar and in « À propos » (docs/ui/touch.md): the
+# commit, then `+` and a digest of the changes not committed — which page and which wasm run.
+stamp="$(git rev-parse --short HEAD)"
+if ! git diff --quiet HEAD; then stamp="$stamp+$(git diff HEAD | shasum | cut -c1-6)"; fi
+export SKRAFT_WEB_BUILD="$stamp"
+
 package skraft apps/skraft skraft pkg
 package skraft-kernel-worker apps/kernel-worker skraft_kernel_worker worker
 cp web/kernel-worker.js web/image-worker.js web/wheel.js web/favicon.svg dist/web/
 # The loading screen's progress needs the decompressed sizes.
 sed -e "s/__UI_WASM_BYTES__/$(wc -c < dist/web/pkg/skraft_bg.wasm | tr -d ' ')/" \
     -e "s/__KERNEL_WASM_BYTES__/$(wc -c < dist/web/worker/skraft_kernel_worker_bg.wasm | tr -d ' ')/" \
+    -e "s/__BUILD__/$stamp/" \
     web/index.html > dist/web/index.html
 # What the « À propos » window links to (docs/ui/interface.md#about); cargo-about is slow to run.
 if [ "$profile" != "dev" ]; then
   scripts/third-party-licenses.sh dist/web/THIRD-PARTY-LICENSES.txt > /dev/null
 fi
-echo "dist/web prêt : python3 -m http.server 8080 -d dist/web  →  http://localhost:8080"
+echo "dist/web prêt : scripts/serve-web.sh  →  http://localhost:8080 (--https : un téléphone, une tablette)"

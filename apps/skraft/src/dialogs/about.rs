@@ -53,13 +53,16 @@ fn credits() -> [(&'static str, &'static str, String, &'static str); 7] {
     ]
 }
 
-/// The credits' table, its three columns of fixed widths.
+/// The credits' table, its three columns of fixed widths; in a window too narrow for them (a
+/// phone's, docs/ui/touch.md), without the licenses', which the links under it give.
 fn credits_table(ui: &mut egui::Ui) {
     const COLUMNS: [f32; 3] = [96.0, 136.0, 124.0];
     const GAP: f32 = 12.0;
-    let width = COLUMNS.iter().sum::<f32>() + 2.0 * GAP;
+    let all = COLUMNS.iter().sum::<f32>() + 2.0 * GAP;
+    let count = if all <= ui.available_width() { 3 } else { 2 };
+    let width = COLUMNS[..count].iter().sum::<f32>() + (count - 1) as f32 * GAP;
     ui.allocate_ui_with_layout(egui::vec2(width, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
-        egui::Grid::new("about_credits").num_columns(3).spacing([GAP, 3.0]).show(ui, |ui| {
+        egui::Grid::new("about_credits").num_columns(count).spacing([GAP, 3.0]).show(ui, |ui| {
             for (name, url, role, license) in credits() {
                 ui.scope(|ui| {
                     ui.set_min_width(COLUMNS[0]);
@@ -69,10 +72,12 @@ fn credits_table(ui: &mut egui::Ui) {
                     ui.set_min_width(COLUMNS[1]);
                     ui.label(role);
                 });
-                ui.scope(|ui| {
-                    ui.set_min_width(COLUMNS[2]);
-                    ui.weak(license);
-                });
+                if count == 3 {
+                    ui.scope(|ui| {
+                        ui.set_min_width(COLUMNS[2]);
+                        ui.weak(license);
+                    });
+                }
                 ui.end_row();
             }
         });
@@ -86,10 +91,19 @@ fn links_row(ui: &mut egui::Ui) {
     let measure = |text: &str| ui.painter().layout_no_wrap(text.to_owned(), font.clone(), egui::Color32::PLACEHOLDER).size();
     let dot = measure(" · ");
     let width = measure(&license).x + measure(&notices).x + measure(&source).x + 2.0 * dot.x;
-    ui.allocate_ui_with_layout(egui::vec2(width, dot.y), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+    // Too wide for one line (a phone's): one link under the other.
+    let (size, layout) = if width <= ui.available_width() {
+        (egui::vec2(width, dot.y), egui::Layout::left_to_right(egui::Align::Center))
+    } else {
+        (egui::vec2(ui.available_width(), 3.0 * dot.y), egui::Layout::top_down(egui::Align::Center))
+    };
+    let narrow = width > ui.available_width();
+    ui.allocate_ui_with_layout(size, layout, |ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         link(ui, license, license_url());
-        ui.weak(" · ");
+        if !narrow {
+            ui.weak(" · ");
+        }
         #[cfg(target_arch = "wasm32")]
         link(ui, notices, "THIRD-PARTY-LICENSES.txt".to_owned());
         #[cfg(not(target_arch = "wasm32"))]
@@ -99,7 +113,9 @@ fn links_row(ui: &mut egui::Ui) {
                 None => crate::app::open_url(ui.ctx(), notices_url()),
             }
         }
-        ui.weak(" · ");
+        if !narrow {
+            ui.weak(" · ");
+        }
         link(ui, source, source_url());
     });
 }
@@ -110,17 +126,18 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
     if !*open {
         return check_updates;
     }
-    egui::Window::new(t!("menu.app.about", app = t!("start.title")))
+    let window = egui::Window::new(t!("menu.app.about", app = t!("start.title")))
         .id(egui::Id::unique("about"))
         .title_frame(crate::kit::style::window_title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)
-        .default_width(420.0)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .show(ctx, |ui| {
-            ui.set_width(420.0);
+        .default_width(crate::kit::style::window_width(ctx, 420.0))
+        .max_width(crate::kit::style::window_width(ctx, f32::INFINITY))
+        .pivot(egui::Align2::CENTER_CENTER);
+    crate::kit::style::window_at(window, ctx, ctx.content_rect().center()).show(ctx, |ui| {
+        crate::kit::style::window_body(ui, |ui| {
+            ui.set_width(ui.available_width().min(420.0));
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
                 // The app's mark: its tile fills 824 of the icon's 1024 units.
@@ -132,6 +149,11 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.add_space(10.0);
                 ui.heading(egui::RichText::new(t!("start.title")).size(22.0).strong());
                 ui.weak(t!("about.version", version = VERSION));
+                // A web build's stamp (scripts/build-web.sh): which wasm runs, beside the page's
+                // under the loading bar.
+                if let Some(stamp) = option_env!("SKRAFT_WEB_BUILD") {
+                    ui.small(egui::RichText::new(stamp).monospace().weak());
+                }
                 // The check for a new version (docs/ui/updates.md; desktop): it opens its window.
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -158,7 +180,8 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 links_row(ui);
                 ui.add_space(6.0);
             });
-        });
+        })
+    });
     check_updates
 }
 

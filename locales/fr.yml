@@ -361,6 +361,15 @@ update:
   checking: "Recherche de mises à jour"
   up_to_date: "Skraft %{version} est à jour."
   failed: "Impossible de vérifier les mises à jour."
+# The compact arrangement of a phone (docs/ui/touch.md).
+compact:
+  # The entity info card's tab, short.
+  entity_info: "Infos"
+
+# The measurements box's keypad under a finger (docs/ui/touch.md#the-keypad).
+keypad:
+  enter: "Valider"
+
 start:
   title: "Skraft"
   # Under the name: what the app is.
@@ -484,6 +493,22 @@ selection_scope:
   parts: "Pièces"
   parts_tip: "Un clic prend la pièce sous le curseur, à toute profondeur, sans entrer dans ses assemblages"
 option_bar:
+  # The keyboard in the tool's card under a finger (docs/ui/touch.md#modifiers).
+  touch:
+    keys: "Touches"
+    keys_tip: "Les touches du clavier, au doigt : allumées jusqu'à la fin de l'opération"
+    shift: "Maj"
+    shift_tip: "Comme Maj tenue jusqu'à la fin de l'opération : verrouille la ligne inférée que le doigt touche ensuite"
+    add: "Ajouter"
+    add_tip: "Ajouter à la sélection ou en retirer, comme Maj tenue"
+    copy: "Copie"
+    copy_tip: "Copier au lieu de déplacer, comme la touche de copie tapée"
+    x: "X"
+    x_tip: "Verrouiller sur l'axe rouge (flèche droite)"
+    y: "Y"
+    y_tip: "Verrouiller sur l'axe vert (flèche gauche)"
+    z: "Z"
+    z_tip: "Verrouiller sur l'axe bleu (flèche haut)"
   # The context card naming the round or chamfer open (docs/tools/rounds.md).
   node_open_tip: "Le nœud ouvert : ses enfants tels quels, ses arêtes en couleur"
   node_edit: "Modifier"

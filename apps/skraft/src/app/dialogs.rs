@@ -232,7 +232,7 @@ impl SkraftApp {
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .fixed_size([600.0, 0.0])
+            .fixed_size([crate::kit::style::window_width(ctx, 600.0), 0.0])
             // Below the ribbon when a document is shown, never over it.
             .anchor(egui::Align2::CENTER_TOP, [0.0, top])
             .show(ctx, |ui| {
@@ -309,7 +309,10 @@ pub(crate) fn modal<R>(
     body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::ModalResponse<R> {
     let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(MODAL_MARGIN));
-    egui::Modal::new(id).frame(frame).show(ctx, |ui| {
+    // Narrower in a narrow window (a phone's, docs/ui/touch.md): its margins and a gap on either
+    // side.
+    let width = width.min(ctx.content_rect().width() - 2.0 * (MODAL_MARGIN as f32 + 8.0)).max(120.0);
+    egui::Modal::new(id).area(crate::kit::style::modal_area(ctx, id)).frame(frame).show(ctx, |ui| {
         ui.set_width(width);
         ui.spacing_mut().button_padding = MODAL_BUTTON_PADDING;
         ui.heading(title);

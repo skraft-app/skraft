@@ -21,59 +21,61 @@ impl SkraftApp {
         let Some(mut tab) = self.prefs_window else { return };
         let mut open = true;
         // A fixed id: the title changes with the language.
-        egui::Window::new(t!("prefs.title"))
+        let r = ctx.content_rect();
+        let window = egui::Window::new(t!("prefs.title"))
             .id(prefs_window_id())
             .title_frame(crate::kit::style::window_title_frame(ctx))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(420.0)
+            .default_width(crate::kit::style::window_width(ctx, 420.0))
+            .max_width(crate::kit::style::window_width(ctx, f32::INFINITY))
             // Pinned by its title bar: changing tabs moves only its bottom edge.
-            .pivot(egui::Align2::CENTER_TOP)
-            .default_pos({
-                let r = ctx.content_rect();
-                egui::pos2(r.center().x, r.top() + r.height() * 0.15)
+            .pivot(egui::Align2::CENTER_TOP);
+        crate::kit::style::window_at(window, ctx, egui::pos2(r.center().x, r.top() + r.height() * 0.15)).show(ctx, |ui| {
+            let workspace = self.workspace().id;
+            // The ribbon's tabs (as the journal window's), their band across the window
+            // under its title bar.
+            let mut tabs = vec![
+                (PrefsTab::General, t!("prefs.tab.general")),
+                (PrefsTab::Model, t!("prefs.tab.model")),
+                (PrefsTab::Navigation, t!("prefs.tab.navigation")),
+                (PrefsTab::Interface, t!("prefs.tab.interface")),
+                (PrefsTab::Shortcuts, t!("prefs.tab.shortcuts")),
+            ];
+            if !cfg!(target_arch = "wasm32") {
+                tabs.push((PrefsTab::Debug, t!("prefs.tab.debug")));
+            }
+            let labels: Vec<String> = tabs.iter().map(|(_, l)| l.clone()).collect();
+            let ids: Vec<egui::Id> = tabs.iter().map(|(k, _)| egui::Id::unique(("prefs_tab", *k as u8))).collect();
+            let shown = tabs.iter().position(|(k, _)| *k == tab);
+            // Up to the title bar's line: the window's margin and a spacing above the content.
+            let m = ui.style().spacing.window_margin;
+            let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
+            // The window as wide as its tabs (it takes its content's width) when the screen leaves
+            // room for them; else (a phone's) as wide as it is, the tabs scrolled. Out of the
+            // body's scroll, their band reaches the title bar and the window's sides.
+            let tabs_width = crate::window::ribbon::tab_strip_width(ui.painter(), &labels);
+            let fits = tabs_width <= crate::kit::style::window_width(ui.ctx(), f32::INFINITY);
+            let width = if fits { ui.available_width().max(tabs_width) } else { ui.available_width() };
+            if let Some(k) =
+                crate::window::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::window::ribbon::Corners::Square, &[])
+            {
+                tab = tabs[k].0;
+            }
+            ui.add_space(4.0);
+            crate::kit::style::window_body(ui, |ui| match tab {
+                PrefsTab::General => general_settings(ui, &mut self.prefs),
+                #[cfg(not(target_arch = "wasm32"))]
+                PrefsTab::Debug => self.debug_settings(ui),
+                #[cfg(target_arch = "wasm32")]
+                PrefsTab::Debug => {}
+                PrefsTab::Model => self.model_settings(ui),
+                PrefsTab::Navigation => crate::dialogs::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
+                PrefsTab::Interface => interface_settings(ui, &mut self.prefs, workspace),
+                PrefsTab::Shortcuts => self.shortcut_settings(ui),
             })
-            .show(ctx, |ui| {
-                let workspace = self.workspace().id;
-                // The ribbon's tabs (as the journal window's), their band across the window
-                // under its title bar.
-                let mut tabs = vec![
-                    (PrefsTab::General, t!("prefs.tab.general")),
-                    (PrefsTab::Model, t!("prefs.tab.model")),
-                    (PrefsTab::Navigation, t!("prefs.tab.navigation")),
-                    (PrefsTab::Interface, t!("prefs.tab.interface")),
-                    (PrefsTab::Shortcuts, t!("prefs.tab.shortcuts")),
-                ];
-                if !cfg!(target_arch = "wasm32") {
-                    tabs.push((PrefsTab::Debug, t!("prefs.tab.debug")));
-                }
-                let labels: Vec<String> = tabs.iter().map(|(_, l)| l.clone()).collect();
-                let ids: Vec<egui::Id> = tabs.iter().map(|(k, _)| egui::Id::unique(("prefs_tab", *k as u8))).collect();
-                let shown = tabs.iter().position(|(k, _)| *k == tab);
-                // Up to the title bar's line: the window's margin and a spacing above the content.
-                let m = ui.style().spacing.window_margin;
-                let inset = egui::Margin { top: m.top + ui.spacing().item_spacing.y as i8, ..m };
-                // The window as wide as its tabs at least (it takes its content's width).
-                let width = ui.available_width().max(crate::window::ribbon::tab_strip_width(ui.painter(), &labels));
-                if let Some(k) =
-                    crate::window::ribbon::tab_strip(ui, &labels, &ids, shown, width, inset, crate::window::ribbon::Corners::Square, &[])
-                {
-                    tab = tabs[k].0;
-                }
-                ui.add_space(4.0);
-                match tab {
-                    PrefsTab::General => general_settings(ui, &mut self.prefs),
-                    #[cfg(not(target_arch = "wasm32"))]
-                    PrefsTab::Debug => self.debug_settings(ui),
-                    #[cfg(target_arch = "wasm32")]
-                    PrefsTab::Debug => {}
-                    PrefsTab::Model => self.model_settings(ui),
-                    PrefsTab::Navigation => crate::dialogs::nav_prefs::navigation_settings(ui, &mut self.prefs.navigation),
-                    PrefsTab::Interface => interface_settings(ui, &mut self.prefs, workspace),
-                    PrefsTab::Shortcuts => self.shortcut_settings(ui),
-                }
-            });
+        });
         if tab != PrefsTab::Shortcuts || !open {
             self.capturing = None;
         }

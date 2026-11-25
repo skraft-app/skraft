@@ -212,6 +212,8 @@ impl Toasts {
         }
         let now = ctx.input(|i| i.time);
         let center = ctx.content_rect().center().x;
+        // Narrower in a narrow window (a phone's), its margins and a gap on either side.
+        let width = WIDTH.min(ctx.content_rect().width() - 2.0 * GAP - 22.0).max(120.0);
         let mut closed = Vec::new();
         egui::Area::new(egui::Id::unique("toasts"))
             .order(egui::Order::Foreground)
@@ -232,7 +234,7 @@ impl Toasts {
                         .corner_radius(RADIUS)
                         .inner_margin(egui::Margin { left: 12, right: 10, top: 8, bottom: 10 });
                     let r = frame.show(ui, |ui| {
-                        ui.set_width(WIDTH);
+                        ui.set_width(width);
                         // One row: the text, then its buttons at the right end, all centered on
                         // the row's height (the buttons' at least).
                         let buttons: Vec<_> = [(t.note.action.as_ref(), "action"), (t.note.also.as_deref(), "also")]
@@ -249,7 +251,7 @@ impl Toasts {
                         // A warning's sign at the left, as high as a line of the title.
                         let sign = ui.text_style_height(&egui::TextStyle::Body);
                         let indent = if t.note.level == Level::Warning { sign + gap } else { 0.0 };
-                        let room = WIDTH - indent - buttons.iter().map(|b| b.1.x + gap).sum::<f32>();
+                        let room = width - indent - buttons.iter().map(|b| b.1.x + gap).sum::<f32>();
                         // The text laid out first, to center it on the row.
                         let title = if t.count > 1 { format!("{} (×{})", t.note.title, t.count) } else { t.note.title.clone() };
                         let title = ui.painter().layout(title, egui::TextStyle::Body.resolve(ui.style()), ink, room);
@@ -260,7 +262,7 @@ impl Toasts {
                             .map(|d| ui.painter().layout(d.clone(), egui::TextStyle::Small.resolve(ui.style()), body, room));
                         let text_h = title.size().y + detail.as_ref().map_or(0.0, |d| LINE_GAP + d.size().y);
                         let row_h = buttons.iter().fold(text_h, |h, b| h.max(b.1.y));
-                        let (row, _) = ui.allocate_exact_size(egui::vec2(WIDTH, row_h), egui::Sense::hover());
+                        let (row, _) = ui.allocate_exact_size(egui::vec2(width, row_h), egui::Sense::hover());
                         let mut y = row.top() + (row_h - text_h) / 2.0;
                         if indent > 0.0 {
                             let at = egui::Rect::from_min_size(egui::pos2(row.left(), row.center().y - sign / 2.0), egui::vec2(sign, sign));

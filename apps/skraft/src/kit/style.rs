@@ -39,6 +39,60 @@ pub const CARD_MARGIN: f32 = 6.0;
 /// The room between the cards floating over the stage, and around them (points).
 pub const FLOAT_GAP: f32 = 8.0;
 
+/// A window's body: scrolled both ways when the window is smaller than it (a phone's,
+/// docs/ui/touch.md), the window itself kept within the screen by [`window_width`].
+pub fn window_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let height = ui.ctx().content_rect().height() * 0.8;
+    // Its scroll bar within the window's width: the body no wider than the title bar.
+    let width = window_width(ui.ctx(), f32::INFINITY) - ui.spacing().scroll.allocated_width();
+    egui::ScrollArea::both().id_salt("window_body").max_width(width).max_height(height).show(ui, add).inner
+}
+
+/// A window's content width: `width`, or less in a narrow window (a phone's,
+/// docs/ui/touch.md) — the window's frame and a gap on either side kept within the screen.
+pub fn window_width(ctx: &egui::Context, width: f32) -> f32 {
+    let frame = egui::Frame::window(&ctx.global_style()).total_margin().sum().x;
+    width.min(ctx.content_rect().width() - frame - 2.0 * FLOAT_GAP).max(120.0)
+}
+
+/// A screen too narrow for the windows' own sizes (a phone's, docs/ui/touch.md).
+pub fn narrow_screen(ctx: &egui::Context) -> bool {
+    ctx.content_rect().width() < 600.0
+}
+
+/// The bottom of the window's title bar, which tells it every frame: where windows and boxes go
+/// on a narrow screen.
+pub fn set_bar_bottom(ctx: &egui::Context, y: f32) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("title_bar_bottom"), y));
+}
+
+/// Where a window or a box stands on a narrow screen: its top just under the title bar, centred.
+fn under_the_bar(ctx: &egui::Context) -> egui::Pos2 {
+    let top = ctx.data(|d| d.get_temp::<f32>(egui::Id::unique("title_bar_bottom"))).unwrap_or(ctx.content_rect().top());
+    egui::pos2(ctx.content_rect().center().x, top + FLOAT_GAP)
+}
+
+/// `window` placed at `pos` (by its pivot) the first time; on a narrow screen, held just under the
+/// title bar and not to be moved — where it was left may be off the screen.
+pub fn window_at<'a>(window: egui::Window<'a>, ctx: &egui::Context, pos: egui::Pos2) -> egui::Window<'a> {
+    if narrow_screen(ctx) {
+        window.movable(false).pivot(egui::Align2::CENTER_TOP).current_pos(under_the_bar(ctx))
+    } else {
+        window.default_pos(pos)
+    }
+}
+
+/// A modal box's area: centred, or on a narrow screen just under the title bar (the system's
+/// keyboard rises from the bottom).
+pub fn modal_area(ctx: &egui::Context, id: egui::Id) -> egui::Area {
+    let area = egui::Modal::default_area(id);
+    if !narrow_screen(ctx) {
+        return area;
+    }
+    let below = under_the_bar(ctx).y - ctx.content_rect().top();
+    area.anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, below))
+}
+
 /// The frame of a panel's card.
 pub fn card_frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style).inner_margin(CARD_MARGIN)

@@ -529,6 +529,20 @@ fn the_shape_at_the_cursor_hides_when_it_leaves_the_view() {
 }
 
 #[test]
+fn the_part_under_the_cursor_is_let_go_when_it_leaves_the_view() {
+    // A finger lifted leaves the view as a cursor gone over a panel (docs/ui/touch.md).
+    let mut e = top_editor(Document::new());
+    draw_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 0.0), "150");
+    e.set_tool(ToolKind::Select);
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(150.0, 100.0, 150.0)) });
+    let p = e.preview();
+    assert!(p.hover.is_some() || p.hover_solid.is_some());
+    e.leave();
+    let p = e.preview();
+    assert!(p.hover.is_none() && p.hover_solid.is_none() && p.hover_guide.is_none());
+}
+
+#[test]
 fn the_height_takes_the_last_one_the_next_face_or_both_sides() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();

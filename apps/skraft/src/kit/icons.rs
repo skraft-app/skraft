@@ -99,6 +99,7 @@ icon!(EXPORT, "export");
 icon!(IMPORT, "import");
 icon!(OPEN, "open");
 icon!(MORE, "more");
+icon!(MENU, "menu");
 icon!(WARNING, "warning");
 icon!(CHEVRON_DOWN, "chevron_down");
 icon!(TILES, "tiles");

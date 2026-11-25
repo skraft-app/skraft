@@ -49,7 +49,7 @@ Decision record: [One control protocol, several transports](decisions/0020-contr
 | `tool.*` | `state` (tool, status, busy, revision, copying, the [cursor](ui/cursors.md), the VCB's label and value shown, takes typing, axis and face locks, options with their choices, selection, the last inference, the preview's `drawing`), `input` (a list of inputs, below) | yes |
 | `view.*` | `camera` (read; set: `perspective`, `view` — a standard view —, `eye` + `target`, `fov_deg` or `height`, `fit`), `project` (world points → pixels, and whether each is in view), `pick` (pixels or world points → path, part, name, B-rep face, point, normal, distance) | yes (a virtual viewport) |
 | `journal.*` | `log`, `failures`, `record` (below) | yes |
-| `ui.*` | real egui events (`click`, `move`, `drag`, `key`, `text`, `scroll`), `handles`, `screenshot` (the whole window, PNG), `messages` (the status bar's) | no: the window |
+| `ui.*` | real egui events (`click`, `move`, `drag`, `touch`, `key`, `text`, `scroll`), `handles`, `screenshot` (the whole window, PNG), `messages` (the status bar's) | no: the window |
 
 ### Tool input and the view
 
@@ -114,7 +114,9 @@ and tasks, serialisable): an operation's job that failed, a recipe that skipped 
 `ui.click` (`double`), `ui.move`, `ui.drag` (`steps`), `ui.key` (egui's key names, `pressed`
 for one edge), `ui.text`, `ui.scroll` — each at `where`: a window point (`pos`), a handle's
 centre (`handle`) or a world point's pixel in the viewport (`at`), with `button` and `mods`
-(`shift`, `ctrl`, `alt`, `command`). They are egui events queued one frame at a time
+(`shift`, `ctrl`, `alt`, `command`). `ui.touch` puts `fingers` down (each its `from` and `to`,
+`steps` in between, 0 a tap; `lift` false keeps them down, `press` false goes on with fingers
+kept down) as a touch screen gives them ([Touch screens](ui/touch.md)). They are egui events queued one frame at a time
 (`apps/skraft/src/system/driving.rs`, one pointer event per frame, as SolidCraft; `raw_input_hook`
 feeds them, the modifiers as `ModifiersChanged` events, egui 0.37 having no modifiers in
 `RawInput`) and answered at the frame after the last one, once the widgets took them in; the

@@ -9,4 +9,5 @@ pub(crate) mod icons;
 pub(crate) mod overlay;
 pub(crate) mod search;
 pub(crate) mod style;
+pub(crate) mod touch;
 pub(crate) mod widgets;

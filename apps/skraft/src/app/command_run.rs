@@ -608,6 +608,7 @@ impl SkraftApp {
                 let _ = e.apply(op);
             }
             Action::ToolKey(key) => e.input(skraft_tools::ToolInput::Key { key, mods: Default::default() }),
+            Action::LatchShift => self.viewport.latched.toggle_shift(e),
             Action::ToolOption(key, value) => e.set_tool_option(key, value),
             Action::ToolLength(key, text) => e.type_tool_length(key, &text),
             Action::PartScope(s) => e.set_part_scope(s),

@@ -89,7 +89,7 @@ raw-window-handle = "0.6"
 rfd.workspace = true
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Storage", "Location", "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent", "BeforeUnloadEvent", "Event", "Node", "HtmlHeadElement"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Storage", "Location", "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent", "BeforeUnloadEvent", "Event", "Node", "HtmlHeadElement", "MediaQueryList", "HtmlElement", "CssStyleDeclaration"] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
 # The browser's languages (`navigator.languages`).

@@ -190,14 +190,30 @@ impl SkraftApp {
         }
     }
 
-    pub(super) fn show_title_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, views: &[CommandView], actions: &mut Vec<Action>) {
+    /// The title bar; the compact one gives the room it leaves free.
+    pub(super) fn show_title_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        views: &[CommandView],
+        actions: &mut Vec<Action>,
+    ) -> Option<egui::Rect> {
         let tabs = self.tabs();
         let bar = titlebar::Bar {
             tabs: &tabs,
             shown: self.docs.active_index(),
             reveal: !cfg!(target_arch = "wasm32"),
             integrated: crate::INTEGRATED_TITLEBAR,
-            ground: self.docs.active().map(|_| (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))),
+            // The shown tab opens onto the view; in the compact arrangement onto the ribbon's tab
+            // band, under the title bar (docs/ui/touch.md).
+            ground: self.docs.active().map(|_| {
+                if self.form == crate::window::form::Form::Compact {
+                    let v = &ctx.global_style().visuals;
+                    (v.faint_bg_color, v.text_color())
+                } else {
+                    (viewport::color(self.theme.ui.view), viewport::color(self.theme.ui.view_text))
+                }
+            }),
             remote: self.remote_mark(ctx),
             #[cfg(not(target_arch = "wasm32"))]
             update: self.prefs.updates.announce().map(str::to_owned),
@@ -211,8 +227,10 @@ impl SkraftApp {
             session: self.session.as_ref().and_then(crate::system::identity::Session::name),
             #[cfg(target_arch = "wasm32")]
             session: None,
+            compact: self.form == crate::window::form::Form::Compact,
+            reserve: self.compact_tabs_reserve(ctx),
         };
-        titlebar::show(ui, &bar, views, actions);
+        titlebar::show(ui, &bar, views, actions)
     }
 
     /// The windows over the document: preferences, about, updates, journal, palette, prompts.

@@ -69,3 +69,20 @@ pub fn call(method: String, params: JsValue) -> js_sys::Promise {
         });
     })
 }
+
+/// The page's colours around the app (`web/index.html`): the title bar's above it — its theme
+/// colour, which tints Safari's bar —, the panels' below and beside it, under the home indicator
+/// (docs/ui/touch.md#safe-areas).
+pub fn set_page_colors(top: egui::Color32, bottom: egui::Color32) {
+    let hex = |c: egui::Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    // Safari tints its own bar with the theme colour.
+    if let Ok(Some(meta)) = document.query_selector("meta[name=theme-color]") {
+        let _ = meta.set_attribute("content", &hex(top));
+    }
+    let Some(root) = document.document_element() else { return };
+    let Ok(root) = root.dyn_into::<web_sys::HtmlElement>() else { return };
+    let style = root.style();
+    let _ = style.set_property("--skraft-top", &hex(top));
+    let _ = style.set_property("--skraft-bottom", &hex(bottom));
+}

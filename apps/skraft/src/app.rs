@@ -32,6 +32,15 @@ use crate::workspaces::{self, Stage, Workspace};
 
 pub struct SkraftApp {
     ctx: egui::Context,
+    /// What the window's form is read from, and the form of this frame (docs/ui/touch.md).
+    probe: crate::window::form::Probe,
+    form: crate::window::form::Form,
+    compact: compact::Compact,
+    /// The measurements box's keypad is open (docs/ui/touch.md#the-keypad).
+    keypad: bool,
+    /// The page's colours around the app, as last given (web, docs/ui/touch.md#safe-areas).
+    #[cfg(target_arch = "wasm32")]
+    page_colors: Option<(egui::Color32, egui::Color32)>,
     /// The GPU the window draws with: a saved file's picture of its model is drawn with it
     /// (docs/io/file-format.md).
     render_state: Option<egui_wgpu::RenderState>,
@@ -261,6 +270,13 @@ fn prune_egui_memory(ctx: &egui::Context) {
 impl SkraftApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        // A phone's arrangement tried on the desktop takes a phone's size, whatever the window
+        // had last (docs/ui/touch.md).
+        let probe = crate::window::form::Probe::read();
+        #[cfg(not(target_arch = "wasm32"))]
+        if probe.forced_compact() {
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(390.0, 844.0)));
+        }
         crate::kit::style::install_fonts(&cc.egui_ctx);
         prune_egui_memory(&cc.egui_ctx);
         // The page's command API asks for a frame when called (docs/control-protocol.md).
@@ -303,6 +319,12 @@ impl SkraftApp {
         #[cfg_attr(not(all(target_os = "macos", not(target_arch = "wasm32"))), allow(unused_mut))]
         let mut app = SkraftApp {
             ctx: cc.egui_ctx.clone(),
+            probe,
+            form: Default::default(),
+            compact: Default::default(),
+            keypad: false,
+            #[cfg(target_arch = "wasm32")]
+            page_colors: None,
             render_state: cc.wgpu_render_state.clone(),
             start: Default::default(),
             docs,
@@ -394,6 +416,15 @@ impl SkraftApp {
         }
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
         self.theme = Theme::of(self.prefs.palette, mode);
+        // The page around the app takes the title bar's colour above, the panels' below.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let colors = (viewport::color(self.theme.ui.title_bar.ground), ctx.global_style().visuals.panel_fill);
+            if self.page_colors != Some(colors) {
+                crate::system::web::set_page_colors(colors.0, colors.1);
+                self.page_colors = Some(colors);
+            }
+        }
     }
 
     /// The interface's zoom and its preference kept together (docs/ui/interface.md#interface-zoom):
@@ -455,6 +486,19 @@ impl eframe::App for SkraftApp {
         let ctx = ui.ctx().clone();
         crate::kit::handles::frame_start();
         self.driving.frame_start();
+        // A press held still is a long press after LONG_PRESS: under a finger, egui is told, and
+        // a frame comes while a finger is down though nothing moves, to see it.
+        if self.probe.coarse {
+            ctx.options_mut(|o| {
+                o.input_options.max_click_duration = crate::window::form::LONG_PRESS;
+                o.input_options.max_click_dist = crate::window::form::TAP_SLOP;
+                o.input_options.max_double_click_delay = crate::window::form::DOUBLE_TAP;
+            });
+        }
+        if ctx.input(|i| i.any_touches()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        self.form = self.probe.form(ctx.content_rect().size());
         // This frame's input: the user's, or a client's real events (`ui.*`).
         let origin = self.driving.origin();
         self.set_origin(&origin);
@@ -489,9 +533,12 @@ impl eframe::App for SkraftApp {
         if let Some(note) = self.updates.poll(&mut self.prefs.updates) {
             self.toasts.push(note);
         }
-        self.show_title_bar(ui, &ctx, &views, &mut actions);
+        let bar_room = self.show_title_bar(ui, &ctx, &views, &mut actions);
         // The start page has no status bar: the toasts stand above the window's bottom.
-        let status_top = match self.docs.active() {
+        let compact = self.form == crate::window::form::Form::Compact;
+        let mut status_top = match self.docs.active() {
+            // The compact arrangement's bars instead of the status bar (docs/ui/touch.md).
+            Some(_) if compact => self.compact_bars(ui, bar_room, &views, &mut actions),
             Some(_) => egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui)).response.rect.top(),
             None => ctx.content_rect().bottom(),
         };
@@ -503,6 +550,10 @@ impl eframe::App for SkraftApp {
         } else {
             egui::CentralPanel::default()
                 .show(ui, |ui| crate::window::start::show(ui, &self.theme, &self.prefs.recent_files, &mut self.start, &mut actions));
+        }
+        // The toasts above a card risen from the bottom.
+        if let Some(top) = self.compact.top.take() {
+            status_top = status_top.min(top);
         }
         self.secondary_windows(&ctx, &views, &mut actions);
         drop_hint(&ctx);
@@ -679,6 +730,7 @@ mod tests {
 }
 
 mod command_run;
+mod compact;
 mod dialogs;
 mod documents;
 mod frame;
