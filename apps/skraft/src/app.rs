@@ -478,7 +478,11 @@ impl eframe::App for SkraftApp {
         // A press held still is a long press after LONG_PRESS: under a finger, egui is told, and
         // a frame comes while a finger is down though nothing moves, to see it.
         if self.probe.coarse {
-            ctx.options_mut(|o| o.input_options.max_click_duration = crate::window::form::LONG_PRESS);
+            ctx.options_mut(|o| {
+                o.input_options.max_click_duration = crate::window::form::LONG_PRESS;
+                o.input_options.max_click_dist = crate::window::form::TAP_SLOP;
+                o.input_options.max_double_click_delay = crate::window::form::DOUBLE_TAP;
+            });
         }
         if ctx.input(|i| i.any_touches()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));

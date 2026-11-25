@@ -21,6 +21,11 @@ pub const TOUCH_ZOOM: f32 = 1.2;
 /// tool the start of a selection rectangle — and no more a click (egui's 0.8 s; iOS's 0.5).
 pub const LONG_PRESS: f64 = 0.5;
 
+/// Under a finger, a tap may move this much (points) and still be one (egui's 6, a mouse's), and
+/// two taps this far apart (s) make a double tap (egui's 0.3): a finger is less still and slower.
+pub const TAP_SLOP: f32 = 12.0;
+pub const DOUBLE_TAP: f64 = 0.4;
+
 /// A touch screen whose short side is below this (points) is a phone's: compact either way up.
 /// A tablet's is wider (an iPad mini's 744).
 pub const COMPACT_SIDE: f32 = 600.0;

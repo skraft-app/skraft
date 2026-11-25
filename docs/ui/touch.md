@@ -13,7 +13,9 @@ fingers; a phone's screen gets the compact arrangement, a tablet's keeps the des
 ## Gestures in the view
 
 - **One finger is the tool's**, as a mouse's left button: down, the tool follows it (inferences,
-  preview, the part under it lit); lifted without moving, a click; moved, a drag — a drawing
+  preview, the part under it lit); lifted without moving, a click — moving up to 12 pt
+  (`form::TAP_SLOP`, a mouse's 6), and two taps 0.4 s apart a double tap (`form::DOUBLE_TAP`, 0.3):
+  a finger is less still and slower; moved, a drag — a drawing
   tool's drag is a click, a move and a click ([Interaction](../tools/interaction.md)): a box's
   base is drawn by dragging from one corner to the other.
 - **With the select tool, one finger dragged orbits**, about the point it came down on (the
