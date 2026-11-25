@@ -287,7 +287,7 @@ save_prompt:
 
 about:
   check_updates: "Check for updates"
-  tagline: "A simple, intuitive 3D modeller on real solids"
+  tagline: "Shape something solid"
   version: "Version %{version}"
   copyright: "© 2026 Boris Beaulant"
   notice: "Skraft is free software: you can redistribute it and modify it under the terms of the GNU General Public License, version 3. It comes with no warranty."
@@ -329,7 +329,7 @@ keypad:
 
 start:
   title: "Skraft"
-  tagline: "A 3D modeller on real solids"
+  tagline: "Shape something solid"
   new: "New Document"
   open: "Open a File"
   import: "Import a STEP or SKP File"

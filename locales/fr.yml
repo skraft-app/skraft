@@ -330,7 +330,7 @@ save_prompt:
 # closes.
 about:
   check_updates: "Rechercher des mises à jour"
-  tagline: "Un modeleur 3D simple et intuitif sur de vrais solides"
+  tagline: "Façonnez du solide"
   version: "Version %{version}"
   copyright: "© 2026 Boris Beaulant"
   notice: "Skraft est un logiciel libre : vous pouvez le redistribuer et le modifier selon les termes de la licence publique générale GNU, version 3. Il est fourni sans aucune garantie."
@@ -373,7 +373,7 @@ keypad:
 start:
   title: "Skraft"
   # Under the name: what the app is.
-  tagline: "Modeleur 3D sur de vrais solides"
+  tagline: "Façonnez du solide"
   new: "Nouveau document"
   open: "Ouvrir un fichier"
   import: "Importer un fichier STEP ou SKP"
