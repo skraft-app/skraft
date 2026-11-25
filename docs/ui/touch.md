@@ -75,6 +75,10 @@ text near a phone's usual 16 pt.
 - **The measurements box** above the strip while the tool takes a typed value (the system
   keyboard for now). No status bar: its hints speak of keys and a mouse.
 
+The page keeps the browser's safe areas (no `viewport-fit=cover`): Safari keeps it clear of the
+notch and the home indicator, which the app would otherwise have to read from CSS and leave
+free itself.
+
 What scrolls under a finger here does so from the first touch on (`ScrollSource::ALL`): egui's
 default waits to have seen a touch screen, and the first drag went nowhere.
 
