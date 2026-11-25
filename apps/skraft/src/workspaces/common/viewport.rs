@@ -73,6 +73,39 @@ impl Touch {
     }
 }
 
+/// The keyboard's modifiers lit by a finger in the tool's card (docs/ui/touch.md#modifiers): held
+/// for the tool until its operation ends — an operation done, the tool changed.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Latched {
+    /// Shift held: with the select tool, add to the selection or take away; with the others,
+    /// the line inferred locked — the one a finger touches next, none being under it when lit.
+    pub shift: bool,
+    /// A finger came down on the view since Shift was lit.
+    armed: bool,
+    /// The document's revision and the tool when one was lit.
+    since: Option<(u64, skraft_tools::ToolKind)>,
+}
+
+impl Latched {
+    /// Lights Shift or puts it out, for the operation under way.
+    pub fn toggle_shift(&mut self, editor: &Editor) {
+        let since = (editor.history().revision(), editor.tool_kind());
+        if self.since.is_some_and(|s| s != since) {
+            *self = Latched::default();
+        }
+        self.shift = !self.shift;
+        self.armed = false;
+        self.since = self.shift.then_some(since);
+    }
+
+    /// Put out once the operation they were lit for is done or the tool changed.
+    fn follow(&mut self, editor: &Editor) {
+        if self.since.is_some_and(|s| s != (editor.history().revision(), editor.tool_kind())) {
+            *self = Latched::default();
+        }
+    }
+}
+
 /// The magnifier's side (points), how much it magnifies, its gap to the finger.
 const LOUPE_SIDE: f32 = 120.0;
 const LOUPE_ZOOM: f32 = 2.0;
@@ -88,6 +121,8 @@ pub struct Viewport {
     last_zoom: f64,
     gesture: Option<Gesture>,
     touch: Touch,
+    /// The modifiers a finger lit (docs/ui/touch.md#modifiers).
+    pub latched: Latched,
     /// The modifiers the tool saw last, and those hidden from it till released (Shift, Ctrl,
     /// Alt, Command), pressed during a gesture.
     tool_mods: egui::Modifiers,
@@ -615,9 +650,15 @@ impl Viewport {
         // Priority to the button: during a gesture the tool keeps the modifiers it had; one
         // pressed then stays hidden from it until released.
         let tool_mods = self.tool_modifiers(mods, mac);
+        // The modifiers a finger lit: Shift locks the line the finger touches next.
+        self.latched.follow(editor);
+        if self.latched.shift && response.is_pointer_button_down_on() {
+            self.latched.armed = true;
+        }
+        let latched = self.latched;
         // Shift held locks the line inferred (docs/tools/inferences.md); a point hovered a while is tracked: the
         // editor needs the time, every frame while it waits.
-        editor.set_shift(tool_mods.shift);
+        editor.set_shift(tool_mods.shift || (latched.shift && latched.armed));
         editor.set_copy(modifiers(ctx, tool_mods).copy);
         editor.set_alt(if mac { tool_mods.mac_cmd } else { tool_mods.alt });
         if editor.tick(time) {
@@ -650,7 +691,8 @@ impl Viewport {
         // Primary button: the tool (clicks; drags from where the button went down).
         use egui::PointerButton::Primary;
         if let Some(p) = response.interact_pointer_pos() {
-            let m = modifiers(ctx, tool_mods);
+            let mut m = modifiers(ctx, tool_mods);
+            m.toggle |= latched.shift;
             if response.double_clicked_by(Primary) {
                 editor.input(ToolInput::DoubleClick { px: local(p), mods: m });
             } else if response.clicked_by(Primary) {

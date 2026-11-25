@@ -618,7 +618,11 @@ impl SkraftApp {
         let widths_id = options_id.with("widths");
         let mut free_top = below_ribbon;
         let Some(doc) = self.docs.active_mut() else { return free_top };
-        let (has_context, has_tool) = (options::has_context_options(&doc.editor), options::has_tool_options(&doc.editor));
+        let has_options = options::has_tool_options(&doc.editor);
+        // Under a finger, the keyboard's keys the tool takes (docs/ui/touch.md#modifiers).
+        let keys = self.probe.coarse && options::has_touch_keys(&doc.editor);
+        let latched = self.viewport.latched;
+        let (has_context, has_tool) = (options::has_context_options(&doc.editor), has_options || keys);
         if has_context || has_tool {
             let widths = ctx.data(|d| d.get_temp::<[f32; 2]>(widths_id)).unwrap_or_default();
             let context_width = if has_context { widths[0] } else { 0.0 };
@@ -646,7 +650,19 @@ impl SkraftApp {
                             if has_tool {
                                 let shown =
                                     crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
-                                        options::tool_options(ui, &doc.editor, actions)
+                                        // The keys first: what a finger reaches for during an operation.
+                                        ui.horizontal(|ui| {
+                                            if keys {
+                                                let mut first = true;
+                                                options::touch_keys(ui, &doc.editor, &latched, &mut first, actions);
+                                                if has_options {
+                                                    ui.separator();
+                                                }
+                                            }
+                                            if has_options {
+                                                options::tool_options(ui, &doc.editor, actions);
+                                            }
+                                        })
                                     });
                                 drawn[1] = shown.response.rect.width();
                             }

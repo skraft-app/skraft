@@ -57,6 +57,22 @@ It is drawn from the view's own picture (its texture, the part under the finger)
 overlays drawn again in a layer scaled about the finger (`Viewport::paint_loupe`), so it costs no
 second render.
 
+## Modifiers
+
+Under a finger (a coarse pointer, tablet or phone), the tool's card begins with « Touches », the
+keyboard's keys the tool takes (`options::touch_keys`):
+- **Shift**, a toggle lit until the operation ends (an operation done, the tool changed): with
+  the select tool « Ajouter » (add to the selection or take away); with the others « Maj », as
+  Shift held — the line inferred locks when a finger next comes down on the view, there being
+  none under a finger when the toggle is tapped (`viewport::Latched`).
+- **« Copie »** (Move, Rotate): the copy key tapped, the tool's own toggle, lit while the tool
+  copies.
+- **X, Y, Z** (every tool but select, erase, paint, sample, section, the booleans): the arrow keys,
+  locking the red, green or blue axis, lit while locked.
+
+They come first in the card: on a phone the card is wider than the screen, and they are what a
+finger reaches for during an operation.
+
 ## The compact arrangement
 
 **When**: the primary pointer is a finger (CSS `pointer: coarse`) and the window's short side is
