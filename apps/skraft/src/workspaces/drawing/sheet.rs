@@ -26,6 +26,8 @@ use crate::workspaces::drawing::sheet::board::{Board, Column};
 pub struct SheetState {
     /// The sheet shown: none, the first of the presentation shown.
     pub current: Option<Id>,
+    /// Two fingers pan and pinch the board (docs/ui/touch.md).
+    pub touch: crate::kit::touch::TwoFingers,
     /// The presentation shown: the sheet's, kept while it has none (docs/ui/drawing.md#navigator).
     presentation: Option<Id>,
     /// The navigator's rows unfolded, and the sheet they were last unfolded for.

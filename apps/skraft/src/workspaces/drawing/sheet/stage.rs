@@ -64,10 +64,24 @@ fn apply_framing(st: &mut SheetState, board: &Board, known: bool, room: egui::Re
     st.pan = (lo + hi) / 2.0 - DVec2::new(shift.x as f64, -shift.y as f64) / st.zoom;
 }
 
-/// The middle or right button's drag pans the board, the wheel (or a pinch) zooms about the
-/// pointer.
-fn move_camera(ui: &egui::Ui, response: &egui::Response, st: &mut SheetState, centre: egui::Pos2) {
+/// The middle or right button's drag pans the board, the wheel (or a trackpad's pinch) zooms
+/// about the pointer; two fingers pan it and pinch it about their middle.
+fn move_camera(ui: &egui::Ui, response: &egui::Response, st: &mut SheetState, centre: egui::Pos2, pinch: Option<crate::kit::touch::Pinch>) {
     if st.zoom <= 0.0 {
+        return;
+    }
+    // The board's point under `at` stays there as the zoom changes by `factor`.
+    let zoom_about = |st: &mut SheetState, at: egui::Pos2, factor: f64| {
+        let under = Paperview::new(centre, st.pan, st.zoom).to_sheet(at);
+        st.zoom = (st.zoom * factor).clamp(0.01, 200.0);
+        st.pan = under - DVec2::new((at.x - centre.x) as f64, (centre.y - at.y) as f64) / st.zoom;
+    };
+    if let Some(p) = pinch {
+        st.pan -= DVec2::new(p.translation.x as f64, -p.translation.y as f64) / st.zoom;
+        zoom_about(st, p.center, p.zoom as f64);
+        return;
+    }
+    if ui.input(|i| i.any_touches()) {
         return;
     }
     if response.dragged_by(egui::PointerButton::Middle) || response.dragged_by(egui::PointerButton::Secondary) {
@@ -78,10 +92,7 @@ fn move_camera(ui: &egui::Ui, response: &egui::Response, st: &mut SheetState, ce
         let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
         let factor = (scroll as f64 * 0.002).exp() * pinch as f64;
         if factor != 1.0 {
-            let under = Paperview::new(centre, st.pan, st.zoom).to_sheet(at);
-            st.zoom = (st.zoom * factor).clamp(0.01, 200.0);
-            // The point under the pointer stays there.
-            st.pan = under - DVec2::new((at.x - centre.x) as f64, (centre.y - at.y) as f64) / st.zoom;
+            zoom_about(st, at, factor);
         }
     }
 }
@@ -164,14 +175,17 @@ pub fn ui(
     // Framed in what the panels leave; if they leave next to nothing, in the whole stage.
     let fit_room = fit.filter(|r| r.width() >= MIN_FIT_ROOM && r.height() >= MIN_FIT_ROOM).unwrap_or(rect);
     let board = Board::of(e.document().drawing());
-    let response = ui.interact(paper_room, egui::Id::unique("sheet_stage"), egui::Sense::click_and_drag());
+    // Two fingers navigate: the stage's tools sense nothing of them (docs/ui/touch.md).
+    let (fingers, pinch) = st.touch.update(ui, paper_room);
+    let sense = if fingers { egui::Sense::hover() } else { egui::Sense::click_and_drag() };
+    let response = ui.interact(paper_room, egui::Id::unique("sheet_stage"), sense);
     if st.zoom <= 0.0 {
         st.framing = Some(Framing::Board);
     }
     let active = st.shown(e.document().drawing()).map(|s| s.id);
     follow_active(st, &board, active);
     apply_framing(st, &board, fit.is_some(), fit_room, paper_room);
-    move_camera(ui, &response, st, centre);
+    move_camera(ui, &response, st, centre, pinch);
     // A click that made another sheet active, or framed it, is not the tool's.
     let taken = activate(&response, st, &board, centre, active);
     let (clicked, double) = (response.clicked() && !taken, response.double_clicked() && !taken);

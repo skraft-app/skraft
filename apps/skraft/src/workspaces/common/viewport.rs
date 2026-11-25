@@ -55,8 +55,9 @@ struct Gesture {
 /// left button: what it does is the tool's, unless the touch navigates.
 #[derive(Default)]
 struct Touch {
-    /// A second finger came down: the touch pans and pinches, and the pointer reaches the tool
-    /// no more until every finger is lifted.
+    /// Two fingers pan and pinch ([`crate::kit::touch`]).
+    two: crate::kit::touch::TwoFingers,
+    /// This frame, the pointer is two fingers' gesture's: the tool gets nothing of it.
     fingers: bool,
     /// The select tool's one-finger drag: an orbit, not a selection rectangle.
     orbit: bool,
@@ -563,7 +564,8 @@ impl Viewport {
         // reach it either (the first finger lifted would be a click).
         if self.touch.navigates() {
             if !ui.input(|i| i.any_touches() || i.pointer.primary_down()) {
-                self.touch = Touch::default();
+                self.touch.orbit = false;
+                self.touch.tool_drag = false;
             }
             return;
         }
@@ -645,35 +647,31 @@ impl Viewport {
     /// the drag the tool had from it.
     fn touch_input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, editor: &mut Editor, nav: &Navigation) {
         let local = |p: egui::Pos2| DVec2::new((p.x - rect.min.x) as f64, (p.y - rect.min.y) as f64);
-        let (touching, multi) = ui.input(|i| (i.any_touches(), i.multi_touch()));
-        if !touching {
-            return;
-        }
-        // Begins in the view: its first finger came down on it.
-        let ours = self.touch.navigates() || response.is_pointer_button_down_on();
         let give_up = |touch: &mut Touch, editor: &mut Editor| {
             if std::mem::take(&mut touch.tool_drag) {
                 editor.input(ToolInput::Key { key: skraft_tools::Key::Escape, mods: Modifiers::default() });
             }
             editor.leave();
         };
-        if let Some(m) = multi.filter(|_| ours) {
-            if !self.touch.fingers {
+        let (hidden, pinch) = self.touch.two.update(ui, rect);
+        self.touch.fingers = hidden;
+        if let Some(m) = pinch {
+            if m.began {
                 give_up(&mut self.touch, editor);
+                self.touch.orbit = false;
                 self.last_hover = None;
-                self.touch = Touch { fingers: true, ..Touch::default() };
-                editor.nav_begin_about(local(m.center_pos), nav.style.pivot);
+                editor.nav_begin_about(local(m.center), nav.style.pivot);
             }
-            let d = m.translation_delta;
+            let d = m.translation;
             editor.pan(DVec2::new(d.x as f64, d.y as f64));
-            if (m.zoom_delta - 1.0).abs() > 1e-4 {
+            if (m.zoom - 1.0).abs() > 1e-4 {
                 // Exact: the model follows the fingers (a step is 0.85 of the distance).
-                editor.zoom(local(m.center_pos), (m.zoom_delta as f64).ln() / (1.0f64 / 0.85).ln());
+                editor.zoom(local(m.center), (m.zoom as f64).ln() / (1.0f64 / 0.85).ln());
             }
             return;
         }
-        if self.touch.fingers {
-            return; // one of them lifted: nothing more till they all are
+        if hidden || !ui.input(|i| i.any_touches()) {
+            return;
         }
         use egui::PointerButton::Primary;
         if !self.touch.orbit && editor.tool_kind() == skraft_tools::ToolKind::Select && response.drag_started_by(Primary) {

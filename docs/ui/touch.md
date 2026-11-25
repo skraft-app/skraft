@@ -1,6 +1,6 @@
 ---
 status: under way
-code: [apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/system/driving.rs, crates/tools/src/tools/select.rs, web/index.html, apps/skraft/src/window/form.rs, apps/skraft/src/app/compact.rs, apps/skraft/src/window/titlebar.rs]
+code: [apps/skraft/src/workspaces/common/viewport.rs, apps/skraft/src/system/driving.rs, crates/tools/src/tools/select.rs, web/index.html, apps/skraft/src/window/form.rs, apps/skraft/src/app/compact.rs, apps/skraft/src/window/titlebar.rs, apps/skraft/src/kit/touch.rs, apps/skraft/src/workspaces/drawing/sheet/stage.rs]
 ---
 
 # Touch screens
@@ -22,6 +22,8 @@ fingers; a phone's screen gets the compact arrangement, a tablet's keeps the des
 - **Two fingers pan and pinch, with any tool**: the model follows the fingers — moved together,
   it slides by as much; spread or brought together, it grows or shrinks by their distance,
   about their middle. The gesture's pivot is set where it begins, as an orbit's.
+- **On a drawing's board, two fingers pan and pinch it** the same way; one finger is the sheet's
+  tool's, as the mouse's left button.
 - **A touch that becomes navigation leaves the tool alone**: from the second finger down to the
   last one lifted, the tool gets no hover, click or drag. A drag the tool had from the first
   finger is given up (Esc); a point already clicked stays (a box's first corner). Lifting one
@@ -78,9 +80,11 @@ stays the largest thing on the screen, and a card is read over it rather than in
 The platforms emulate a mouse with the first finger (egui-winit natively, eframe's web runner):
 a primary button pressed, moved and released, then `PointerGone`; every finger also comes as
 `egui::Event::Touch`, which egui turns into `multi_touch()` (translation, zoom) from two fingers.
-The viewport (`Viewport::touch_input`) reads those: while the touch navigates (`Touch::fingers`,
-`Touch::orbit`) it hides the emulated pointer from the tool, including the release that would
-make a click. A tool's `leave` hides what follows the cursor (the select tool lets go of the part
+`kit::touch::TwoFingers`, read by a stage before its widgets, says whether the pointer is a
+two-finger gesture's — begun over the stage, on its layer, not over a card floating on it — until
+the last finger is lifted, and gives its moves: the viewport then hides the emulated pointer from
+the tool (`Viewport::touch_input`, which adds the select tool's orbit), the drawing's board makes
+its stage sense nothing, so the release never makes a click. A tool's `leave` hides what follows the cursor (the select tool lets go of the part
 it lit), so a lifted finger leaves nothing lit.
 
 **On the web**, the page keeps the gestures for the app (`web/index.html`): `touch-action: none`
