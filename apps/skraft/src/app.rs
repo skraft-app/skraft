@@ -40,7 +40,7 @@ pub struct SkraftApp {
     keypad: bool,
     /// The page's colours around the app, as last given (web, docs/ui/touch.md#safe-areas).
     #[cfg(target_arch = "wasm32")]
-    page_colors: Option<(egui::Color32, egui::Color32)>,
+    page_colors: Option<(egui::Color32, egui::Color32, egui::Color32)>,
     /// The GPU the window draws with: a saved file's picture of its model is drawn with it
     /// (docs/io/file-format.md).
     render_state: Option<egui_wgpu::RenderState>,
@@ -419,9 +419,10 @@ impl SkraftApp {
         // The page around the app takes the title bar's colour above, the panels' below.
         #[cfg(target_arch = "wasm32")]
         {
-            let colors = (viewport::color(self.theme.ui.title_bar.ground), ctx.global_style().visuals.panel_fill);
+            let visuals = &ctx.global_style().visuals;
+            let colors = (viewport::color(self.theme.ui.title_bar.ground), visuals.panel_fill, visuals.strong_text_color());
             if self.page_colors != Some(colors) {
-                crate::system::web::set_page_colors(colors.0, colors.1);
+                crate::system::web::set_page_colors(colors.0, colors.1, colors.2);
                 self.page_colors = Some(colors);
             }
         }

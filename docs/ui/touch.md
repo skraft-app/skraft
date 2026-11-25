@@ -163,7 +163,10 @@ taken out and put back (the page's `skraftEdges`) once the loading screen is gon
 it first, and kept its colours — and when the app's theme changes: the app gives the page those
 two colours (`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`),
 then calls it. The grounds are solid, the root's the title bar's colour, the body's the
-panels'. `theme-color` stays,
+panels'. The colours are kept, with the text's, in the browser's storage
+(`skraft.page_colors`): a script at the page's head takes them before it shows, so the loading
+screen — its ground, its name, its bar — and the bars Safari reads from it are the last theme's
+from the start (the first launch keeps the light ones). `theme-color` stays,
 for the browsers that take it.
 
 **Within the safe areas.** The page asks for the whole screen (`viewport-fit=cover`) and keeps the
