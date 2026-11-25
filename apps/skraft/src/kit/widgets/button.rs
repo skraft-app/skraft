@@ -187,7 +187,7 @@ impl IconButton {
 
     /// Laid out in `ui`.
     pub(crate) fn show(self, ui: &mut egui::Ui) -> egui::Response {
-        let (lit, enabled) = (self.lit, self.enabled);
+        let enabled = self.enabled;
         match self.look {
             Look::Plain => {
                 let button = self.button(ui).frame(false);
@@ -197,10 +197,7 @@ impl IconButton {
                 let button = self.button(ui);
                 ui.add_enabled(enabled, button)
             }
-            Look::Veil => {
-                let button = unframed(self.button(ui));
-                backed(ui, |_| lit, |ui| ui.add_enabled(enabled, button))
-            }
+            Look::Veil => self.veiled(ui),
             Look::Bar => self.bar(ui),
         }
     }
@@ -222,6 +219,23 @@ impl IconButton {
         let ink = self.ink.unwrap_or_else(|| ui.visuals().text_color());
         let image = egui::Image::new(self.icon).fit_to_exact_size(egui::Vec2::splat(self.glyph)).tint(ink);
         egui::Button::image(image).min_size(egui::Vec2::splat(self.side))
+    }
+
+    /// Drawn here, not as egui's button, which puts its image at the top left of a button larger
+    /// than it and its margins (the compact title bar's): the icon always in the middle.
+    fn veiled(self, ui: &mut egui::Ui) -> egui::Response {
+        let sense = if self.enabled { egui::Sense::click() } else { egui::Sense::hover() };
+        let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(self.side), sense);
+        let fill = if self.lit { Some(ui.visuals().selection.bg_fill) } else { veil(ui, &response).filter(|_| self.enabled) };
+        if let Some(fill) = fill {
+            ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
+        }
+        let mut ink = self.ink.unwrap_or_else(|| ui.visuals().text_color());
+        if !self.enabled {
+            ink = ink.gamma_multiply(0.35);
+        }
+        egui::Image::new(self.icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
+        response
     }
 
     fn bar(self, ui: &mut egui::Ui) -> egui::Response {
