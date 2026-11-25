@@ -52,6 +52,7 @@ key:
 
 window:
   untitled: "Untitled"
+  zoom: "%{percent}%"
 
 menu:
   app:

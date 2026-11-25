@@ -54,6 +54,8 @@ pub struct SkraftApp {
     /// The app's messages (a file not opened, « Enregistré »…); the status bar keeps the
     /// tools' hints.
     toasts: Toasts,
+    /// The interface's zoom, shown a moment when it changes.
+    zoom_label: crate::window::zoom_label::ZoomLabel,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Empreindre » (decision 0055).
@@ -312,6 +314,7 @@ impl SkraftApp {
             viewport: Viewport::new(),
             inbox: Inbox::default(),
             toasts,
+            zoom_label: Default::default(),
             keymap: Keymap::new(&prefs.shortcuts),
             panel_drag: None,
             stored_prefs: prefs.clone(),
@@ -478,6 +481,7 @@ impl eframe::App for SkraftApp {
         self.secondary_windows(&ctx, &views, &mut actions);
         drop_hint(&ctx);
         self.show_toasts(&ctx, status_top);
+        self.zoom_label.show(&ctx);
         self.naming_dialog(&ctx);
         self.imprint_dialog(&ctx);
         self.view_picker_dialog(&ctx);

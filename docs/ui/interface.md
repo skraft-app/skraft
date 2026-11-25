@@ -272,6 +272,15 @@ the status bar keeping the tools' hints.
   `app.state` lists them (`toasts`); handles `toast.<i>`, `toast.<i>.action` and `toast.<i>.also`. An editor
   nobody takes notices from (headless) keeps its last 32.
 
+## Interface zoom
+
+egui zooms the whole interface on ⌘+, ⌘− and ⌘0 (Ctrl elsewhere), the zoom kept with the
+window's state. `window/zoom_label.rs` shows its new value (« 125 % ») at the center of the
+window, in a popup's frame, for 0.8 s, then fades it in 0.3 s; it takes no click. The zoom
+restored at launch is not shown.
+
+*Why:* the zoom changes every size at once, with nothing to tell how far it is from 100 %.
+
 ## Steps bar
 
 `steps.rs`, after OpenCutList's `SmartTool#set_steps_bar` and `#show_validation`: what the
