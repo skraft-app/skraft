@@ -50,7 +50,7 @@ jobs:
       # wasm-pack for the two wasm, cargo-about for the third-party notices.
       - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2
         with:
-          tool: wasm-pack@0.15.0,cargo-about@0.9.3
+          tool: wasm-pack@0.15.1,cargo-about@0.9.3
 
       - name: Build
         run: scripts/build-web.sh
