@@ -147,12 +147,12 @@ stays the largest thing on the screen, and a card is read over it rather than in
 
 ## Safe areas
 
-Added to a phone's home screen, the page is the app's own window, edge to edge: under the status
-bar (where iOS blurs what is drawn) and the home indicator's swipe. `web/index.html` asks for the
-whole screen (`viewport-fit=cover`), then keeps the app's canvas within the safe areas
-(`env(safe-area-inset-*)` as the body's padding): the page shows around it, in the title bar's
-colour above — the status bar's text light over it (`black-translucent`) — and the panels'
-below and beside it. The app gives those two colours to the page from its theme
+Added to a phone's home screen, the page is the app's own window, down to the home indicator's
+swipe. Its status bar is opaque, dark as the title bar under it (`black`): translucent
+(`black-translucent`), the page went under it and iOS blurred its top, the title bar with it,
+past the safe area. `web/index.html` asks for the whole screen (`viewport-fit=cover`), then keeps
+the app's canvas within the safe areas (`env(safe-area-inset-*)` as the body's padding): the
+page shows around it, in the title bar's colour above and the panels' below and beside it. The app gives those two colours to the page from its theme
 (`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`), as it changes.
 In Safari the browser's own bars keep the page clear of these areas: the insets are then nought.
 
