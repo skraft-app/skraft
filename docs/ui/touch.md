@@ -61,7 +61,8 @@ text near a phone's usual 16 pt.
   document shown — its menu lists the documents open, a new one, closing it —, undo and redo.
   No file tabs.
 - **The stage** takes the room between the bars: the 3D view, the parts list over the whole
-  stage, or the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
+  stage (at least as wide as its columns, the whole table scrolled both ways with a finger), or
+  the sheet. The view bar, the tool's option cards (scrolled sideways when wider than
   the screen), the quick tools and the toasts float over it as on the desktop.
 - **The ribbon, in one strip** scrolled sideways with a finger, at the bottom: the workspace's
   cell, the tabs, every group.
@@ -71,6 +72,9 @@ text near a phone's usual 16 pt.
   its tab again lowers it. One card at a time; the paint tool raises « Matières ».
 - **The measurements box** above the strip while the tool takes a typed value (the system
   keyboard for now). No status bar: its hints speak of keys and a mouse.
+
+What scrolls under a finger here does so from the first touch on (`ScrollSource::ALL`): egui's
+default waits to have seen a touch screen, and the first drag went nowhere.
 
 *Why*: a phone is for looking at a model, but the user wants every tool within reach; the view
 stays the largest thing on the screen, and a card is read over it rather than instead of it.

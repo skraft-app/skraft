@@ -71,8 +71,10 @@ impl SkraftApp {
             let view = ribbon::View { workspace: self.workspace(), prefs: &self.prefs.ribbon, views };
             let width = ribbon::natural_width(ui.ctx(), &view);
             egui::ScrollArea::horizontal()
+            // Dragged from the first touch on (egui's default waits to have seen a touch screen).
                 .id_salt("compact_ribbon")
                 .show(ui, |ui| ribbon::ribbon(ui, &view, width, egui::Margin::symmetric(4, 4), actions));
+                .scroll_source(egui::scroll_area::ScrollSource::ALL)
         });
         strip.response.rect.top()
     }

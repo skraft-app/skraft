@@ -90,7 +90,7 @@ impl SkraftApp {
                 let (head_rect, _) = ui.allocate_exact_size(egui::vec2(inner.x, header), egui::Sense::hover());
                 title_bar(ui, rect, head_rect, &t!("parts_list.title"), false, true);
                 ui.add_space(2.0 * HEAD_PAD);
-                crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, actions);
+                crate::workspaces::parts::table::ui(ui, &d.editor, &mut d.parts_list, !grip, actions);
             });
         });
         if !grip {
@@ -654,7 +654,8 @@ impl SkraftApp {
                         })
                     };
                     if row_width > room_width {
-                        egui::ScrollArea::horizontal().id_salt("tool_options_scroll").max_width(room_width).show(ui, row);
+                        let area = egui::ScrollArea::horizontal().id_salt("tool_options_scroll").max_width(room_width);
+                        area.scroll_source(egui::scroll_area::ScrollSource::ALL).show(ui, row);
                     } else {
                         row(ui);
                     }
