@@ -88,6 +88,8 @@ pub struct SkraftApp {
     keymap: Keymap,
     /// The command whose shortcut the Raccourcis tab waits for.
     capturing: Option<&'static str>,
+    /// The Raccourcis tab's search.
+    shortcut_search: String,
     palette: Option<Palette>,
     /// The ribbon's bottom this frame (`None`: no document shown): the command palette opens
     /// below it.
@@ -352,6 +354,7 @@ impl SkraftApp {
             updates: crate::dialogs::update::Updates::new(&cc.egui_ctx),
             journal_window: None,
             capturing: None,
+            shortcut_search: String::new(),
             palette: None,
             ribbon_bottom: None,
             ribbon_last_bottom: None,

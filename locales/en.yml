@@ -591,9 +591,12 @@ prefs:
     panels: "Panels"
     ribbon_labels: "Ribbon labels"
   shortcuts:
-    intro: "Click “Edit”, then type the shortcut (Esc: cancel, ⌫: none)."
-    edit: "Edit"
-    default: "Default"
+    intro: "Click a command, then type its shortcut (Esc: cancel, ⌫: none)."
+    capture: "Type the shortcut"
+    reset: "Back to the default shortcut: %{shortcut}"
+    reset_none: "Back to the default: no shortcut"
+    fixed: "Fixed key: %{key} erases the selection, unless the active tool uses it"
+    shared: "Also the shortcut of: %{commands}"
 
 # The search row of the « Composants » card and of the navigator (docs/ui/components-library.md#search).
 drawing:

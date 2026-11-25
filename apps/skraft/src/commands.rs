@@ -248,6 +248,12 @@ impl Shortcut {
 
     /// As shown on this platform: `⇧⌘Z` on macOS, `Ctrl+Maj+Z` elsewhere.
     pub fn display(&self, mac: bool) -> String {
+        self.keys(mac).join(if mac { "" } else { "+" })
+    }
+
+    /// Its keys as shown on this platform, one by one: `⇧ ⌘ Z` on macOS, `Ctrl Maj Z` elsewhere
+    /// (the Raccourcis tab draws each as a key).
+    pub fn keys(&self, mac: bool) -> Vec<String> {
         let key = match self.key {
             egui::Key::Comma => ",".to_owned(),
             egui::Key::Space => t!("key.space"),
@@ -259,24 +265,14 @@ impl Shortcut {
             egui::Key::ArrowDown => "↓".to_owned(),
             k => k.symbol_or_name().to_owned(),
         };
-        if mac {
-            let mut out = String::new();
-            for (on, sym) in [(self.alt, "⌥"), (self.shift, "⇧"), (self.command, "⌘")] {
-                if on {
-                    out.push_str(sym);
-                }
-            }
-            out + &key
+        let modifiers = if mac {
+            [(self.alt, "⌥".to_owned()), (self.shift, "⇧".to_owned()), (self.command, "⌘".to_owned())]
         } else {
-            let mut parts = Vec::new();
-            for (on, name) in [(self.command, t!("key.ctrl")), (self.alt, t!("key.alt")), (self.shift, t!("key.shift"))] {
-                if on {
-                    parts.push(name);
-                }
-            }
-            parts.push(key);
-            parts.join("+")
-        }
+            [(self.command, t!("key.ctrl")), (self.alt, t!("key.alt")), (self.shift, t!("key.shift"))]
+        };
+        let mut keys: Vec<String> = modifiers.into_iter().filter_map(|(on, k)| on.then_some(k)).collect();
+        keys.push(key);
+        keys
     }
 
     /// Does a key press with these modifiers make this shortcut? (`command` as egui gives it:
@@ -458,6 +454,12 @@ impl CommandView {
 /// The delete key's name (Backspace works too).
 pub fn delete_key() -> String {
     if skraft_i18n::mac() { "⌫".to_owned() } else { t!("key.delete") }
+}
+
+/// The key a command answers outside the shortcuts, which the user cannot change: Delete erases
+/// the selection unless the tool takes it (docs/ui/interface.md#shortcuts).
+pub fn fixed_key(id: &str) -> Option<String> {
+    (id == "edit.erase").then(delete_key)
 }
 
 #[cfg(test)]

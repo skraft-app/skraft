@@ -227,6 +227,8 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`tick`**, the check box: egui's, the Preferences' look, with a third state (`Covered`,
   through a row above it: egui's indeterminate mark).
 - **`warning`**, the ⚠ before an error to correct.
+- **`keycaps`**, a shortcut drawn as the keys to press, each a key cap, lit while one is being
+  typed (the Preferences' *Shortcuts* tab).
 - **`keypad`**, the numeric keypad the measurements box opens under a finger
   ([Touch screens](touch.md#the-keypad)).
 - **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
@@ -240,7 +242,8 @@ Elsewhere:
   (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
   sections and grids, the hover texts (`Tip`); the app's windows (`app_window`: their frame, their
   width, where they open, held under the title bar on a phone; `window_body`, their content
-  scrolled when larger than the screen), a modal box's place (`modal_area`), the width of what
+  as high as its content up to 80 % of the screen, then scrolled — egui's window keeps its
+  last size, 420 pt at first, and a body scrolling within it would never make it grow), a modal box's place (`modal_area`), the width of what
   floats over a narrow screen (`window_width`, `fit_width`: the toasts, the modal boxes), a
   phone's side (`PHONE_SIDE`).
 - **`kit::touch::TwoFingers`**: two fingers panning and pinching a stage, hidden from its tools
@@ -356,6 +359,17 @@ be changed in the preferences. Delete (or Backspace) is not a command: the edito
 selection, unless the tool takes the key (`Tool::takes_delete`: the profile's corner under the
 cursor). Once a digit is typed (or `@ ( [ < + - * / ;`), keystrokes go to the VCB, confirmed by
 Enter. Menus and tooltips write shortcuts as the platform does ([Texts and languages](texts.md)).
+
+The Preferences' *Shortcuts* tab lists them: a search line (`search::field`), then every
+command under its menu's name (the command palette's headers), one row each across the window —
+its ribbon icon, its label, its shortcut drawn as keys (`widgets::keycaps`), a dash for none.
+A click on a row waits for the next key, its keys lit (Esc cancels, Backspace removes the
+shortcut, a click on the row again lets go); a shortcut typed equal to the default is no change.
+A changed one has ↺ before its keys, putting the default back; one that another command of a
+same workspace has, ⚠, naming it in its tip. « Effacer » shows Delete hollow and dimmed, its row
+not clickable: the key is not a shortcut (above) and cannot be changed (`commands::fixed_key`).
+The list keeps one height whatever the search lets through, and a new search shows it from the
+top.
 
 ## About
 

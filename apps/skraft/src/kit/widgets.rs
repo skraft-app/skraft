@@ -23,6 +23,49 @@ pub(crate) use tree::{
     Fold, RENAMING, Tick, TreeLine, band_color, hidden_color, paint_drag_ghost, set_drag_ghost, start_rename, tick, tree_line, tree_row,
 };
 
+/// How [`keycaps`] draws its keys.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Keycaps {
+    /// The field's fill, a thicker edge at its bottom.
+    Plain,
+    /// Outlined and written in the selection's ink: a shortcut being typed.
+    Lit,
+    /// Hollow and dimmed: a key that cannot be changed.
+    Fixed,
+}
+
+/// A shortcut drawn as the keys to press (`⇧` `⌘` `S`), each a key cap, as `look` says. Laid
+/// right to left from `right` (the right end of its middle line); the rect it covers.
+pub fn keycaps(ui: &egui::Ui, keys: &[String], right: egui::Pos2, look: Keycaps) -> egui::Rect {
+    const GAP: f32 = 3.0;
+    const PAD: f32 = 5.0;
+    let visuals = ui.visuals();
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let height = (ui.text_style_height(&egui::TextStyle::Body) + 4.0).round();
+    let (ink, edge, fill) = match look {
+        Keycaps::Plain => (visuals.text_color(), visuals.widgets.noninteractive.bg_stroke.color, visuals.widgets.inactive.weak_bg_fill),
+        Keycaps::Lit => (visuals.selection.stroke.color, visuals.selection.stroke.color, visuals.selection.bg_fill),
+        Keycaps::Fixed => (visuals.weak_text_color(), visuals.widgets.noninteractive.bg_stroke.color, egui::Color32::TRANSPARENT),
+    };
+    let radius = egui::CornerRadius::same(4);
+    let mut x = right.x;
+    let mut covered = egui::Rect::NOTHING;
+    for key in keys.iter().rev() {
+        let g = ui.painter().layout_no_wrap(key.clone(), font.clone(), ink);
+        let width = (g.size().x + 2.0 * PAD).max(height);
+        let cap = egui::Rect::from_min_max(egui::pos2(x - width, right.y - height / 2.0), egui::pos2(x, right.y + height / 2.0));
+        // The edge, one point thicker at the bottom: a key, not a field (a fixed one flat).
+        if look != Keycaps::Fixed {
+            ui.painter().rect_filled(cap.translate(egui::vec2(0.0, 1.0)), radius, edge);
+        }
+        ui.painter().rect(cap, radius, fill, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+        ui.painter().galley(cap.center() - g.size() / 2.0, g, ink);
+        covered = covered.union(cap);
+        x -= width + GAP;
+    }
+    covered
+}
+
 /// The warning sign before an error to correct (a part in several pieces, a shortcut's
 /// conflict), in the error colour, as high as the text.
 pub fn warning(ui: &egui::Ui) -> egui::Image<'static> {
