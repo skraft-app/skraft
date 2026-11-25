@@ -198,13 +198,15 @@ fn lit(c: &CommandView) -> bool {
     if c.id == "view.parallel" { c.checked == Some(false) } else { c.checked == Some(true) }
 }
 
+/// The pin's texts, in the ▾ menu and a button's right click.
+const PIN_TEXTS: PinTexts =
+    PinTexts { tip: |on| if on { t!("view_bar.unpin") } else { t!("view_bar.pin") }, note: || t!("view_bar.menu_note") };
+
 /// Right click on a button: Unpin.
 fn unpin_menu(response: &egui::Response, id: &'static str, actions: &mut Vec<Action>) {
-    Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
-        if ui.button(t!("view_bar.unpin")).clicked() {
-            actions.push(Action::ViewPin(id));
-        }
-    });
+    if crate::kit::widgets::unpin_menu(response, &PIN_TEXTS, None) {
+        actions.push(Action::ViewPin(id));
+    }
 }
 
 /// The grip at the bar's head: dragged, it moves the bar to the other side.
@@ -275,12 +277,7 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
     let open = Popup::is_id_open(ui.ctx(), id);
     let response = if open { response } else { response.tip(t!("view_bar.choose")) };
     // Its toggles in a column of check boxes, as in the View menu.
-    let menu = PinMenu {
-        id,
-        align: Some(inward(side)),
-        checks: true,
-        texts: PinTexts { tip: |on| if on { t!("view_bar.unpin") } else { t!("view_bar.pin") }, note: || t!("view_bar.menu_note") },
-    };
+    let menu = PinMenu { id, align: Some(inward(side)), checks: true, texts: PIN_TEXTS };
     let views_label = t!("view_bar.views");
     let items = || {
         COMMANDS

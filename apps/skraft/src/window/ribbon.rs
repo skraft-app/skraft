@@ -14,7 +14,7 @@ use egui::{Align2, Color32, FontId, Popup, Rect, Sense, StrokeKind, pos2, vec2};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
-use crate::kit::widgets::{PinEvent, PinItem, PinMenu, PinTexts, pin_list, pin_menu};
+use crate::kit::widgets::{PinEvent, PinItem, PinMenu, PinTexts, pin_list, pin_menu, unpin_menu};
 
 use crate::commands::{Action, CommandView};
 use crate::kit::icons;
@@ -868,13 +868,10 @@ fn command_button(
     if response.clicked() {
         actions.push(Action::Command(id));
     }
-    Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
-        if ui.add(menu_item(t!("ribbon.unpin"), None, true)).clicked() {
-            actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
-        }
-        ui.separator();
-        ribbon_menu(ui, v.prefs, actions);
-    });
+    // Then the ribbon's own menu.
+    if unpin_menu(&response, &PIN_TEXTS, Some(&mut |ui: &mut egui::Ui| ribbon_menu(ui, v.prefs, actions))) {
+        actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
+    }
 }
 
 /// A collapsed group's button: the icon of its first command; a click opens its menu.
