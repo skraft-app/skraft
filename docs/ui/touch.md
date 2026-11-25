@@ -61,3 +61,10 @@ tap highlight. eframe already keeps the context menu and Safari's `gesture*` eve
 sends real fingers — each down at `from` a frame after the one before, moved to `to` in
 `steps`, lifted in the reverse order, the first last, with the emulated pointer as the
 platforms give it. Chrome's device mode emulates one finger (Shift-drag: a pinch).
+
+**On a phone or a tablet**: `scripts/serve-web.sh --https` serves `dist/web` on the local
+network, at `https://<this Mac>.local:8443`. WebGPU needs a secure page, and `localhost` is one
+only on the machine itself; the certificate comes from mkcert, whose root certificate the device
+trusts once (the script's `--help`: AirDrop, install the profile, full trust). An Android phone
+on USB can do without: `adb reverse tcp:8080 tcp:8080`, then `http://localhost:8080` on it.
+Safari's Web Inspector (the iPhone on USB, Settings → Safari → Advanced) shows the page's console.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the browser version into dist/web (serve that folder, e.g. `python3 -m http.server -d dist/web`):
+# Builds the browser version into dist/web (served by scripts/serve-web.sh):
 # the UI's wasm in pkg/, the kernel's in worker/ with the script that runs it in a web worker
 # (docs/model/kernel.md).
 #
@@ -38,4 +38,4 @@ sed -e "s/__UI_WASM_BYTES__/$(wc -c < dist/web/pkg/skraft_bg.wasm | tr -d ' ')/"
 if [ "$profile" != "dev" ]; then
   scripts/third-party-licenses.sh dist/web/THIRD-PARTY-LICENSES.txt > /dev/null
 fi
-echo "dist/web prêt : python3 -m http.server 8080 -d dist/web  →  http://localhost:8080"
+echo "dist/web prêt : scripts/serve-web.sh  →  http://localhost:8080 (--https : un téléphone, une tablette)"
