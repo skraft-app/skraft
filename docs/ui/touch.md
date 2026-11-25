@@ -106,9 +106,10 @@ phone's usual 16 pt. egui's zoom is the interface zoom's preference times this
 ([Application interface](interface.md#interface-zoom)), the preference still 100 %.
 
 **What it shows**, every workspace (modelling, parts list, drawing):
-- **The bar at the top**: a menu (☰: File's commands, the command search, the preferences), the
-  document shown — its menu lists the documents open, a new one, closing it —, undo and redo.
-  No file tabs.
+- **The bar at the top**, 36 pt high: the app's mark (to the start page, as the desktop's), a
+  menu (☰: File's commands — a new document, closing it among them —, the command search, the
+  preferences), the document shown — its menu lists the documents open, to show another, and
+  nothing else, File's commands being the menu's —, undo and redo. No file tabs.
 - **The stage** takes the room between the bars: the 3D view, the parts list over the whole
   stage (at least as wide as its columns, the whole table scrolled both ways with a finger — as
   on the desktop when the list is narrower than its columns), or

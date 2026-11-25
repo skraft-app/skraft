@@ -27,10 +27,10 @@ use crate::window::tabs::{self, Tab};
 /// The bar's height, in points.
 pub const HEIGHT: f32 = 34.0;
 /// The compact bar's (docs/ui/touch.md#the-compact-arrangement): its buttons are a finger's.
-pub const COMPACT_HEIGHT: f32 = 44.0;
+pub const COMPACT_HEIGHT: f32 = 36.0;
 /// A compact bar's button, and its icon.
-const COMPACT_BUTTON: f32 = 40.0;
-const COMPACT_ICON: f32 = 22.0;
+const COMPACT_BUTTON: f32 = 34.0;
+const COMPACT_ICON: f32 = 20.0;
 /// Width left clear for the three macOS window buttons ahead of the app's mark, margin included.
 const TRAFFIC_LIGHTS: f32 = 84.0;
 /// The command search's widest.
@@ -187,11 +187,12 @@ fn contents(ui: &mut egui::Ui, bar: &Bar, ground: Option<tabs::Ground>, views: &
     }
 }
 
-/// The compact bar (docs/ui/touch.md#the-compact-arrangement): the menu (File's commands, the
-/// command search, the preferences), the document shown with the others in its menu, undo and
-/// redo at the right end.
+/// The compact bar (docs/ui/touch.md#the-compact-arrangement): the app's mark (to the start
+/// page, as the desktop's), the menu (File's commands, the command search, the preferences), the
+/// document shown with the others in its menu, undo and redo at the right end.
 fn compact_contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut Vec<Action>) -> Option<egui::Rect> {
     let find = |id: &str| views.iter().find(|v| v.id == id);
+    mark(ui, find("view.home"), actions);
     let ink = ui.visuals().text_color();
     let icon = egui::Image::new(icons::MENU).fit_to_exact_size(egui::Vec2::splat(COMPACT_ICON)).tint(ink);
     let button = egui::Button::image(icon).min_size(egui::Vec2::splat(COMPACT_BUTTON));
@@ -229,6 +230,27 @@ fn compact_contents(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions
         .inner;
     let free = egui::Rect::from_x_y_ranges((document.right() + 8.0)..=room.right(), room.y_range());
     (free.width() > 0.0).then_some(free)
+}
+
+/// The app's mark alone (the compact bar's): a button to the start page while a document is
+/// shown (`view.home`).
+fn mark(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action>) {
+    // The icon's tile fills 824 of its 1024 units: drawn larger so the tile is MARK wide.
+    const MARK: f32 = 20.0;
+    const TILE: f32 = 824.0 / 1024.0;
+    let home = home.filter(|v| v.enabled);
+    let sense = if home.is_some() { egui::Sense::click() } else { egui::Sense::hover() };
+    let (rect, r) = ui.allocate_exact_size(egui::Vec2::splat(COMPACT_BUTTON), sense);
+    if let Some(fill) = veil(ui, &r).filter(|_| home.is_some()) {
+        ui.painter().rect_filled(rect, VEIL_RADIUS, fill);
+    }
+    egui::Image::new(icons::APP).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
+    crate::kit::handles::publish(|| "titlebar:mark".to_owned(), rect);
+    if let Some(v) = home
+        && r.tip(v.tip()).clicked()
+    {
+        actions.push(Action::Command(v.id));
+    }
 }
 
 /// The compact bar's document: its name, a chevron; its menu lists the documents open (the one
