@@ -415,20 +415,17 @@ impl SkraftApp {
 
     /// The interface's zoom and its preference kept together (docs/ui/interface.md#interface-zoom):
     /// the preference's at launch, egui's when a shortcut changed it, the preference's when the
-    /// Preferences changed it. egui takes a new zoom at the next frame. Under a finger egui's is
-    /// the preference's times `form::TOUCH_ZOOM` (docs/ui/touch.md), the preference still 100 %.
+    /// Preferences changed it. egui takes a new zoom at the next frame.
     fn apply_zoom(&mut self, ctx: &egui::Context) {
-        let touch = self.probe.zoom();
-        let zoom = ctx.zoom_factor() / touch;
+        let zoom = ctx.zoom_factor();
         match self.zoom_applied {
-            // Divided by the touch factor: a rounding is no change.
-            Some(applied) if (zoom - applied).abs() > 1e-4 => self.prefs.zoom = zoom,
+            Some(applied) if zoom != applied => self.prefs.zoom = zoom,
             Some(applied) if self.prefs.zoom == applied => return,
             _ => {
                 if !(self.prefs.zoom.is_finite() && (ZOOM_MIN..=ZOOM_MAX).contains(&self.prefs.zoom)) {
                     self.prefs.zoom = 1.0;
                 }
-                ctx.set_zoom_factor(self.prefs.zoom * touch);
+                ctx.set_zoom_factor(self.prefs.zoom);
             }
         }
         self.zoom_applied = Some(self.prefs.zoom);

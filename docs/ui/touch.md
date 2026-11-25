@@ -102,10 +102,10 @@ a small desktop window under a mouse keep the desktop arrangement. No preference
 `SKRAFT_FORM=compact` (desktop: the window then opens at a phone's size) or `?form=compact` in the
 page's address (`desktop` forces the other).
 
-**Larger under a finger**: wherever the pointer is a finger, tablet included, the whole interface
-is drawn 1.2 times larger (`form::TOUCH_ZOOM`): buttons, rows and text together, the text near a
-phone's usual 16 pt. egui's zoom is the interface zoom's preference times this
-([Application interface](interface.md#interface-zoom)), the preference still 100 %.
+**Sizes**: the interface keeps the desktop's scale under a finger: what a finger aims at in the
+compact arrangement is drawn for it (the bars, the cards' tabs, the keypad, the keys); a larger
+interface is the interface zoom's ([Application interface](interface.md#interface-zoom)). A
+whole interface 1.2 times larger was tried, and dropped: it took a phone's 390 pt to 325.
 
 **What it shows**, every workspace (modelling, parts list, drawing):
 - **The bar at the top**, 36 pt high: the app's mark (to the start page, as the desktop's), a

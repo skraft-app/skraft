@@ -13,10 +13,6 @@ pub enum Form {
     Compact,
 }
 
-/// Under a finger, the whole interface is drawn this much larger (egui's zoom): buttons, rows and
-/// text, together — the text near a phone's usual 16 pt.
-pub const TOUCH_ZOOM: f32 = 1.2;
-
 /// Under a finger, a press held this long (s) is a long press — the right click, or with the select
 /// tool the start of a selection rectangle — and no more a click (egui's 0.8 s; iOS's 0.5).
 pub const LONG_PRESS: f64 = 0.5;
@@ -44,11 +40,6 @@ impl Probe {
     pub fn read() -> Probe {
         let forced = forced();
         Probe { coarse: coarse() || forced == Some(Form::Compact), forced }
-    }
-
-    /// egui's zoom for this pointer.
-    pub fn zoom(&self) -> f32 {
-        if self.coarse { TOUCH_ZOOM } else { 1.0 }
     }
 
     /// The form for a window of `size` (points).
