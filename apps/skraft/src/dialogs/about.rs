@@ -122,6 +122,7 @@ fn links_row(ui: &mut egui::Ui) {
 
 /// The window, while `open`. Whether the user asks to look for a new version.
 pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
     let mut check_updates = false;
     if !*open {
         return check_updates;

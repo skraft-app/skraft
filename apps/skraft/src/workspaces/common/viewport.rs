@@ -1293,13 +1293,16 @@ fn rgb(c: Rgba) -> [f32; 3] {
 
 /// A file's picture of its model, in pixels (the start page's cards, at twice their size), and
 /// how wide its edges are (`render::EDGE_WIDTH` times this).
+#[cfg(not(target_arch = "wasm32"))]
 const FILE_PICTURE: [u32; 2] = [480, 270];
+#[cfg(not(target_arch = "wasm32"))]
 const FILE_PICTURE_EDGES: f32 = 1.0;
 
 /// A picture on a clear ground from the same one drawn on black and on white (sRGB RGBA
 /// rows): where they differ, the ground showed through. Each pixel's coverage is one less
 /// that difference (linear light, its channels' mean), its colour the black one's divided
 /// by it.
+#[cfg(not(target_arch = "wasm32"))]
 fn unblend(black: &[u8], white: &[u8]) -> Vec<u8> {
     use skraft_theme::{linear, srgb_byte};
     let mut out = Vec::with_capacity(black.len());

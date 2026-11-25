@@ -43,6 +43,7 @@ pub struct SkraftApp {
     page_colors: Option<(egui::Color32, egui::Color32, egui::Color32)>,
     /// The GPU the window draws with: a saved file's picture of its model is drawn with it
     /// (docs/io/file-format.md).
+    #[cfg(not(target_arch = "wasm32"))]
     render_state: Option<egui_wgpu::RenderState>,
     /// The start page's pictures of the recent files' models.
     start: crate::window::start::Pictures,
@@ -325,6 +326,7 @@ impl SkraftApp {
             keypad: false,
             #[cfg(target_arch = "wasm32")]
             page_colors: None,
+            #[cfg(not(target_arch = "wasm32"))]
             render_state: cc.wgpu_render_state.clone(),
             start: Default::default(),
             docs,
