@@ -3,6 +3,8 @@
 # whose arrow lies between their places, and the app's icon on the volume. The background
 # (dmg-background.png, its @2x beside it for Retina) is one picture whatever the system's
 # appearance: Finder writes the names in white in dark mode, less readable on it.
+# No hidden extension: Finder hides an app's own, and the flag it would set on the bundle is
+# detritus a strict signature check refuses.
 
 app = defines["app"]  # noqa: F821 (dmgbuild's namespace)
 
@@ -10,7 +12,6 @@ format = "UDZO"
 filesystem = "HFS+"
 files = [app]
 symlinks = {"Applications": "/Applications"}
-hide_extensions = ["Skraft.app"]
 icon = defines["icon"]  # noqa: F821
 background = defines["background"]  # noqa: F821
 

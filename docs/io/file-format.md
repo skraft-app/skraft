@@ -57,7 +57,8 @@ model.skraft
   `document.json`'s `assets` names them with their kind (`"<id>": "jpeg"`). A file naming an
   image it does not have is refused.
 - **`thumbnail.png`**: what the model looks like, for the start page's recent files
-  ([File tabs](../ui/file-tabs.md#start-page)). Drawn at each save by the viewport's renderer
+  ([File tabs](../ui/file-tabs.md#start-page)) and the Finder's Quick Look on macOS
+  ([below](#extension-and-file-associations)). Drawn at each save by the viewport's renderer
   (`Viewport::file_picture`): a parallel iso view framed on the whole model as the library's
   thumbnails, 480 × 270 pixels, in the light look whatever the theme, on a clear ground — drawn
   on black then on white, each pixel's coverage read from their difference —, so that the card
@@ -140,6 +141,16 @@ documents » (macOS, launched or running: winit does not handle it, the app inst
 handler when it will finish launching); either way it waits in a queue
 (`apps/skraft/src/system/opened.rs`) and opens in a tab of its own at the next frame — a
 `.skraftmat` imported into the model shown.
+
+**Quick Look on macOS**: Skraft.app carries two extensions (`packaging/macos/quicklook/`,
+built by `scripts/build-quicklook.sh`), for `app.skraft.document`: the thumbnail the Finder
+draws in place of the icon, and the preview on Space (macOS 12 and later). Both show
+`thumbnail.png`, found through the ZIP's central directory and read alone, stored as it is; a
+file without it, or not written as the app writes it, keeps the document icon. They run
+sandboxed, signed ad hoc with their entitlements before the app (never `--deep`, which would
+sign them again without). Without a picture, a file has the document icon macOS draws
+(`CFBundleTypeIconSystemGenerated`): a page badged with the app's icon, its extension under
+it. Windows and Linux show the app's icon only.
 
 ## Version 1 until 0.1.0
 

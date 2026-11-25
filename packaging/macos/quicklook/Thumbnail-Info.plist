@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Quick Look thumbnail extension of Skraft.app (scripts/build-quicklook.sh): the picture a
+     .skraft file carries. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>app.skraft.quicklook-thumbnail</string>
+    <key>CFBundleName</key>
+    <string>Skraft Thumbnail</string>
+    <key>CFBundleDisplayName</key>
+    <string>Skraft Thumbnail</string>
+    <key>CFBundleExecutable</key>
+    <string>SkraftThumbnail</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.quicklook.thumbnail</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>SkraftThumbnail.ThumbnailProvider</string>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>QLSupportedContentTypes</key>
+            <array>
+                <string>app.skraft.document</string>
+            </array>
+            <key>QLThumbnailMinimumDimension</key>
+            <integer>0</integer>
+        </dict>
+    </dict>
+</dict>
+</plist>
