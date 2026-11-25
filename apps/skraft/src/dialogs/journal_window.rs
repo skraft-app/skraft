@@ -111,13 +111,9 @@ pub fn show(ctx: &egui::Context, state: &mut Option<JournalWindow>, doc: Option<
         Some((name, _)) => t!("journal.title_of", name = name),
         None => t!("journal.title"),
     };
-    egui::Window::new(title)
-        .id(window_id())
-        .title_frame(crate::kit::style::window_title_frame(ctx))
-        .open(&mut open)
-        .collapsible(false)
+    crate::kit::style::app_window(ctx, title, window_id(), &mut open, 620.0, None)
         .resizable(true)
-        .default_size([crate::kit::style::window_width(ctx, 620.0), 420.0])
+        .default_height(420.0)
         .min_width(crate::kit::style::window_width(ctx, 560.0))
         .min_height(240.0)
         .show(ctx, |ui| {

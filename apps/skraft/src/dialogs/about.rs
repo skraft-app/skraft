@@ -127,16 +127,9 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
     if !*open {
         return check_updates;
     }
-    let window = egui::Window::new(t!("menu.app.about", app = t!("start.title")))
-        .id(egui::Id::unique("about"))
-        .title_frame(crate::kit::style::window_title_frame(ctx))
-        .open(open)
-        .collapsible(false)
-        .resizable(false)
-        .default_width(crate::kit::style::window_width(ctx, 420.0))
-        .max_width(crate::kit::style::window_width(ctx, f32::INFINITY))
-        .pivot(egui::Align2::CENTER_CENTER);
-    crate::kit::style::window_at(window, ctx, ctx.content_rect().center()).show(ctx, |ui| {
+    let title = t!("menu.app.about", app = t!("start.title"));
+    let at = (egui::Align2::CENTER_CENTER, ctx.content_rect().center());
+    crate::kit::style::app_window(ctx, title, egui::Id::unique("about"), open, 420.0, Some(at)).show(ctx, |ui| {
         crate::kit::style::window_body(ui, |ui| {
             ui.set_width(ui.available_width().min(420.0));
             ui.vertical_centered(|ui| {

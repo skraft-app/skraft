@@ -116,7 +116,7 @@ pub fn show(ui: &mut egui::Ui, bar: &Bar, views: &[CommandView], actions: &mut V
         ui.horizontal_centered(|ui| contents(ui, bar, ground, views, actions));
         None
     });
-    // Windows and boxes stand under it on a narrow screen (`style::window_at`).
+    // Windows and boxes stand under it on a narrow screen (`style::app_window`).
     crate::kit::style::set_bar_bottom(ui.ctx(), shown.response.rect.bottom());
     shown.inner
 }

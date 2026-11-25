@@ -130,8 +130,8 @@ whole interface 1.2 times larger was tried, and dropped: it took a phone's 390 p
 - **The measurements box** above the cards' tabs while the tool takes a typed value (its keypad,
   [below](#the-keypad)). No status bar: its hints speak of keys and a mouse.
 
-Windows and boxes keep within a narrow screen (`style::window_width`, `window_body`,
-`window_at`, `modal_area`): as wide as the screen leaves at most, their body scrolled when larger,
+Windows and boxes keep within a narrow screen (`style::app_window`, `window_body`,
+`modal_area`, `fit_width`): as wide as the screen leaves at most, their body scrolled when larger,
 their top just under the title bar (the system's keyboard rises from the bottom) and not to be
 moved, rather than where they were left; « À propos » drops its licenses' column, its links one
 under the other. A strip of tabs wider than its room (the preferences') scrolls sideways under a

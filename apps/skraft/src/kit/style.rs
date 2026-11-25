@@ -83,13 +83,34 @@ fn under_the_bar(ctx: &egui::Context) -> egui::Pos2 {
     egui::pos2(ctx.content_rect().center().x, top + FLOAT_GAP)
 }
 
-/// `window` placed at `pos` (by its pivot) the first time; on a narrow screen, held just under the
-/// title bar and not to be moved — where it was left may be off the screen.
-pub fn window_at<'a>(window: egui::Window<'a>, ctx: &egui::Context, pos: egui::Pos2) -> egui::Window<'a> {
+/// One of the app's windows (About, the preferences, the updates, the journal), under `id` (its
+/// title changes with the language): its title bar's frame and close button, never collapsed nor
+/// resized (unless the caller says so), `width` wide or less on a narrow screen ([`window_width`]);
+/// the first time at `at` (by its pivot; none: where egui puts it) — on a narrow screen held just
+/// under the title bar, and not to be moved: where it was left may be off the screen. Its content
+/// goes in a [`window_body`] when it may be taller or wider than a phone.
+pub fn app_window<'a>(
+    ctx: &egui::Context,
+    title: impl Into<egui::WidgetText>,
+    id: egui::Id,
+    open: &'a mut bool,
+    width: f32,
+    at: Option<(egui::Align2, egui::Pos2)>,
+) -> egui::Window<'a> {
+    let window = egui::Window::new(title)
+        .id(id)
+        .title_frame(window_title_frame(ctx))
+        .open(open)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(window_width(ctx, width))
+        .max_width(window_width(ctx, f32::INFINITY));
     if narrow_screen(ctx) {
         window.movable(false).pivot(egui::Align2::CENTER_TOP).current_pos(under_the_bar(ctx))
+    } else if let Some((pivot, pos)) = at {
+        window.pivot(pivot).default_pos(pos)
     } else {
-        window.default_pos(pos)
+        window
     }
 }
 
