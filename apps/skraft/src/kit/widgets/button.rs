@@ -155,13 +155,14 @@ pub(crate) struct IconButton {
     glyph: f32,
     look: Look,
     ink: Option<egui::Color32>,
+    natural: bool,
     lit: bool,
     enabled: bool,
 }
 
 impl IconButton {
     pub(crate) fn new(icon: egui::ImageSource<'static>, side: f32, glyph: f32) -> Self {
-        IconButton { icon, side, glyph, look: Look::Plain, ink: None, lit: false, enabled: true }
+        IconButton { icon, side, glyph, look: Look::Plain, ink: None, natural: false, lit: false, enabled: true }
     }
 
     pub(crate) fn look(mut self, look: Look) -> Self {
@@ -172,6 +173,13 @@ impl IconButton {
     /// Its icon's colour; by default the text's.
     pub(crate) fn ink(mut self, ink: egui::Color32) -> Self {
         self.ink = Some(ink);
+        self
+    }
+
+    /// Its icon in its own colours, neither tinted nor dimmed when disabled (the app's mark);
+    /// a [`Look::Veil`] only.
+    pub(crate) fn natural(mut self) -> Self {
+        self.natural = true;
         self
     }
 
@@ -234,7 +242,8 @@ impl IconButton {
         if !self.enabled {
             ink = ink.gamma_multiply(0.35);
         }
-        egui::Image::new(self.icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
+        let image = if self.natural { egui::Image::new(self.icon) } else { egui::Image::new(self.icon).tint(ink) };
+        image.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
         response
     }
 
