@@ -7,6 +7,23 @@ What changes in Skraft from one release to the next, for its users. The format f
 An entry is written when a version is tagged (`/changelog` in Claude Code, from
 `scripts/changelog.sh`); the release workflow publishes it as the GitHub Release's text.
 
+## [0.0.5] - 2026-11-25
+
+### Added
+- Skraft works (better) on touch screens, in the web version: on a phone to look at a model (a compact layout, the parts list and drawing board scrolled and pinched with the fingers), on a tablet to model. One finger turns the view, two slide and zoom; a long press is the right click or a selection rectangle; values are typed on the app's own keypad, and a button under the finger steps an operation back.
+- The start page shows the recent files as cards with a picture of their model, saved with the file, and a large **New** button.
+- On macOS, Quick Look shows a picture of a `.skraft` file, and Skraft's documents get icons of their own.
+- **Interface zoom** in the **Interface** tab of the preferences; the zoom shows at the centre of the window when it changes.
+- The web version can be added to a phone's home screen, with its icon, and shows its version while it loads.
+
+### Changed
+- The Windows installer and the macOS disk image have a look of their own.
+- The **Journal** filters its events by two lists, what happened and who did it.
+- The interface zoom set before this version is not kept: Skraft starts again at 100 %.
+
+### Fixed
+- **Select** no longer leaves a part lit when the cursor leaves the 3D view.
+
 ## [0.0.4] - 2026-11-24
 
 ### Added
