@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Packages a release build for macOS into dist/release/Skraft-<version>-macos-<arch>.dmg:
 # Skraft.app (ad-hoc signed, not notarized; LICENSE.txt and THIRD-PARTY-LICENSES.txt in its
-# Resources, the latter from cargo-about: scripts/third-party-licenses.sh) and a link to
+# Resources, the latter from cargo-about: scripts/third-party-licenses.sh; its Quick Look
+# extensions in its PlugIns: scripts/build-quicklook.sh) and a link to
 # /Applications to drop it on, laid out on a background by dmgbuild (packaging/macos/
 # dmg-settings.py), installed in a throwaway Python environment.
 #   scripts/package-macos.sh aarch64-apple-darwin   (after cargo build --release --target …)
@@ -29,7 +30,9 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/Skraft.icns"
 
-codesign --force --deep --sign - "$app"
+# The extensions signed first, with their entitlements; the app then, not --deep.
+scripts/build-quicklook.sh "$arch" "$app"
+codesign --force --sign - "$app"
 
 python3 -m venv "$work/venv"
 "$work/venv/bin/pip" install --quiet --disable-pip-version-check dmgbuild==2.0.0
