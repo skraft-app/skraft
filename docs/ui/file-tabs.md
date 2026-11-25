@@ -109,8 +109,14 @@ page asks before it is left (`beforeunload`) while a document is modified.
 
 `active == None`: when the last tab closes, at launch when there is nothing to reopen (or the
 app quit on it), and on demand with documents open: a click on the title bar's mark and name,
-or `view.home` (« Page d'accueil »), the tabs staying open. Buttons New, Open, Import STEP, and
-the recent files (desktop). No tab is selected; the ribbon, the dock, the option bar and the
+or `view.home` (« Page d'accueil »), the tabs staying open. The app's mark, its name and what it
+is (« Modeleur 3D sur de vrais solides »), then New, Open and Import as `LabelButton`s, New the
+main one (filled with the selection's colours, as a modal box's ok); on one line, stacked full
+width (320 at most) when the line does not fit (a narrow window, a phone). Under them the
+recent files (desktop). Behind, a drafting grid in the accent's colour, a line every 24 points
+and a stronger one every fifth, fading out from a little above the middle towards the edges.
+Every colour is the theme's (palette and mode); the update badge stays in the title bar,
+which the page keeps (`apps/skraft/src/window/start.rs`). No tab is selected; the ribbon, the dock, the option bar and the
 status bar's measurements are hidden; the commands that need a document are disabled (menus,
 palette, shortcuts). From it, a tab, or next/previous tab (the first/the last), shows a document
 again; closing a tab stays on it.

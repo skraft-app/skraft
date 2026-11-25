@@ -465,7 +465,7 @@ impl eframe::App for SkraftApp {
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
         } else {
-            egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
+            egui::CentralPanel::default().show(ui, |ui| crate::window::start::show(ui, &self.prefs.recent_files, &mut actions));
         }
         self.secondary_windows(&ctx, &views, &mut actions);
         drop_hint(&ctx);

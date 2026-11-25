@@ -361,6 +361,8 @@ update:
   failed: "Impossible de vérifier les mises à jour."
 start:
   title: "Skraft"
+  # Under the name: what the app is.
+  tagline: "Modeleur 3D sur de vrais solides"
   new: "Nouveau document"
   open: "Ouvrir un fichier"
   import: "Importer un fichier STEP ou SKP"

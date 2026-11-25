@@ -456,45 +456,6 @@ impl SkraftApp {
             });
         });
     }
-
-    /// The start page (docs/ui/file-tabs.md): no document open.
-    pub(super) fn start_page(&self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
-        ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() * 0.22).max(24.0));
-            // The app's mark. Its tile fills 824 of the icon's 1024 units: drawn larger so the
-            // tile is MARK wide (as in the title bar).
-            const MARK: f32 = 72.0;
-            const TILE: f32 = 824.0 / 1024.0;
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(MARK, MARK), egui::Sense::hover());
-            egui::Image::new(crate::kit::icons::APP)
-                .paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(MARK / TILE)));
-            ui.add_space(16.0);
-            ui.heading(egui::RichText::new(t!("start.title")).size(28.0).strong());
-            ui.add_space(20.0);
-            let width = 260.0;
-            for (id, label) in [("file.new", t!("start.new")), ("file.open", t!("start.open")), ("file.import", t!("start.import"))] {
-                if ui.add_sized([width, 32.0], egui::Button::new(label)).clicked() {
-                    actions.push(Action::Command(id));
-                }
-            }
-            if cfg!(target_arch = "wasm32") {
-                return;
-            }
-            ui.add_space(24.0);
-            ui.strong(t!("start.recent"));
-            ui.add_space(4.0);
-            if self.prefs.recent_files.is_empty() {
-                ui.weak(t!("start.no_recent"));
-            }
-            for (k, path) in self.prefs.recent_files.iter().enumerate().take(commands::RECENT_FILES) {
-                let id = commands::COMMANDS.iter().find(|c| commands::recent_slot(c.id) == Some(k)).map(|c| c.id);
-                let r = ui.add_sized([width, 24.0], egui::Button::new(file_name(path)).frame_when_inactive(false)).tip(path);
-                if let (true, Some(id)) = (r.clicked(), id) {
-                    actions.push(Action::Command(id));
-                }
-            }
-        });
-    }
 }
 
 /// A veil over the window while files are dragged over it, saying what letting go does.
