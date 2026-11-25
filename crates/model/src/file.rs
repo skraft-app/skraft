@@ -36,6 +36,11 @@ const TEXTURES: &str = "textures/";
 const VIEW: &str = "view.json";
 /// The most [`VIEW`] may hold: past it, the view is ignored.
 const MAX_VIEW: u64 = 1 << 20;
+/// What the model looks like, a PNG for the start page's recent files (docs/ui/file-tabs.md):
+/// absent when the app had none to give.
+const THUMBNAIL: &str = "thumbnail.png";
+/// The most [`THUMBNAIL`] may hold: past it, the file has no thumbnail.
+const MAX_THUMBNAIL: u64 = 4 << 20;
 
 /// What a file may expand to once decompressed (docs/io/file-format.md#untrusted-files): this many
 /// times its size (real files stay under 10)…
@@ -229,23 +234,28 @@ impl Document {
     /// The same, with how it was last seen ([`FileView`]; its entry left out when it holds
     /// nothing).
     pub fn to_file_seen(&self, view: &FileView) -> Result<Vec<u8>> {
+        self.to_file_pictured(view, None)
+    }
+
+    /// The same, with a picture of the model (a PNG) for the start page.
+    pub fn to_file_pictured(&self, view: &FileView, thumbnail: Option<&[u8]>) -> Result<Vec<u8>> {
         let view = (*view != FileView::default()).then_some(view);
-        self.write(Content::Model, view)
+        self.write(Content::Model, view, thumbnail)
     }
 
     /// The materials `ids` (all when empty) as a `.skraftmat` file: their textures' images,
     /// the definitions of the properties with them.
     pub fn materials_file(&self, ids: &[Id]) -> Result<Vec<u8>> {
-        self.materials_fragment(ids)?.write(Content::Materials, None)
+        self.materials_fragment(ids)?.write(Content::Materials, None, None)
     }
 
     /// The presentation `presentation` as a template file (`.skrafttpl`,
     /// [`Document::template_of`]).
     pub fn template_file(&self, presentation: Id) -> Result<Vec<u8>> {
-        self.template_of(presentation)?.write(Content::Template, None)
+        self.template_of(presentation)?.write(Content::Template, None, None)
     }
 
-    fn write(&self, content: Content, view: Option<&FileView>) -> Result<Vec<u8>> {
+    fn write(&self, content: Content, view: Option<&FileView>, thumbnail: Option<&[u8]>) -> Result<Vec<u8>> {
         let scope = solids::writing(self.source_solids());
         let document = readable(&serde_json::to_vec_pretty(self).map_err(file_err)?);
         let entries = scope.finish();
@@ -274,6 +284,10 @@ impl Document {
             zip.start_file(format!("{TEXTURES}{name}"), stored).map_err(file_err)?;
             zip.write_all(bytes).map_err(file_err)?;
         }
+        if let Some(png) = thumbnail {
+            zip.start_file(THUMBNAIL, stored).map_err(file_err)?;
+            zip.write_all(png).map_err(file_err)?;
+        }
         Ok(zip.finish().map_err(file_err)?.into_inner())
     }
 
@@ -295,6 +309,18 @@ impl Document {
         match entry.take(MAX_VIEW + 1).read_to_end(&mut out) {
             Ok(read) if read as u64 <= MAX_VIEW => serde_json::from_slice(&out).unwrap_or_default(),
             _ => FileView::default(),
+        }
+    }
+
+    /// The picture of the model a `.skraft` file carries (a PNG), read from it alone: the
+    /// file's other entries are not read. None when it has none, or one too large.
+    pub fn file_thumbnail(file: impl Read + std::io::Seek) -> Option<Vec<u8>> {
+        let mut zip = zip::ZipArchive::new(file).ok()?;
+        let entry = zip.by_name(THUMBNAIL).ok()?;
+        let mut out = Vec::new();
+        match entry.take(MAX_THUMBNAIL + 1).read_to_end(&mut out) {
+            Ok(read) if read as u64 <= MAX_THUMBNAIL => Some(out),
+            _ => None,
         }
     }
 

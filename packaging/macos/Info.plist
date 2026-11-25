@@ -25,7 +25,9 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <!-- The documents (.skraft) and the materials alone (.skraftmat, imported into the model
-         shown): the app opens them, a double click in the Finder (src/opened.rs). -->
+         shown): the app opens them, a double click in the Finder (src/opened.rs). Their icon
+         is the one macOS draws, a page badged with the app's icon and the extension; a .skraft
+         carrying a picture shows it instead (the Quick Look extensions). -->
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -33,8 +35,8 @@
             <string>Skraft Document</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
-            <key>CFBundleTypeIconFile</key>
-            <string>Skraft</string>
+            <key>CFBundleTypeIconSystemGenerated</key>
+            <integer>1</integer>
             <key>LSHandlerRank</key>
             <string>Owner</string>
             <key>LSItemContentTypes</key>
@@ -47,8 +49,8 @@
             <string>Skraft Materials</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
-            <key>CFBundleTypeIconFile</key>
-            <string>Skraft</string>
+            <key>CFBundleTypeIconSystemGenerated</key>
+            <integer>1</integer>
             <key>LSHandlerRank</key>
             <string>Owner</string>
             <key>LSItemContentTypes</key>
@@ -64,13 +66,18 @@
             <string>app.skraft.document</string>
             <key>UTTypeDescription</key>
             <string>Skraft Document</string>
-            <key>UTTypeIconFile</key>
-            <string>Skraft</string>
             <key>UTTypeConformsTo</key>
             <array>
                 <string>public.data</string>
                 <string>public.content</string>
             </array>
+            <key>UTTypeIcons</key>
+            <dict>
+                <key>UTTypeIconBadgeName</key>
+                <string>Skraft</string>
+                <key>UTTypeIconText</key>
+                <string>skraft</string>
+            </dict>
             <key>UTTypeTagSpecification</key>
             <dict>
                 <key>public.filename-extension</key>
@@ -86,13 +93,18 @@
             <string>app.skraft.materials</string>
             <key>UTTypeDescription</key>
             <string>Skraft Materials</string>
-            <key>UTTypeIconFile</key>
-            <string>Skraft</string>
             <key>UTTypeConformsTo</key>
             <array>
                 <string>public.data</string>
                 <string>public.content</string>
             </array>
+            <key>UTTypeIcons</key>
+            <dict>
+                <key>UTTypeIconBadgeName</key>
+                <string>Skraft</string>
+                <key>UTTypeIconText</key>
+                <string>skraftmat</string>
+            </dict>
             <key>UTTypeTagSpecification</key>
             <dict>
                 <key>public.filename-extension</key>

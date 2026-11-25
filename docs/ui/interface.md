@@ -209,6 +209,9 @@ In `apps/skraft/src/kit/widgets.rs`:
   the dim ink, in the accent's when what it points at is picked or typed: the mouse of the
   Preferences to its gestures, « Empreindre »'s tenon to its clearances.
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices.
+- **`LabelButton`**, a large button, an icon before its label (the start page's): the main one
+  filled and outlined with the selection's colours, the others framed as a field; measured,
+  then drawn where its caller lays it out.
 - **`confirm_buttons`**, the buttons closing a modal box: its main one, filled, then the one
   cancelling; Enter and Esc stay the box's.
 - **`tree_row`** and the drag ghost, the rows of the navigators and the lists; **`tree_line`**,
@@ -270,6 +273,18 @@ the status bar keeping the tools' hints.
 - The same message again counts (×2); six at most, the oldest timed one dropped first.
   `app.state` lists them (`toasts`); handles `toast.<i>`, `toast.<i>.action` and `toast.<i>.also`. An editor
   nobody takes notices from (headless) keeps its last 32.
+
+## Interface zoom
+
+egui zooms the whole interface on ⌘+, ⌘− and ⌘0 (Ctrl elsewhere; on the web the browser
+keeps these keys, its own zoom adding to this one). The *Interface* tab of the Preferences sets
+it too, among 75 to 200 %; it shows a zoom the keys reached outside that list as it is. The zoom
+is a preference (`Preferences::zoom`), applied at launch, and `App::apply_zoom` keeps egui's and
+it together each frame. `window/zoom_label.rs` shows its new value (« 125 % ») at the center of
+the window, in a popup's frame, for 0.8 s, then fades it in 0.3 s; it takes no click. The zoom
+restored at launch is not shown.
+
+*Why:* the zoom changes every size at once, with nothing to tell how far it is from 100 %.
 
 ## Steps bar
 
@@ -353,7 +368,7 @@ Two levels, after SketchUp's styles.
 - **User preferences** (`apps/skraft/src/prefs.rs`): language ([Texts and languages](texts.md)),
   navigation (orbit speed and direction, mouse and trackpad separately; zoom speed and target;
   the navigation style, [Navigation styles](navigation-styles.md)), the interface (theme,
-  palette, panels, ribbon labels), the tools' settings and the settings of new models. A
+  palette, zoom, panels, ribbon labels), the tools' settings and the settings of new models. A
   versioned JSON file of our own, `preferences.json` in the OS's configuration folder
   (`~/Library/Application Support/Skraft/` on macOS), `localStorage` in the browser; rewritten as
   soon as a preference changes.
@@ -361,7 +376,7 @@ Two levels, after SketchUp's styles.
   migration.
 - **Preferences** window (Cmd/Ctrl+,): *General* tab (language, reopen documents at launch,
   memory of the history), *Model* tab (document settings, with "Use for new models" / "Restore
-  the default settings"), *Navigation*, *Interface*, *Shortcuts* and, on the desktop, *Débogage*
+  the default settings"), *Navigation*, *Interface* (theme, palette, [zoom](#interface-zoom), ribbon labels, panels), *Shortcuts* and, on the desktop, *Débogage*
   (the control channel, [Command registry and external driving](commands.md)). Its tabs are the
   ribbon's (`ribbon::tab_strip`, as the journal window's), the window at least as wide as they
   are. The commands `view.grid` and `view.axes` change the document too.

@@ -63,6 +63,8 @@ key:
 window:
   # The title of a document never saved.
   untitled: "Sans titre"
+  # The interface's zoom, shown a moment when ⌘+ or ⌘− changes it (%{percent}: 125).
+  zoom: "%{percent} %"
 
 menu:
   # The macOS app menu, titled with the app's name (%{app}).
@@ -370,12 +372,18 @@ keypad:
 
 start:
   title: "Skraft"
+  # Under the name: what the app is.
+  tagline: "Modeleur 3D sur de vrais solides"
   new: "Nouveau document"
   open: "Ouvrir un fichier"
   import: "Importer un fichier STEP ou SKP"
   recent: "Fichiers récents"
   # Desktop: the browser keeps no paths.
   no_recent: "Aucun fichier récent"
+  # When a recent file last changed, under its name.
+  today: "Aujourd'hui"
+  yesterday: "Hier"
+  missing: "Fichier introuvable"
 
 # The command palette (Cmd/Ctrl+K).
 palette:
@@ -639,6 +647,8 @@ prefs:
     light: "Clair"
     dark: "Sombre"
     palette: "Palette"
+    # The interface's zoom, also changed by ⌘+ and ⌘−.
+    zoom: "Zoom de l'interface"
     palettes:
       navy: "Marine"
       warm: "Chaud"

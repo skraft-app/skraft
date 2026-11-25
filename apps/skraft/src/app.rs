@@ -38,6 +38,11 @@ pub struct SkraftApp {
     compact: compact::Compact,
     /// The measurements box's keypad is open (docs/ui/touch.md#the-keypad).
     keypad: bool,
+    /// The GPU the window draws with: a saved file's picture of its model is drawn with it
+    /// (docs/io/file-format.md).
+    render_state: Option<egui_wgpu::RenderState>,
+    /// The start page's pictures of the recent files' models.
+    start: crate::window::start::Pictures,
     /// The documents open, one per file tab (docs/ui/file-tabs.md); none shown: the
     /// start page.
     docs: Docs,
@@ -55,6 +60,10 @@ pub struct SkraftApp {
     /// The app's messages (a file not opened, « Enregistré »…); the status bar keeps the
     /// tools' hints.
     toasts: Toasts,
+    /// The interface's zoom, shown a moment when it changes.
+    zoom_label: crate::window::zoom_label::ZoomLabel,
+    /// The zoom egui was last seen or set at (`None`: not yet, the preference's goes first).
+    zoom_applied: Option<f32>,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Empreindre » (decision 0055).
@@ -311,6 +320,8 @@ impl SkraftApp {
             form: Default::default(),
             compact: Default::default(),
             keypad: false,
+            render_state: cc.wgpu_render_state.clone(),
+            start: Default::default(),
             docs,
             last_shown: None,
             closing: None,
@@ -322,6 +333,8 @@ impl SkraftApp {
             viewport: Viewport::new(),
             inbox: Inbox::default(),
             toasts,
+            zoom_label: Default::default(),
+            zoom_applied: None,
             keymap: Keymap::new(&prefs.shortcuts),
             panel_drag: None,
             stored_prefs: prefs.clone(),
@@ -399,7 +412,32 @@ impl SkraftApp {
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
         self.theme = Theme::of(self.prefs.palette, mode);
     }
+
+    /// The interface's zoom and its preference kept together (docs/ui/interface.md#interface-zoom):
+    /// the preference's at launch, egui's when a shortcut changed it, the preference's when the
+    /// Preferences changed it. egui takes a new zoom at the next frame. Under a finger egui's is
+    /// the preference's times `form::TOUCH_ZOOM` (docs/ui/touch.md), the preference still 100 %.
+    fn apply_zoom(&mut self, ctx: &egui::Context) {
+        let touch = self.probe.zoom();
+        let zoom = ctx.zoom_factor() / touch;
+        match self.zoom_applied {
+            // Divided by the touch factor: a rounding is no change.
+            Some(applied) if (zoom - applied).abs() > 1e-4 => self.prefs.zoom = zoom,
+            Some(applied) if self.prefs.zoom == applied => return,
+            _ => {
+                if !(self.prefs.zoom.is_finite() && (ZOOM_MIN..=ZOOM_MAX).contains(&self.prefs.zoom)) {
+                    self.prefs.zoom = 1.0;
+                }
+                ctx.set_zoom_factor(self.prefs.zoom * touch);
+            }
+        }
+        self.zoom_applied = Some(self.prefs.zoom);
+    }
 }
+
+/// The interface's zoom a preferences file may set; egui's shortcuts stay between them.
+const ZOOM_MIN: f32 = 0.2;
+const ZOOM_MAX: f32 = 5.0;
 
 impl eframe::App for SkraftApp {
     /// The control channel stops with the app: its token and discovery files go.
@@ -437,10 +475,6 @@ impl eframe::App for SkraftApp {
         let ctx = ui.ctx().clone();
         crate::kit::handles::frame_start();
         self.driving.frame_start();
-        // Larger under a finger (docs/ui/touch.md); eframe sets the zoom after the app is made.
-        if ctx.zoom_factor() != self.probe.zoom() {
-            ctx.set_zoom_factor(self.probe.zoom());
-        }
         // A press held still is a long press after LONG_PRESS: under a finger, egui is told, and
         // a frame comes while a finger is down though nothing moves, to see it.
         if self.probe.coarse {
@@ -454,6 +488,7 @@ impl eframe::App for SkraftApp {
         let origin = self.driving.origin();
         self.set_origin(&origin);
         self.apply_theme(&ctx);
+        self.apply_zoom(&ctx);
         self.poll_documents();
         self.take_notices(&ctx);
         self.end_cancelled_loads();
@@ -498,7 +533,8 @@ impl eframe::App for SkraftApp {
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
         } else {
-            egui::CentralPanel::default().show(ui, |ui| self.start_page(ui, &mut actions));
+            egui::CentralPanel::default()
+                .show(ui, |ui| crate::window::start::show(ui, &self.theme, &self.prefs.recent_files, &mut self.start, &mut actions));
         }
         // The toasts above a card risen from the bottom.
         if let Some(top) = self.compact.top.take() {
@@ -507,6 +543,7 @@ impl eframe::App for SkraftApp {
         self.secondary_windows(&ctx, &views, &mut actions);
         drop_hint(&ctx);
         self.show_toasts(&ctx, status_top);
+        self.zoom_label.show(&ctx, self.prefs.zoom);
         self.naming_dialog(&ctx);
         self.imprint_dialog(&ctx);
         self.view_picker_dialog(&ctx);

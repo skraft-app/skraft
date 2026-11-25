@@ -19,7 +19,8 @@ model.skraft
 ├── view.json                   how it was last seen (workspace, cameras), when there is something to say
 ├── breps/<name>.json           the B-reps it is made of
 ├── cache/<name>.json           the B-reps computed from them
-└── textures/<name>.<png|jpg>   the images of the materials' textures, as they came (stored)
+├── textures/<name>.<png|jpg>   the images of the materials' textures, as they came (stored)
+└── thumbnail.png               a picture of the model, for the start page (stored)
 ```
 
 - **`manifest.json`**, read first: the format, its version (a newer one is refused:
@@ -55,6 +56,17 @@ model.skraft
   (128 bits of the BLAKE3 hash of its bytes) and its kind's extension, not compressed again;
   `document.json`'s `assets` names them with their kind (`"<id>": "jpeg"`). A file naming an
   image it does not have is refused.
+- **`thumbnail.png`**: what the model looks like, for the start page's recent files
+  ([File tabs](../ui/file-tabs.md#start-page)) and the Finder's Quick Look on macOS
+  ([below](#extension-and-file-associations)). Drawn at each save by the viewport's renderer
+  (`Viewport::file_picture`): a parallel iso view framed on the whole model as the library's
+  thumbnails, 480 × 270 pixels, in the light look whatever the theme, on a clear ground — drawn
+  on black then on white, each pixel's coverage read from their difference —, so that the card
+  shows it on the view's ground of any palette and mode. When the save cannot draw it (the
+  document not shown, nothing drawn yet, the web, which cannot wait for the GPU), the one the
+  file carried is written again. Read alone (`Document::file_thumbnail`), without the rest of
+  the file; absent, or past 4 MB, the file has no picture. Optional: older files open as
+  they are.
 - **No dates** in the ZIP (1980-01-01) and entries in a fixed order: the same document gives
   the same bytes.
 
@@ -129,6 +141,16 @@ documents » (macOS, launched or running: winit does not handle it, the app inst
 handler when it will finish launching); either way it waits in a queue
 (`apps/skraft/src/system/opened.rs`) and opens in a tab of its own at the next frame — a
 `.skraftmat` imported into the model shown.
+
+**Quick Look on macOS**: Skraft.app carries two extensions (`packaging/macos/quicklook/`,
+built by `scripts/build-quicklook.sh`), for `app.skraft.document`: the thumbnail the Finder
+draws in place of the icon, and the preview on Space (macOS 12 and later). Both show
+`thumbnail.png`, found through the ZIP's central directory and read alone, stored as it is; a
+file without it, or not written as the app writes it, keeps the document icon. They run
+sandboxed, signed ad hoc with their entitlements before the app (never `--deep`, which would
+sign them again without). Without a picture, a file has the document icon macOS draws
+(`CFBundleTypeIconSystemGenerated`): a page badged with the app's icon, its extension under
+it. Windows and Linux show the app's icon only.
 
 ## Version 1 until 0.1.0
 

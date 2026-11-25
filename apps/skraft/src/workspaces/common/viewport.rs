@@ -1189,46 +1189,8 @@ impl Viewport {
                 rest.push(w);
                 continue;
             }
-            // Its box, in its axes: its meshes' boxes at their placements.
-            let mut bounds: Option<(DVec3, DVec3)> = None;
-            for (p, places) in &w.content.parts {
-                let Some(dm) = scene.definition_mesh(*p) else { continue };
-                for pm in &dm.parts {
-                    let Some((lo, hi)) = pm.bounds else { continue };
-                    for (t, _) in places {
-                        for i in 0..8 {
-                            let c = DVec3::new(
-                                if i & 1 == 0 { lo.x } else { hi.x },
-                                if i & 2 == 0 { lo.y } else { hi.y },
-                                if i & 4 == 0 { lo.z } else { hi.z },
-                            );
-                            let c = t.transform_point3(c);
-                            bounds = Some(bounds.map_or((c, c), |(a, b)| (a.min(c), b.max(c))));
-                        }
-                    }
-                }
-            }
-            let Some(bounds) = bounds else { continue };
-            let slots = &self.slots;
-            let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
-            let batches: Vec<render::Batch> = w
-                .content
-                .parts
-                .iter()
-                .filter(|(p, _)| renderer.has_mesh(p.0, scene.definition_mesh(*p).map_or(u64::MAX, |d| d.revision)))
-                .map(|(p, places)| {
-                    let placements = places
-                        .iter()
-                        .map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) })
-                        .collect();
-                    render::Batch::new(p.0, placements)
-                })
-                .collect();
-            if batches.is_empty() {
-                continue;
-            }
-            let (view, proj) = thumbnail_camera(bounds);
-            let rgb = |c: Rgba| [c[0], c[1], c[2]];
+            let Some((bounds, batches)) = content_batches(renderer, &self.slots, scene, &w.content) else { continue };
+            let (view, proj) = thumbnail_camera(bounds, 1.0);
             let [r, g, b, _] = theme.ui.view;
             let frame = render::Frame {
                 view,
@@ -1281,6 +1243,80 @@ impl Viewport {
             ctx.request_repaint();
         }
     }
+}
+
+/// The batches drawing `content` (the part meshes the renderer holds, at their placements, each
+/// with its material's slot) and their box, in its axes: its meshes' boxes at their
+/// placements. None when there is nothing to draw.
+fn content_batches(
+    renderer: &render::Renderer,
+    slots: &HashMap<Id, u32>,
+    scene: &skraft_tools::DisplayScene,
+    content: &crate::system::thumbnails::Content,
+) -> Option<((DVec3, DVec3), Vec<render::Batch>)> {
+    let mut bounds: Option<(DVec3, DVec3)> = None;
+    for (p, places) in &content.parts {
+        let Some(dm) = scene.definition_mesh(*p) else { continue };
+        for pm in &dm.parts {
+            let Some((lo, hi)) = pm.bounds else { continue };
+            for (t, _) in places {
+                for i in 0..8 {
+                    let c = DVec3::new(
+                        if i & 1 == 0 { lo.x } else { hi.x },
+                        if i & 2 == 0 { lo.y } else { hi.y },
+                        if i & 4 == 0 { lo.z } else { hi.z },
+                    );
+                    let c = t.transform_point3(c);
+                    bounds = Some(bounds.map_or((c, c), |(a, b)| (a.min(c), b.max(c))));
+                }
+            }
+        }
+    }
+    let bounds = bounds?;
+    let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+    let batches: Vec<render::Batch> = content
+        .parts
+        .iter()
+        .filter(|(p, _)| renderer.has_mesh(p.0, scene.definition_mesh(*p).map_or(u64::MAX, |d| d.revision)))
+        .map(|(p, places)| {
+            let placements =
+                places.iter().map(|(t, m)| render::Placement { material: slot(*m), ..render::Placement::new(DMat4::from(*t)) }).collect();
+            render::Batch::new(p.0, placements)
+        })
+        .collect();
+    (!batches.is_empty()).then_some((bounds, batches))
+}
+
+fn rgb(c: Rgba) -> [f32; 3] {
+    [c[0], c[1], c[2]]
+}
+
+/// A file's picture of its model, in pixels (the start page's cards, at twice their size), and
+/// how wide its edges are (`render::EDGE_WIDTH` times this).
+const FILE_PICTURE: [u32; 2] = [480, 270];
+const FILE_PICTURE_EDGES: f32 = 1.0;
+
+/// A picture on a clear ground from the same one drawn on black and on white (sRGB RGBA
+/// rows): where they differ, the ground showed through. Each pixel's coverage is one less
+/// that difference (linear light, its channels' mean), its colour the black one's divided
+/// by it.
+fn unblend(black: &[u8], white: &[u8]) -> Vec<u8> {
+    use skraft_theme::{linear, srgb_byte};
+    let mut out = Vec::with_capacity(black.len());
+    for (b, w) in black.chunks_exact(4).zip(white.chunks_exact(4)) {
+        let lb = [linear(b[0]), linear(b[1]), linear(b[2])];
+        let lw = [linear(w[0]), linear(w[1]), linear(w[2])];
+        let alpha = (1.0 - (0..3).map(|i| lw[i] - lb[i]).sum::<f32>() / 3.0).clamp(0.0, 1.0);
+        if alpha <= 1.0 / 255.0 {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        for c in lb {
+            out.push(srgb_byte((c / alpha).min(1.0)));
+        }
+        out.push((alpha * 255.0).round() as u8);
+    }
+    out
 }
 
 /// How much finer a thumbnail's edges are than the view's (`render::EDGE_WIDTH` times this).
@@ -1423,8 +1459,9 @@ const SHEET_KEPT_BYTES: u64 = if cfg!(target_arch = "wasm32") { 64 << 20 } else 
 const THUMBNAIL_BUDGET_MS: f64 = 6.0;
 
 /// A thumbnail's camera: a parallel iso view from the front, right and above, framed tight on
-/// `bounds` (their corners' extent across the view, a margin around), square.
-fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
+/// `bounds` (their corners' extent across the view, a margin around), `aspect` (width over
+/// height) the picture's.
+fn thumbnail_camera((lo, hi): (DVec3, DVec3), aspect: f64) -> (DMat4, glam::Mat4) {
     let forward = DVec3::new(-1.0, 1.0, -1.0).normalize();
     let right = forward.cross(DVec3::Z).normalize();
     let up = right.cross(forward);
@@ -1438,13 +1475,15 @@ fn thumbnail_camera((lo, hi): (DVec3, DVec3)) -> (DMat4, glam::Mat4) {
         h = h.max(c.dot(up).abs());
         d = d.max(c.dot(forward).abs());
     }
-    let half = (w.max(h) * 1.12).max(1e-3);
+    let half = (w.max(h * aspect) * 1.12).max(1e-3);
+    let half_h = half / aspect;
     let eye = center - forward * (2.0 * d + half + 1.0);
     let view = glam::dcamera::rh::view::look_to_mat4(eye, forward, up);
     let dist = (center - eye).dot(forward);
     let (near, far) = ((dist - d * 1.1 - 1.0).max(1e-3), dist + d * 1.1 + 1.0);
     // Reversed depth: near → 1, far → 0.
-    let proj = glam::camera::rh::proj::directx::orthographic(-half as f32, half as f32, -half as f32, half as f32, far as f32, near as f32);
+    let proj =
+        glam::camera::rh::proj::directx::orthographic(-half as f32, half as f32, -half_h as f32, half_h as f32, far as f32, near as f32);
     (view, proj)
 }
 
@@ -1910,6 +1949,61 @@ fn grid_for(focus: f64) -> render::Grid {
 }
 
 impl Viewport {
+    /// The picture of the whole model a file carries for the start page
+    /// (docs/io/file-format.md): a parallel iso view framed on it, [`FILE_PICTURE`] pixels, on
+    /// a clear ground — drawn on black then on white, each pixel's coverage read from their
+    /// difference —, in `theme`'s look. As a PNG; None when `doc` is not the document shown or
+    /// it has nothing drawn yet. Waits for the GPU.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn file_picture(&mut self, state: &egui_wgpu::RenderState, doc: u64, editor: &Editor, theme: &Theme) -> Option<Vec<u8>> {
+        if doc != self.document {
+            return None;
+        }
+        let renderer = self.renderer.as_mut()?;
+        let content = crate::system::thumbnails::Content::model(editor.document());
+        let (bounds, batches) = content_batches(renderer, &self.slots, editor.scene(), &content)?;
+        let [w, h] = FILE_PICTURE;
+        let (view, proj) = thumbnail_camera(bounds, f64::from(w) / f64::from(h));
+        let picture = renderer.new_picture(&state.device, FILE_PICTURE);
+        let mut shot = |background: [f32; 3]| {
+            let frame = render::Frame {
+                view,
+                proj,
+                background,
+                style: render::Style {
+                    face_front: rgb(theme.face_front),
+                    face_back: rgb(theme.face_back),
+                    edge: rgb(theme.edge),
+                    grid: rgb(theme.grid),
+                    palette: &self.palette,
+                    textures: &self.textures,
+                    silhouettes: true,
+                    section: None,
+                    ..render::Style::default()
+                },
+                batches: &batches,
+                highlights: &[],
+                lines: &[],
+                axis_lines: &[],
+                faint_lines: &[],
+                boxes: &[],
+                overlay: &[],
+                hidden_lines: &[],
+                fills: &[],
+                grid: None,
+                axes: false,
+                axes_frame: DMat4::IDENTITY,
+                pixels_per_point: FILE_PICTURE_EDGES,
+                model_per_point: 1.0,
+            };
+            renderer.render_picture(&state.device, &state.queue, &frame, &picture);
+            read_texture(state, picture.texture()).map(|(_, _, px)| px)
+        };
+        let black = shot([0.0; 3])?;
+        let white = shot([1.0; 3])?;
+        crate::system::driving::png(w, h, &unblend(&black, &white)).ok()
+    }
+
     /// The picture last drawn, as RGBA rows (sRGB): the control channel's screenshot. Waits
     /// for the GPU.
     #[cfg(not(target_arch = "wasm32"))]

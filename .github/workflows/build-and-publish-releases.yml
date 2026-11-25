@@ -132,7 +132,9 @@ jobs:
 
       - name: WiX
         if: runner.os == 'Windows'
-        run: dotnet tool install --global wix --version 5.0.2
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add --global WixToolset.UI.wixext/5.0.2
 
       # The third-party notices (scripts/third-party-licenses.sh).
       - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2

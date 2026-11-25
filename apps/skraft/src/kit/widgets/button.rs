@@ -52,6 +52,66 @@ pub(crate) fn confirm_buttons(ui: &mut egui::Ui, handle: &str, ok: String, enabl
     .inner
 }
 
+/// A [`LabelButton`]'s side margins, its icon's width and the room between icon and label.
+const LABEL_PAD: f32 = 18.0;
+const LABEL_ICON: f32 = 16.0;
+const LABEL_GAP: f32 = 8.0;
+const LABEL_TEXT: f32 = 14.0;
+
+/// A large button, an icon before its label (the start page's). The main one is filled and
+/// outlined with the selection's colours, as [`confirm_buttons`]' ok; the others are framed as
+/// a field. Hovered, pressed or focused, outlined in the accent, as every widget. Measured
+/// first ([`LabelButton::width`]), then drawn where its caller lays it out.
+pub(crate) struct LabelButton {
+    icon: egui::ImageSource<'static>,
+    label: std::sync::Arc<egui::Galley>,
+    main: bool,
+}
+
+impl LabelButton {
+    pub(crate) fn new(ui: &egui::Ui, icon: egui::ImageSource<'static>, label: String, main: bool) -> Self {
+        let font = if main { crate::kit::style::semibold(LABEL_TEXT) } else { egui::FontId::proportional(LABEL_TEXT) };
+        let label = ui.painter().layout_no_wrap(label, font, egui::Color32::PLACEHOLDER);
+        LabelButton { icon, label, main }
+    }
+
+    /// Its width at rest: its margins, its icon and its label.
+    pub(crate) fn width(&self) -> f32 {
+        2.0 * LABEL_PAD + LABEL_ICON + LABEL_GAP + self.label.size().x
+    }
+
+    /// Drawn in `rect` (wider than [`width`](Self::width): its content centred), published as
+    /// `handle`.
+    pub(crate) fn show_at(self, ui: &mut egui::Ui, rect: egui::Rect, handle: &str) -> egui::Response {
+        let r = ui.interact(rect, ui.scope_id().with(("label_button", handle)), egui::Sense::click());
+        crate::kit::handles::publish(|| handle.to_owned(), rect);
+        let text = self.label.text().to_owned();
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &text));
+        let v = ui.visuals();
+        let pressed = r.is_pointer_button_down_on();
+        let (mut fill, mut stroke) =
+            if self.main { (v.selection.bg_fill, v.selection.stroke) } else { (v.extreme_bg_color, v.widgets.noninteractive.bg_stroke) };
+        if r.hovered() || pressed || r.has_focus() {
+            stroke.color = v.widgets.hovered.bg_stroke.color;
+        }
+        if pressed {
+            if self.main {
+                stroke.width += 1.0;
+            } else {
+                fill = v.widgets.active.weak_bg_fill;
+            }
+        }
+        let ink = v.text_color();
+        ui.painter().rect(rect, v.window_corner_radius, fill, stroke, egui::StrokeKind::Inside);
+        let size = self.label.size();
+        let left = rect.center().x - (LABEL_ICON + LABEL_GAP + size.x) / 2.0;
+        let icon = egui::Rect::from_center_size(egui::pos2(left + LABEL_ICON / 2.0, rect.center().y), egui::Vec2::splat(LABEL_ICON));
+        egui::Image::new(self.icon).tint(ink).paint_at(ui, icon);
+        ui.painter().galley(egui::pos2(left + LABEL_ICON + LABEL_GAP, rect.center().y - size.y / 2.0), self.label, ink);
+        r
+    }
+}
+
 /// A button whose frame is not drawn ([`backed`] draws its background) but keeps its margins.
 pub(crate) fn unframed(button: egui::Button) -> egui::Button {
     button.fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE)

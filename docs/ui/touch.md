@@ -101,8 +101,9 @@ a small desktop window under a mouse keep the desktop arrangement. No preference
 page's address (`desktop` forces the other).
 
 **Larger under a finger**: wherever the pointer is a finger, tablet included, the whole interface
-is drawn 1.2 times larger (egui's zoom, `form::TOUCH_ZOOM`): buttons, rows and text together, the
-text near a phone's usual 16 pt.
+is drawn 1.2 times larger (`form::TOUCH_ZOOM`): buttons, rows and text together, the text near a
+phone's usual 16 pt. egui's zoom is the interface zoom's preference times this
+([Application interface](interface.md#interface-zoom)), the preference still 100 %.
 
 **What it shows**, every workspace (modelling, parts list, drawing):
 - **The bar at the top**: a menu (☰: File's commands, the command search, the preferences), the

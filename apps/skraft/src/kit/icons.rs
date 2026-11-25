@@ -97,6 +97,7 @@ icon!(ADD, "add");
 icon!(TEXTURE, "texture");
 icon!(EXPORT, "export");
 icon!(IMPORT, "import");
+icon!(OPEN, "open");
 icon!(MORE, "more");
 icon!(MENU, "menu");
 icon!(WARNING, "warning");
