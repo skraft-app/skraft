@@ -10,11 +10,11 @@
 
 use std::collections::BTreeMap;
 
-use egui::{Align2, Color32, FontId, Popup, PopupCloseBehavior, Rect, Sense, StrokeKind, pos2, vec2};
+use egui::{Align2, Color32, FontId, Popup, Rect, Sense, StrokeKind, pos2, vec2};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
-use crate::kit::widgets::{PinRow, pin_row};
+use crate::kit::widgets::{PinEvent, PinItem, PinMenu, PinTexts, pin_list, pin_menu};
 
 use crate::commands::{Action, CommandView};
 use crate::kit::icons;
@@ -779,11 +779,9 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
             Some(c) => label.union(c),
             None => label,
         };
-        Popup::menu(&response)
-            .style(crate::kit::style::menu)
-            .id(egui::Id::unique(("ribbon_menu", &l.key)))
-            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| group_menu(ui, v, &l.key, l.group, actions));
+        let menu = PinMenu { id: egui::Id::unique(("ribbon_menu", &l.key)), align: None, checks: false, texts: PIN_TEXTS };
+        let event = pin_menu(&response, &menu, || group_items(v, &l.key, l.group));
+        group_event(event, &l.key, l.group, actions);
         x += gw;
     }
 
@@ -799,7 +797,10 @@ fn groups(ui: &mut egui::Ui, v: &View, width: f32, inset: egui::Margin, actions:
         let response = response.tip(t!("ribbon.more"));
         Popup::menu(&response).style(crate::kit::style::menu).show(|ui| {
             for l in laid.iter().filter(|l| l.place == Placement::Overflow) {
-                ui.menu_button((l.group.label)(), |ui| group_menu(ui, v, &l.key, l.group, actions));
+                ui.menu_button((l.group.label)(), |ui| {
+                    let event = pin_list(ui, &group_items(v, &l.key, l.group), false, &PIN_TEXTS);
+                    group_event(event, &l.key, l.group, actions);
+                });
             }
         });
     }
@@ -915,36 +916,22 @@ fn group_label(ui: &mut egui::Ui, l: &Laid, rect: Rect, lit: bool) -> egui::Resp
     response
 }
 
-/// A group's menu: every command, each with its pin, and how pinning works.
-fn group_menu(ui: &mut egui::Ui, v: &View, key: &str, group: &'static Group, actions: &mut Vec<Action>) {
+/// A group's menu's texts.
+const PIN_TEXTS: PinTexts = PinTexts { tip: |on| if on { t!("ribbon.unpin") } else { t!("ribbon.pin") }, note: || t!("ribbon.menu_note") };
+
+/// A group's menu's rows: every command, each with its pin.
+fn group_items<'a>(v: &'a View, key: &str, group: &'static Group) -> Vec<PinItem<'a>> {
     let pinned = v.prefs.pinned(key, group);
-    for &id in group.commands {
-        let Some(c) = v.command(id) else { continue };
-        let on = pinned.contains(&id);
-        let (run, pin) = pin_row(
-            ui,
-            PinRow {
-                icon: icons::command(id),
-                check: None,
-                label: &c.label,
-                shortcut: c.shortcut.as_deref(),
-                enabled: c.enabled,
-                selected: c.checked == Some(true),
-                width: 210.0,
-                pinned: on,
-                pin_tip: if on { t!("ribbon.unpin") } else { t!("ribbon.pin") },
-            },
-        );
-        if run.tip(tip(c, v.shortcuts)).clicked() {
-            actions.push(Action::Command(id));
-            ui.close();
-        }
-        if pin {
-            actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id }));
-        }
+    group.commands.iter().filter_map(|id| v.command(id)).map(|c| PinItem::command(c, pinned.contains(&c.id))).collect()
+}
+
+/// What was done in a group's menu.
+fn group_event(event: Option<PinEvent>, key: &str, group: &'static Group, actions: &mut Vec<Action>) {
+    match event {
+        Some(PinEvent::Run(id)) => actions.push(Action::Command(id)),
+        Some(PinEvent::Pin(id)) => actions.push(Action::Ribbon(Change::TogglePin { key: key.to_owned(), group, id })),
+        None => {}
     }
-    ui.separator();
-    ui.add(egui::Label::new(egui::RichText::new(t!("ribbon.menu_note")).small().weak()).wrap());
 }
 
 /// `text` on at most `rows` lines `width` wide, centered on `top_center`, the last line cut

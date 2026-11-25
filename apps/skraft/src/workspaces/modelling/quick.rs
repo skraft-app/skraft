@@ -8,7 +8,7 @@ use skraft_i18n::t;
 use crate::commands::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::kit::widgets::{IconButton, Look, PinRow, pin_row};
+use crate::kit::widgets::{IconButton, Look, PinEvent, PinItem, PinMenu, PinTexts, pin_menu};
 
 /// The commands the card can show, in its order.
 pub const COMMANDS: &[&str] =
@@ -102,39 +102,23 @@ fn more(ui: &mut egui::Ui, pinned: &[&'static str], views: &[CommandView], actio
     }
     crate::window::ribbon::chevron(ui, rect.center(), ui.visuals().text_color());
     let response = response.tip(t!("quick_tools.choose"));
-    // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
-    Popup::menu(&response).style(crate::kit::style::menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        for &id in COMMANDS {
-            let Some(c) = views.iter().find(|v| v.id == id) else { continue };
-            let on = pinned.contains(&id);
-            let (run, pin) = pin_row(
-                ui,
-                PinRow {
-                    icon: icons::command(id),
-                    check: None,
-                    label: &c.label,
-                    shortcut: c.shortcut.as_deref(),
-                    enabled: c.enabled,
-                    selected: false,
-                    width: 190.0,
-                    pinned: on,
-                    pin_tip: if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") },
-                },
-            );
-            if run.clicked() {
-                actions.push(Action::QuickTool(id));
-                ui.close();
-            }
-            if pin {
-                actions.push(Action::QuickPin(id));
-            }
-        }
-        // The note wraps within the rows' width instead of widening the menu.
-        let width = ui.min_rect().width();
-        ui.separator();
-        ui.set_max_width(width);
-        ui.add(egui::Label::new(egui::RichText::new(t!("quick_tools.menu_note")).small().weak()).wrap());
-    });
+    let menu = PinMenu {
+        id: egui::Id::unique("quick_tools_menu"),
+        align: None,
+        checks: false,
+        texts: PinTexts {
+            tip: |on| if on { t!("quick_tools.unpin") } else { t!("quick_tools.pin") },
+            note: || t!("quick_tools.menu_note"),
+        },
+    };
+    let items = || {
+        COMMANDS.iter().filter_map(|id| views.iter().find(|v| v.id == *id)).map(|c| PinItem::command(c, pinned.contains(&c.id))).collect()
+    };
+    match pin_menu(&response, &menu, items) {
+        Some(PinEvent::Run(id)) => actions.push(Action::QuickTool(id)),
+        Some(PinEvent::Pin(id)) => actions.push(Action::QuickPin(id)),
+        None => {}
+    }
 }
 
 #[cfg(test)]

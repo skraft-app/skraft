@@ -8,7 +8,7 @@ use skraft_i18n::t;
 use crate::commands::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::kit::widgets::{IconButton, Look, PinRow, pin_row};
+use crate::kit::widgets::{IconButton, Look, PinEvent, PinItem, PinMenu, PinTexts, pin_menu};
 use crate::window::dock::Dock;
 
 /// The standard views' button: not a command of the registry, it opens their menu.
@@ -262,16 +262,6 @@ fn views_button(
     (crate::workspaces::common::viewport::pins::Item { id: VIEWS, rect: response.rect, response, icon: icons::VIEWS }, open)
 }
 
-/// A command's row in the ▾ menu: its label, whether it can run, a toggle's state (its check
-/// box, as in the View menu), its shortcut.
-fn row(id: &str, views: &[CommandView]) -> Option<(String, bool, Option<bool>, Option<String>)> {
-    if id == VIEWS {
-        return Some((t!("view_bar.views"), true, None, None));
-    }
-    let c = views.iter().find(|v| v.id == id)?;
-    Some((c.label.clone(), c.enabled, c.checked, c.shortcut.clone()))
-}
-
 /// The ▾ button: every command the bar can show, each with its pin. True while it is open.
 fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[CommandView], actions: &mut Vec<Action>) -> bool {
     let (rect, response) = ui.allocate_exact_size(vec2(BUTTON, MORE), Sense::click());
@@ -284,45 +274,40 @@ fn more(ui: &mut egui::Ui, side: Dock, pinned: &[&'static str], views: &[Command
     let id = egui::Id::unique("view_bar_more_menu");
     let open = Popup::is_id_open(ui.ctx(), id);
     let response = if open { response } else { response.tip(t!("view_bar.choose")) };
-    // A pin clicked leaves it open, as the ribbon's group menus; a row run closes it.
-    Popup::menu(&response)
-        .id(id)
-        .align(inward(side))
-        .style(crate::kit::style::menu)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| {
-            for &id in COMMANDS {
-                let Some((name, enabled, check, shortcut)) = row(id, views) else { continue };
-                let on = pinned.contains(&id);
-                let (run, pin) = pin_row(
-                    ui,
-                    PinRow {
-                        icon: if id == VIEWS { Some(icons::VIEWS) } else { icons::command(id) },
-                        check: Some(check),
-                        label: &name,
-                        shortcut: shortcut.as_deref(),
-                        enabled,
-                        selected: false,
-                        width: 240.0,
-                        pinned: on,
-                        pin_tip: if on { t!("view_bar.unpin") } else { t!("view_bar.pin") },
-                    },
-                );
-                // A click on a row runs it, but the views' row: its menu is the button's.
-                if run.clicked() && id != VIEWS {
-                    actions.push(Action::Command(id));
-                    ui.close();
+    // Its toggles in a column of check boxes, as in the View menu.
+    let menu = PinMenu {
+        id,
+        align: Some(inward(side)),
+        checks: true,
+        texts: PinTexts { tip: |on| if on { t!("view_bar.unpin") } else { t!("view_bar.pin") }, note: || t!("view_bar.menu_note") },
+    };
+    let views_label = t!("view_bar.views");
+    let items = || {
+        COMMANDS
+            .iter()
+            .filter_map(|&id| {
+                if id == VIEWS {
+                    // Its menu is the button's: the row does not run.
+                    return Some(PinItem {
+                        id,
+                        icon: Some(icons::VIEWS),
+                        label: &views_label,
+                        shortcut: None,
+                        enabled: true,
+                        checked: None,
+                        pinned: pinned.contains(&id),
+                        runs: false,
+                    });
                 }
-                if pin {
-                    actions.push(Action::ViewPin(id));
-                }
-            }
-            // The note wraps within the rows' width instead of widening the menu.
-            let width = ui.min_rect().width();
-            ui.separator();
-            ui.set_max_width(width);
-            ui.add(egui::Label::new(egui::RichText::new(t!("view_bar.menu_note")).small().weak()).wrap());
-        });
+                views.iter().find(|v| v.id == id).map(|c| PinItem::command(c, pinned.contains(&id)))
+            })
+            .collect()
+    };
+    match pin_menu(&response, &menu, items) {
+        Some(PinEvent::Run(id)) => actions.push(Action::Command(id)),
+        Some(PinEvent::Pin(id)) => actions.push(Action::ViewPin(id)),
+        None => {}
+    }
     open
 }
 

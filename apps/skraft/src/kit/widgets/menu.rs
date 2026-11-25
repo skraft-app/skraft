@@ -27,34 +27,116 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
 
 /// A row of a menu listing commands to pin (the ribbon's groups, the view bar's and the quick
 /// tools' ▾).
-pub(crate) struct PinRow<'a> {
+pub(crate) struct PinItem<'a> {
+    pub(crate) id: &'static str,
     pub(crate) icon: Option<egui::ImageSource<'static>>,
-    /// `Some`: a column of check boxes every row keeps, this row's state in it (none: empty).
-    pub(crate) check: Option<Option<bool>>,
     pub(crate) label: &'a str,
     pub(crate) shortcut: Option<&'a str>,
     pub(crate) enabled: bool,
-    pub(crate) selected: bool,
-    /// The least width of the row's button.
-    pub(crate) width: f32,
+    /// A toggle's state, or whether a tool is the active one.
+    pub(crate) checked: Option<bool>,
     pub(crate) pinned: bool,
-    pub(crate) pin_tip: String,
+    /// A click on the row runs it (not a row whose menu is its button's).
+    pub(crate) runs: bool,
 }
 
-/// A command's row and its pin, side by side: the row's response, and whether the pin was clicked.
-pub(crate) fn pin_row(ui: &mut egui::Ui, row: PinRow<'_>) -> (egui::Response, bool) {
+impl<'a> PinItem<'a> {
+    /// A command's row, as the command shows now.
+    pub(crate) fn command(c: &'a CommandView, pinned: bool) -> PinItem<'a> {
+        PinItem {
+            id: c.id,
+            icon: icons::command(c.id),
+            label: &c.label,
+            shortcut: c.shortcut.as_deref(),
+            enabled: c.enabled,
+            checked: c.checked,
+            pinned,
+            runs: true,
+        }
+    }
+}
+
+/// A pin menu's texts: the pin's tip (its row pinned or not) and the note under the rows.
+pub(crate) struct PinTexts {
+    pub(crate) tip: fn(bool) -> String,
+    pub(crate) note: fn() -> String,
+}
+
+/// How a pin menu opens and shows its rows.
+pub(crate) struct PinMenu {
+    pub(crate) id: egui::Id,
+    /// Where it opens from its button (egui's default: below).
+    pub(crate) align: Option<egui::RectAlign>,
+    /// A column of check boxes every row keeps, each toggle's state in it (the View menu's), in
+    /// place of lighting the checked rows.
+    pub(crate) checks: bool,
+    pub(crate) texts: PinTexts,
+}
+
+/// What was done in a pin menu: a row run (the menu then closes), a pin clicked (it stays open).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PinEvent {
+    Run(&'static str),
+    Pin(&'static str),
+}
+
+/// A pin menu opened by `response`: every row with its pin, then the note. Its rows are built
+/// only while it is open.
+pub(crate) fn pin_menu<'a>(response: &egui::Response, menu: &PinMenu, items: impl FnOnce() -> Vec<PinItem<'a>>) -> Option<PinEvent> {
+    let mut popup = egui::Popup::menu(response)
+        .id(menu.id)
+        .style(crate::kit::style::menu)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    if let Some(align) = menu.align {
+        popup = popup.align(align);
+    }
+    popup.show(|ui| pin_list(ui, &items(), menu.checks, &menu.texts)).and_then(|r| r.inner)
+}
+
+/// A pin menu's content, in a menu opened otherwise (a submenu).
+pub(crate) fn pin_list(ui: &mut egui::Ui, items: &[PinItem], checks: bool, texts: &PinTexts) -> Option<PinEvent> {
+    let mut event = None;
+    for item in items {
+        let (run, pin) = pin_row(ui, item, checks, texts);
+        if run.clicked() && item.runs {
+            event = Some(PinEvent::Run(item.id));
+            ui.close();
+        }
+        if pin {
+            event = Some(PinEvent::Pin(item.id));
+        }
+    }
+    // The note wraps within the rows' width: the rows set the menu's, never the note.
+    let width = ui.min_rect().width();
+    ui.separator();
+    ui.set_max_width(width);
+    ui.add(egui::Label::new(egui::RichText::new((texts.note)()).small().weak()).wrap());
+    event
+}
+
+/// The least width of a pin row's button, the same in every pin menu: the pins line up in a
+/// column the longest label still fits before.
+const PIN_ROW_WIDTH: f32 = 240.0;
+
+/// A row and its pin, side by side: the row's response (no tip: it would say its label again),
+/// and whether the pin was clicked.
+fn pin_row(ui: &mut egui::Ui, row: &PinItem, checks: bool, texts: &PinTexts) -> (egui::Response, bool) {
     ui.horizontal(|ui| {
         let ink = ui.visuals().text_color();
-        let image = row.icon.map(|icon| egui::Image::new(icon).fit_to_exact_size(egui::vec2(16.0, 16.0)).tint(ink));
-        let button = match (row.check, image) {
-            (Some(check), Some(image)) => egui::Button::new((crate::kit::style::menu_check(check), image, row.label)),
-            (Some(check), None) => egui::Button::new((crate::kit::style::menu_check(check), row.label)),
-            (None, Some(image)) => egui::Button::image_and_text(image, row.label),
-            (None, None) => egui::Button::new(row.label),
+        let image = row.icon.clone().map(|icon| egui::Image::new(icon).fit_to_exact_size(egui::vec2(16.0, 16.0)).tint(ink));
+        let check = crate::kit::style::menu_check(row.checked.filter(|_| checks));
+        let button = match (checks, image) {
+            (true, Some(image)) => egui::Button::new((check, image, row.label)),
+            (true, None) => egui::Button::new((check, row.label)),
+            (false, Some(image)) => egui::Button::image_and_text(image, row.label),
+            (false, None) => egui::Button::new(row.label),
         };
+        // Lit when checked, but a check box tells a toggle's state.
+        let selected = !checks && row.checked == Some(true);
         // Always a shortcut, if empty: it pushes the label to the left (else centred).
-        let button = button.selected(row.selected).min_size(egui::vec2(row.width, 22.0)).shortcut_text(row.shortcut.unwrap_or(""));
+        let button = button.selected(selected).min_size(egui::vec2(PIN_ROW_WIDTH, 22.0)).shortcut_text(row.shortcut.unwrap_or(""));
         let run = ui.add_enabled(row.enabled, button);
+        crate::kit::handles::publish_enabled(|| format!("pin_menu:{}", row.id), run.rect, row.enabled);
         // Pinned: a filled pin in the accent; unpinned: a faint outline.
         let (icon, tint) = if row.pinned {
             (icons::PIN_FILLED, ui.visuals().selection.stroke.color)
@@ -62,7 +144,7 @@ pub(crate) fn pin_row(ui: &mut egui::Ui, row: PinRow<'_>) -> (egui::Response, bo
             (icons::PIN, ui.visuals().weak_text_color().gamma_multiply(0.55))
         };
         let pin = egui::Button::image(egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint)).frame(false);
-        let pin = ui.add(pin).tip(row.pin_tip).clicked();
+        let pin = ui.add(pin).tip((texts.tip)(row.pinned)).clicked();
         (run, pin)
     })
     .inner
