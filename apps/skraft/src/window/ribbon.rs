@@ -501,9 +501,28 @@ fn tabs_seen(
     };
     ui.painter().rect_filled(band, egui::CornerRadius { nw, ne, sw: 0, se: 0 }, visuals.faint_bg_color);
 
+    // Wider than the row (a phone's window): the tabs scroll sideways under a finger, a wheel or
+    // a trackpad, faded at the ends that hide some, the shown one brought into view when it
+    // changes (docs/ui/touch.md). The band stays as it is: only the tabs move.
+    let radius = crate::window::tabs::TAB_RADIUS;
+    let natural = tab_labels_width(ui.painter(), labels);
+    let overflow = (natural - (width - 2.0 * radius)).max(0.0);
+    let scroll_id = ids.first().map_or(egui::Id::NULL, |id| id.with("tabs_scroll"));
+    let (mut offset, was_shown) = ui.data(|d| d.get_temp::<(f32, Option<usize>)>(scroll_id)).unwrap_or((0.0, None));
+    let clip = Rect::from_x_y_ranges(row.x_range(), band.top()..=band.bottom());
+    if overflow > 0.0 {
+        let strip = ui.interact(clip, scroll_id.with("drag"), Sense::drag());
+        offset -= strip.drag_delta().x;
+        if strip.hovered() {
+            let d = ui.input(|i| i.smooth_scroll_delta);
+            offset -= if d.x != 0.0 { d.x } else { d.y };
+        }
+    }
     // Centered on what is seen of the card; from its left edge when narrower than the tabs.
     let middle = row.left() + seen.min(width) / 2.0;
-    let mut x = (middle - tab_labels_width(ui.painter(), labels) / 2.0).max(row.left() + crate::window::tabs::TAB_RADIUS);
+    let mut x =
+        if overflow > 0.0 { row.left() + radius - offset.clamp(0.0, overflow) } else { (middle - natural / 2.0).max(row.left() + radius) };
+    let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(if overflow > 0.0 { clip } else { ui.clip_rect() }));
     let font = tab_font();
     let mut clicked = None;
     // The shown tab drawn last: its curves over its neighbours' hover.
@@ -519,31 +538,70 @@ fn tabs_seen(
             open = Some((label, rect));
             continue;
         }
-        let response = ui.interact(rect, ids[k], Sense::click());
+        // Only what is seen of it takes the pointer.
+        let seen_rect = if overflow > 0.0 { rect.intersect(clip) } else { rect };
+        if !seen_rect.is_positive() {
+            continue;
+        }
+        let response = ui.interact(seen_rect, ids[k], Sense::click());
         if let Some(fill) = crate::kit::widgets::veil(ui, &response) {
-            ui.painter().rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::kit::widgets::VEIL_RADIUS, fill);
+            painter.rect_filled(rect.shrink2(vec2(0.0, 2.0)), crate::kit::widgets::VEIL_RADIUS, fill);
         }
         let ink = if response.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
-        ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
+        painter.text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
         if response.clicked() {
             clicked = Some(k);
         }
     }
-    // The band's edge, going round the shown tab.
+    // The band's edge, going round the shown tab — along the band where that tab is scrolled out.
     let line = visuals.widgets.noninteractive.bg_stroke;
-    match open {
+    match open.filter(|(_, rect)| overflow <= 0.0 || (rect.right() > clip.left() && rect.left() < clip.right())) {
         Some((label, rect)) => {
-            crate::window::tabs::open_tab(ui.painter(), rect, visuals.window_fill);
+            crate::window::tabs::open_tab(&painter, rect, visuals.window_fill);
             let outline = crate::window::tabs::open_tab_outline(rect, band.left(), band.right(), line.width / 2.0);
             ui.painter().add(egui::Shape::line(outline, line));
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), visuals.strong_text_color());
+            painter.text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), visuals.strong_text_color());
         }
         None => {
             ui.painter().hline(band.x_range(), band.bottom() - line.width / 2.0, line);
         }
     }
+    if overflow > 0.0 {
+        // The shown tab brought into view when it changed (a click, or set elsewhere).
+        let now_shown = clicked.or(shown);
+        if now_shown != was_shown
+            && let Some((_, rect)) = open.filter(|_| clicked.is_none())
+        {
+            offset += (rect.right() + radius - clip.right()).max(0.0) - (clip.left() + radius - rect.left()).max(0.0);
+        }
+        let offset = offset.clamp(0.0, overflow);
+        // The ends hiding tabs, faded into the band.
+        let fade = |from: f32, to: f32| {
+            let ground = visuals.faint_bg_color;
+            let clear = ground.gamma_multiply(0.0);
+            let (top, bottom) = (clip.top(), row.bottom() - line.width);
+            let mut mesh = egui::Mesh::default();
+            mesh.colored_vertex(pos2(from, top), ground);
+            mesh.colored_vertex(pos2(to, top), clear);
+            mesh.colored_vertex(pos2(to, bottom), clear);
+            mesh.colored_vertex(pos2(from, bottom), ground);
+            mesh.add_triangle(0, 1, 2);
+            mesh.add_triangle(0, 2, 3);
+            ui.painter().add(mesh);
+        };
+        if offset > 0.5 {
+            fade(clip.left(), clip.left() + TABS_FADE);
+        }
+        if offset < overflow - 0.5 {
+            fade(clip.right(), clip.right() - TABS_FADE);
+        }
+        ui.data_mut(|d| d.insert_temp(scroll_id, (offset, now_shown)));
+    }
     clicked
 }
+
+/// The width of a scrolled tab strip's fades.
+const TABS_FADE: f32 = 28.0;
 
 /// One group laid out: where it is, and how [`arrange`] placed it.
 struct Laid {
