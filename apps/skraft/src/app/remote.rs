@@ -262,10 +262,15 @@ impl SkraftApp {
             "app.methods" => ok(skraft_control::methods_json()),
             "app.commands" => {
                 call.params::<NoParams>()?;
+                // The shortcuts whatever the screen shows of them (hidden under a finger).
+                let mac = self.mac();
                 let list: Vec<_> = self
                     .command_views()
                     .into_iter()
-                    .map(|v| json!({ "id": v.id, "label": v.label, "enabled": v.enabled, "checked": v.checked, "shortcut": v.shortcut }))
+                    .map(|v| {
+                        let shortcut = self.keymap.get(v.id).map(|s| s.display(mac));
+                        json!({ "id": v.id, "label": v.label, "enabled": v.enabled, "checked": v.checked, "shortcut": shortcut })
+                    })
                     .collect();
                 ok(json!(list))
             }

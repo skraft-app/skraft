@@ -85,6 +85,7 @@ impl SkraftApp {
                 views,
                 seen: Some(seen - inset.sum().x),
                 narrow: true,
+                shortcuts: self.probe.shows_shortcuts(),
             };
             let width = ribbon::natural_width(ui.ctx(), &view).max(seen - inset.sum().x);
             // Dragged from the first touch on (egui's default waits to have seen a touch screen).

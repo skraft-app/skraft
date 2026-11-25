@@ -324,6 +324,8 @@ pub struct View<'a> {
     pub seen: Option<f32>,
     /// The workspace's cell as its icon alone (a phone's strip): its name is in its menu.
     pub narrow: bool,
+    /// The keyboard shortcuts are shown (`Probe::shows_shortcuts`).
+    pub shortcuts: bool,
 }
 
 impl View<'_> {
@@ -817,10 +819,10 @@ pub fn ribbon_menu(ui: &mut egui::Ui, prefs: &Prefs, actions: &mut Vec<Action>) 
 
 /// A command's tool tip on the ribbon: its label and shortcut, no more (a tool's options and
 /// steps are in its option bar).
-fn tip(c: &CommandView) -> String {
+fn tip(c: &CommandView, shortcuts: bool) -> String {
     match c.id {
         // Erase is not a command shortcut: the tool reads the delete key.
-        "edit.erase" => t!("toolbar.with_shortcut", label = c.label, shortcut = crate::commands::delete_key()),
+        "edit.erase" if shortcuts => t!("toolbar.with_shortcut", label = c.label, shortcut = crate::commands::delete_key()),
         _ => c.tip(),
     }
 }
@@ -861,7 +863,7 @@ fn command_button(
     if labels {
         text_lines(ui, &c.label, pos2(rect.center().x, rect.top() + ICON + 7.0), rect.width() - 4.0, 2, ink);
     }
-    let response = response.tip(tip(c));
+    let response = response.tip(tip(c, v.shortcuts));
     if response.clicked() {
         actions.push(Action::Command(id));
     }
@@ -933,7 +935,7 @@ fn group_menu(ui: &mut egui::Ui, v: &View, key: &str, group: &'static Group, act
                 pin_tip: if on { t!("ribbon.unpin") } else { t!("ribbon.pin") },
             },
         );
-        if run.tip(tip(c)).clicked() {
+        if run.tip(tip(c, v.shortcuts)).clicked() {
             actions.push(Action::Command(id));
             ui.close();
         }

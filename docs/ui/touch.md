@@ -94,6 +94,23 @@ value to the tool and closes it; it closes too when the box no longer takes a va
 box is tapped again. A keyboard plugged into the tablet still types into the box from anywhere
 (`kit/widgets/keypad.rs`).
 
+## Keyboard shortcuts
+
+Under a finger the keyboard shortcuts are not shown: not in the menus, the tool tips, the
+command palette nor the ribbon's group menus. Until a key is typed on a keyboard plugged into the
+tablet: from then on, for the session, they are shown as on a desktop. The system's on-screen
+keyboard does not count — it only types into a text field, which then takes the keys — nor the
+app's keypad, which sends no key.
+
+One place decides it (`Probe::shows_shortcuts`, `window/form.rs`): the commands' views carry no
+shortcut while they are hidden (`command_views`), and the screens that show one only read it;
+the ribbon, which adds the delete key to Erase's tip, asks the same. The shortcuts themselves
+stay: a keyboard still runs them, the preferences' « Raccourcis » tab lists them, and the control
+protocol's `app.commands` gives them whatever the screen shows.
+
+*Why*: a shortcut's keys tell nothing to a finger and take the room of the label; a tablet with
+a keyboard is a desktop again for them, which only the first key typed tells.
+
 ## The compact arrangement
 
 **When**: the primary pointer is a finger (CSS `pointer: coarse`) and the window's short side is
