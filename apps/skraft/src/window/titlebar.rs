@@ -254,7 +254,7 @@ fn mark(ui: &mut egui::Ui, home: Option<&CommandView>, actions: &mut Vec<Action>
 }
 
 /// The compact bar's document: its name, a chevron; its menu lists the documents open (the one
-/// shown checked), then a new one and closing the one shown.
+/// shown checked) to show another — a new one and closing are the menu's (File).
 fn document_menu(ui: &mut egui::Ui, bar: &Bar, width: f32, actions: &mut Vec<Action>) {
     let title = bar.shown.and_then(|i| bar.tabs.get(i)).map(Tab::title).unwrap_or_else(|| APP_NAME.to_owned());
     let label = egui::Button::new(egui::RichText::new(title).strong()).right_text(egui::RichText::new("⌄")).truncate();
@@ -265,17 +265,6 @@ fn document_menu(ui: &mut egui::Ui, bar: &Bar, width: f32, actions: &mut Vec<Act
             if ui.add(crate::kit::style::menu_item(tab.title(), None, false).selected(bar.shown == Some(i))).clicked() {
                 actions.push(Action::Tab(tabs::TabAction::Select(i)));
             }
-        }
-        if !bar.tabs.is_empty() {
-            ui.separator();
-        }
-        if ui.add(crate::kit::style::menu_item(t!("tabs.new_tip"), None, false)).clicked() {
-            actions.push(Action::Tab(tabs::TabAction::New));
-        }
-        if let Some(i) = bar.shown
-            && ui.add(crate::kit::style::menu_item(t!("tabs.close"), None, false)).clicked()
-        {
-            actions.push(Action::Tab(tabs::TabAction::Close(i)));
         }
     });
 }
