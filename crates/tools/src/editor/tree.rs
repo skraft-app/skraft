@@ -59,11 +59,11 @@ impl Editor {
         }
         let Some(at) = self.last_hover else { return };
         let Some(part) = self.cx().part_at(at) else { return };
-        if part.instances.len() <= self.context.len() {
+        if part.occurrences.len() <= self.context.len() {
             return;
         }
         let doc = self.document();
-        let chain: Vec<_> = part.instances.iter().copied().chain([part.entity]).collect();
+        let chain: Vec<_> = part.occurrences.iter().copied().chain([part.entity]).collect();
         let mut rows = Vec::new();
         for k in 0..chain.len() {
             let path = EntityPath::new(chain[..k].to_vec(), chain[k]);

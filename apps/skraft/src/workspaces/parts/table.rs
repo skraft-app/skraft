@@ -171,9 +171,9 @@ fn lit(editor: &Editor, row: &Row) -> bool {
     let (selection, deep) = (editor.selection(), editor.deep_selection());
     // The occurrence of the context's assembly a part is placed under: the next one of its
     // chain after the context's.
-    let under = |p: &EntityPath| p.instances.starts_with(context).then(|| p.instances.get(context.len()).copied().unwrap_or(p.entity));
+    let under = |p: &EntityPath| p.occurrences.starts_with(context).then(|| p.occurrences.get(context.len()).copied().unwrap_or(p.entity));
     row.paths.iter().any(|p| {
-        deep.iter().any(|d| d.instances == p.instances && d.entity == p.entity) || under(p).is_some_and(|id| selection.contains(&id))
+        deep.iter().any(|d| d.occurrences == p.occurrences && d.entity == p.entity) || under(p).is_some_and(|id| selection.contains(&id))
     })
 }
 

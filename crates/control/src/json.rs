@@ -21,9 +21,9 @@ pub fn ids(ids: &[Id]) -> Value {
     json!(ids.iter().map(|i| i.0).collect::<Vec<_>>())
 }
 
-/// A path as `{instances, entity}`, by ids.
+/// A path as `{occurrences, entity}`, by ids.
 pub fn path(p: &EntityPath) -> Value {
-    json!({ "instances": ids(&p.instances), "entity": p.entity.0 })
+    json!({ "occurrences": ids(&p.occurrences), "entity": p.entity.0 })
 }
 
 /// A transform by its axes (columns) and translation.

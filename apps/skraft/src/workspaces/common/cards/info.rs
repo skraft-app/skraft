@@ -131,11 +131,11 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
     // shown as in its own assembly; several, or a part's guide, counted.
     let (context, sel) = match (editor.deep_selection(), editor.deep_guides()) {
         ([], []) => (editor.context_definition(), editor.selection().to_vec()),
-        ([p], []) => match doc.context_of(&p.instances) {
+        ([p], []) => match doc.context_of(&p.occurrences) {
             Ok(c) => (c, vec![p.entity]),
             Err(_) => return,
         },
-        ([], [g]) if let Ok(c) = doc.context_of(&g.instances) => (c, vec![g.guide]),
+        ([], [g]) if let Ok(c) = doc.context_of(&g.occurrences) => (c, vec![g.guide]),
         (parts, guides) => {
             ui.label(tp!("panel.entity_info.selected", parts.len() + guides.len()));
             return;

@@ -1046,9 +1046,9 @@ panel:
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
-    # A row's right-click menu; the two names of a row with an instance name.
+    # A row's right-click menu; the two names of a row with an occurrence name.
     rename: "Renommer"
-    rename_instance: "Renommer l'exemplaire"
+    rename_occurrence: "Renommer l'exemplaire"
     rename_definition: "Renommer la définition"
     # A body's sign toggle, at the right end of its row (a linked body's tip is `linked`).
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"

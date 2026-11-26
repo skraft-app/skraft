@@ -158,13 +158,13 @@ impl Editor {
         if self.library_disabled() {
             return;
         }
-        let paths: Vec<EntityPath> = paths.into_iter().filter(|p| p.instances.starts_with(&self.context)).collect();
+        let paths: Vec<EntityPath> = paths.into_iter().filter(|p| p.occurrences.starts_with(&self.context)).collect();
         if paths.is_empty() {
             self.message = Some(t!("status.no_occurrence_here"));
             return;
         }
         self.tool.reset();
-        if paths.iter().all(|p| p.instances == self.context) {
+        if paths.iter().all(|p| p.occurrences == self.context) {
             self.set_selection(paths.into_iter().map(|p| p.entity).collect());
         } else {
             if !self.pick_parts() {
@@ -189,7 +189,7 @@ impl Editor {
             let Ok(a) = doc.assembly(ctx) else { return false };
             self.selection.iter().filter_map(|id| a.occurrence(*id)).map(|o| (ctx, o.component)).collect()
         } else {
-            self.deep.iter().filter_map(|p| Some((doc.context_of(&p.instances).ok()?, doc.resolve(p).ok()?.component))).collect()
+            self.deep.iter().filter_map(|p| Some((doc.context_of(&p.occurrences).ok()?, doc.resolve(p).ok()?.component))).collect()
         };
         !placed.is_empty()
             && placed.iter().any(|(_, c)| *c != component)

@@ -953,9 +953,9 @@ panel:
     imprints_in: "Imprints its shape in: %{parts}"
     profile: "Profile"
     profile_tip: "Click to edit the profile"
-    # A row's right-click menu; the two names of a row with an instance name.
+    # A row's right-click menu; the two names of a row with an occurrence name.
     rename: "Rename"
-    rename_instance: "Rename Instance"
+    rename_occurrence: "Rename Instance"
     rename_definition: "Rename Definition"
     sign_positive: "Blank: adds material to the part. Click to make it a machining"
     sign_negative: "Machining: removes material from the part. Click to make it an intersection"

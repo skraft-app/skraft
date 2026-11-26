@@ -699,12 +699,12 @@ fn an_occurrence_moved_between_assemblies_keeps_its_links() {
     let group = h.apply(Operation::MakeAssembly { context: root, entities: vec![spare], name: None }).unwrap().created[0];
 
     // Into the assembly: the path goes through it.
-    h.apply(Operation::MoveOccurrences { instances: vec![], occurrences: vec![rail], to: vec![group], copy: false }).unwrap();
+    h.apply(Operation::MoveOccurrences { from: vec![], occurrences: vec![rail], to: vec![group], copy: false }).unwrap();
     assert_eq!(root_links(&h)[0].source, vec![group, rail]);
     assert_eq!(states(&h), vec![LinkState::Seated]);
 
     // The other end too: the link goes down with them.
-    h.apply(Operation::MoveOccurrences { instances: vec![], occurrences: vec![leg], to: vec![group], copy: false }).unwrap();
+    h.apply(Operation::MoveOccurrences { from: vec![], occurrences: vec![leg], to: vec![group], copy: false }).unwrap();
     assert!(root_links(&h).is_empty());
     let assembly = h.document().root_assembly().occurrence(group).unwrap().component;
     let a = h.document().assembly(assembly).unwrap();
@@ -712,7 +712,7 @@ fn an_occurrence_moved_between_assemblies_keeps_its_links() {
     assert_eq!(h.document().link_state(assembly, &a.links()[0]), LinkState::Seated);
 
     // One back out: the link comes up to the assembly above both.
-    h.apply(Operation::MoveOccurrences { instances: vec![group], occurrences: vec![rail], to: vec![], copy: false }).unwrap();
+    h.apply(Operation::MoveOccurrences { from: vec![group], occurrences: vec![rail], to: vec![], copy: false }).unwrap();
     assert!(h.document().assembly(assembly).unwrap().links().is_empty());
     let links = root_links(&h);
     assert_eq!((links[0].source.clone(), links[0].receiver.clone()), (vec![rail], vec![group, leg]));

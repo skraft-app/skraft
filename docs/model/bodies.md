@@ -622,7 +622,7 @@ history changed: a drill taken out of a round drills after it —, or out of the
 ([0044](../decisions/0044-moving-bodies-in-the-tree.md)). `Operation::MoveBodies { from,
 bodies, to, copy, scope }` (`crates/model/src/moves.rs`), `to` a level of the part
 (`BodiesTo::Level`: the bodies leading to a group from the root, empty for the root),
-`BodiesTo::NewPart(instances)` (a new part in that assembly) or `BodiesTo::Part(path)` (another
+`BodiesTo::NewPart(occurrences)` (a new part in that assembly) or `BodiesTo::Part(path)` (another
 part, at its level `path.group`).
 
 - **Its world place kept**: its placement computed again in the axes of where it goes.
@@ -640,7 +640,7 @@ part, at its level `path.group`).
 - **Into another part** (`BodiesTo::Part`): bodies pasted into it at that level
   (`PasteBodies`, new ids there), each keeping what it does, then taken away. Another
   occurrence of the same part: its level, as `Level`.
-- **Parts into a part** (`Operation::MoveParts { instances, occurrences, to, copy }`): as parts
+- **Parts into a part** (`Operation::MoveParts { from, occurrences, to, copy }`): as parts
   pasted into a part (`PasteParts`: one positive body each, a group of its bodies unless it is
   one; negative where the level takes away), the occurrences then taken away; a part into
   itself, or into a part an assembly moved holds, refused (`Error::Cycle`).
@@ -665,7 +665,7 @@ part, at its level `path.group`).
   (Ctrl elsewhere) held at the drop copies. The part's scope when it is open, else every
   occurrence. A body row's menu (right click): « Sortir du groupe » (« Sortir de la pièce » at
   its root), the row's body with its selected siblings.
-- **Occurrences between assemblies** (`Operation::MoveOccurrences { instances, occurrences, to,
+- **Occurrences between assemblies** (`Operation::MoveOccurrences { from, occurrences, to,
   copy }`): a part's or assembly's row dropped on an assembly's row, or the model's, goes into
   it, its world place kept, its id too; that assembly's definition changes, every copy of it.
   Into itself, or into an assembly it holds, refused (`Error::Cycle`).

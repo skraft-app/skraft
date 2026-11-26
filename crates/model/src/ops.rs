@@ -227,22 +227,22 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
-    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `instances` leads
+    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `from` leads
     /// to into the part `to` (at the level its path names), as bodies — parts pasted into a part
     /// (docs/tools/copy-paste.md, decision 0044) —, their world place kept.
     MoveParts {
-        instances: Vec<Id>,
+        from: Vec<Id>,
         occurrences: Vec<Id>,
         to: EntityPath,
         #[serde(default, skip_serializing_if = "is_false")]
         copy: bool,
     },
-    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `instances` leads
+    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `from` leads
     /// to into the assembly `to` leads to (empty: the model), their world place kept (decision
     /// 0044): that assembly's definition changes, every copy of it. Into itself, or into an
     /// assembly one of them holds, refused.
     MoveOccurrences {
-        instances: Vec<Id>,
+        from: Vec<Id>,
         occurrences: Vec<Id>,
         to: Vec<Id>,
         #[serde(default, skip_serializing_if = "is_false")]
@@ -777,7 +777,7 @@ pub enum BodiesTo {
     /// A level of the same part: a group or body node, by the bodies leading to it from the
     /// part's root (empty: its root).
     Level(Vec<Id>),
-    /// Out of the part: a new part in the assembly the occurrences `instances` lead to (empty:
+    /// Out of the part: a new part in the assembly the occurrences `occurrences` lead to (empty:
     /// the model; the part's own context: « Sortir de la pièce »), as bodies pasted out of a
     /// part (docs/tools/copy-paste.md).
     NewPart(Vec<Id>),
@@ -1719,8 +1719,8 @@ impl Document {
                 let bodies = if *copy { bodies.clone() } else { self.editable(self.resolve_part(from)?.0, bodies.clone())? };
                 self.move_bodies(from, &bodies, to, *copy, *scope, solver)
             }
-            Operation::MoveParts { instances, occurrences, to, copy } => self.move_parts(instances, occurrences, to, *copy, solver),
-            Operation::MoveOccurrences { instances, occurrences, to, copy } => self.move_occurrences(instances, occurrences, to, *copy),
+            Operation::MoveParts { from, occurrences, to, copy } => self.move_parts(from, occurrences, to, *copy, solver),
+            Operation::MoveOccurrences { from, occurrences, to, copy } => self.move_occurrences(from, occurrences, to, *copy),
             Operation::GroupBodies { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let bodies = self.editable(part, bodies)?;
@@ -2788,7 +2788,7 @@ impl Document {
     /// assembly, docs/model/data-model.md): `path` stays valid, and names the same thing.
     pub(crate) fn separate(&mut self, path: &EntityPath) -> Result<()> {
         let mut at = self.root;
-        for &i in path.instances.iter().chain(std::iter::once(&path.entity)) {
+        for &i in path.occurrences.iter().chain(std::iter::once(&path.entity)) {
             let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?.component;
             let own = if self.occurrence_count(o) > 1 {
                 let copy = self.copy_component(o)?;

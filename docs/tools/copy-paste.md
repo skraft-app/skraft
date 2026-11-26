@@ -32,7 +32,7 @@ guides. **Cut** = copy, then the existing erase (one undo step for the erase).
   open group, the group's, [Bodies](../model/bodies.md) « Body groups »), the definitions they
   use, the part's guides in those axes, and `world`, the world transformation of the part copied
   from.
-- Built by `crates/model/src/clipboard.rs`: `Document::entities_fragment(instances, ids)`,
+- Built by `crates/model/src/clipboard.rs`: `Document::entities_fragment(from, ids)`,
   `Document::paths_fragment(paths)`, `Document::bodies_fragment(target, ids)`. The fragment keeps
   the source's ids.
 

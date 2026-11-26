@@ -50,10 +50,10 @@ impl Document {
                 Err(_) => Vec::new(),
             },
             Subject::Occurrences(paths) => {
-                let chains: Vec<Vec<Id>> = paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
+                let chains: Vec<Vec<Id>> = paths.iter().map(|p| p.occurrences.iter().copied().chain([p.entity]).collect()).collect();
                 let mut all = self.placed_parts();
                 all.retain(|p| {
-                    let chain: Vec<Id> = p.path.instances.iter().copied().chain([p.path.entity]).collect();
+                    let chain: Vec<Id> = p.path.occurrences.iter().copied().chain([p.path.entity]).collect();
                     chains.iter().any(|c| chain.starts_with(c))
                 });
                 all

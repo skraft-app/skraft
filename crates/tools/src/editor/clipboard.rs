@@ -65,7 +65,7 @@ impl Editor {
             let root = f.component(f.root()).ok()?;
             let mut hull = guide_points(&root.guides.iter().map(|g| g.shape).collect::<Vec<_>>(), &DAffine3::IDENTITY);
             for p in &self.deep {
-                let Some(ctx) = ContextIndex::new(doc, &p.instances) else { continue };
+                let Some(ctx) = ContextIndex::new(doc, &p.occurrences) else { continue };
                 let b = self.content_bounds(&ctx, p.entity, DAffine3::IDENTITY, 0.0);
                 hull.extend(b.map(|b| b.corners()).into_iter().flatten());
             }

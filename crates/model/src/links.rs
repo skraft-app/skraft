@@ -765,14 +765,14 @@ impl Document {
         Ok(())
     }
 
-    /// The occurrences `occurrences` of the assembly `instances` leads to, moved to the one
+    /// The occurrences `occurrences` of the assembly `from` leads to, moved to the one
     /// `to` leads to: the links ending in them, held on the way to the first, go by the second,
     /// held by an assembly above both when they were held below it.
-    pub(crate) fn links_moved(&mut self, instances: &[Id], occurrences: &[Id], to: &[Id]) -> Result<()> {
-        let common = instances.iter().zip(to).take_while(|(a, b)| a == b).count();
-        for k in (0..=instances.len()).rev() {
-            let Ok(holder) = self.context_of(&instances[..k]) else { continue };
-            let tail = &instances[k..];
+    pub(crate) fn links_moved(&mut self, from: &[Id], occurrences: &[Id], to: &[Id]) -> Result<()> {
+        let common = from.iter().zip(to).take_while(|(a, b)| a == b).count();
+        for k in (0..=from.len()).rev() {
+            let Ok(holder) = self.context_of(&from[..k]) else { continue };
+            let tail = &from[k..];
             let base = k.min(common);
             let carried = |p: &[Id]| p.len() > tail.len() && p.starts_with(tail) && occurrences.contains(&p[tail.len()]);
             let (moved, kept): (Vec<Link>, Vec<Link>) =
@@ -784,13 +784,13 @@ impl Document {
                 if carried(p) {
                     to[base..].iter().chain(&p[tail.len()..]).copied().collect()
                 } else {
-                    instances[base..k].iter().chain(p).copied().collect()
+                    from[base..k].iter().chain(p).copied().collect()
                 }
             };
             let routed: Vec<Link> =
                 moved.iter().map(|l| Link { source: route(&l.source), receiver: route(&l.receiver), ..l.clone() }).collect();
             *self.assembly_mut(holder)?.links_mut() = kept;
-            let above = self.context_of(&instances[..base])?;
+            let above = self.context_of(&from[..base])?;
             self.assembly_mut(above)?.links_mut().extend(routed);
         }
         self.settle_link_holders();

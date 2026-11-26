@@ -107,7 +107,7 @@ fn reached(path: &EntityPath, cx: &Cx<'_>) -> Option<EntityPath> {
         return cx.open_part_path().map(|p| p.part_path());
     }
     if cx.parts {
-        return Some(path.part_path()).filter(|p| p.instances.starts_with(cx.context));
+        return Some(path.part_path()).filter(|p| p.occurrences.starts_with(cx.context));
     }
     cx.selectable(path).map(|id| EntityPath::new(cx.context.to_vec(), id))
 }
@@ -197,7 +197,7 @@ fn aim(px: DVec2, mode: &'static str, known: Option<&Aim>, cx: &Cx<'_>) -> Optio
     let path = reached(&aimed, cx)?;
     let occurrence = cx.doc.resolve(&path).ok()?;
     let component = occurrence.component;
-    let to_world = cx.doc.transform_of(&path.instances).ok()? * occurrence.transform;
+    let to_world = cx.doc.transform_of(&path.occurrences).ok()? * occurrence.transform;
     // The copy modifier is the tree's (« élément parent », docs/tools/selection.md).
     let reversed = cx.alt_down;
     let target = target_of(component, known.filter(|k| k.component == component).map(|k| &k.target), cx)?;

@@ -73,13 +73,13 @@ fn identity() -> DAffine3 {
 }
 
 impl Document {
-    /// What copying `ids` — occurrences and guides of the assembly `instances` leads into —
+    /// What copying `ids` — occurrences and guides of the assembly `from` leads into —
     /// copies: a document whose root holds those occurrences and guides, in **world** axes,
     /// with the components they use and the materials they are painted with, under their ids
     /// here (pasting into this document again uses them, docs/tools/copy-paste.md).
-    pub fn entities_fragment(&self, instances: &[Id], ids: &[Id]) -> Result<Document> {
-        let context = self.context_of(instances)?;
-        let world = self.transform_of(instances)?;
+    pub fn entities_fragment(&self, from: &[Id], ids: &[Id]) -> Result<Document> {
+        let context = self.context_of(from)?;
+        let world = self.transform_of(from)?;
         let (guides, entities) = self.split_guides(context, ids)?;
         let occurrences = self.occurrences_of(context, &entities)?;
         let occurrences = occurrences.into_iter().map(|o| crate::Occurrence { transform: world * o.transform, ..o }).collect();
@@ -104,7 +104,7 @@ impl Document {
         };
         let mut occurrences = Vec::new();
         for p in paths {
-            let world = self.transform_of(&p.instances)?;
+            let world = self.transform_of(&p.occurrences)?;
             let mut o = self.resolve(p)?.clone();
             o.transform = world * o.transform;
             o.id = fresh(o.id);
@@ -112,7 +112,7 @@ impl Document {
         }
         let mut shapes = Vec::new();
         for g in guides {
-            let (_, world) = self.component_at(&g.instances)?;
+            let (_, world) = self.component_at(&g.occurrences)?;
             let guide = self.resolve_guide(g)?;
             shapes.push(Guide { id: fresh(g.guide), shape: guide.shape.transformed(&world), props: guide.props.clone() });
         }

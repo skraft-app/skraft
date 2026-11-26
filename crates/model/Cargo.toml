@@ -1,6 +1,6 @@
 [package]
 name = "skraft-model"
-description = "Skraft: the document (definitions, solids, instances), its operations, undo history and file format"
+description = "Skraft: the document (definitions, solids, occurrences), its operations, undo history and file format"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
