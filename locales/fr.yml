@@ -892,7 +892,6 @@ panel:
     guide_circle: "Cercle · rayon %{radius}"
     name: "Nom"
     occurrence: "Exemplaire"
-    occurrences: "Exemplaires"
     # A body: blank (adds material) or machining (takes it away), toggled in the navigator.
     role: "Rôle"
     linked_to: "Lié à"

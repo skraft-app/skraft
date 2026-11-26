@@ -811,7 +811,6 @@ panel:
     guide_circle: "Circle · radius %{radius}"
     name: "Name"
     occurrence: "Instance"
-    occurrences: "Instances"
     role: "Role"
     linked_to: "Linked to"
     role_positive: "Blank"
