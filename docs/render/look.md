@@ -235,11 +235,13 @@ A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when 
   put), captioned under: its colour, then its texture. Without a texture, the colour box edits
   the colour and the texture box is a dashed frame, « Ajouter », picking an image (PNG or JPEG:
   600 mm wide, its height as the image's, or the size it had). With one, the texture box shows
-  the image's middle filling it (a click changes it, the whole image under the pointer, a ✕ in
-  its corner removes it, its mean colour staying); the colour box shows that mean, locked
+  the image's middle filling it, turned as on the parts (a click changes it, the whole image
+  under the pointer, a ✕ in its top corner removes it, its mean colour staying, a ↻ in its
+  bottom corner turns it a quarter turn anticlockwise — the grain the other way, the only turns
+  offered: a texture is turned to lay its grain, not to an angle); the colour box shows that mean, locked
   (« Couleur moyenne », a padlock): the texture wins, and nothing is lost by a misplaced click —
-  only the ✕ removes the image. Then the texture's width, height (typed as lengths) and rotation
-  in degrees. A coloration has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, made once per image, decoded
+  only the ✕ removes the image. Then the texture's width and height, typed as lengths (the
+  image's own, which a turn does not swap). A coloration has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, made once per image, decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why

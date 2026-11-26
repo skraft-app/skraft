@@ -259,19 +259,65 @@ fn locked_color_box(ui: &mut egui::Ui, id: Id, color: [u8; 3], size: egui::Vec2)
 
 /// A texture's image of `size`, its middle filling it, the whole image under the pointer: its
 /// rect, and whether it was clicked (to change it).
-fn texture_box(ui: &mut egui::Ui, tex: &egui::TextureHandle, size: egui::Vec2) -> (egui::Rect, bool) {
-    let img = egui::Image::new(tex).uv(cover(tex, size)).maintain_aspect_ratio(false).fit_to_exact_size(size).corner_radius(LOOK_RADIUS);
-    // The image itself clicked: a button would pad it past its box.
-    let r = ui.add(img.sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
-    crate::kit::handles::publish(|| "info:texture".to_owned(), r.rect);
-    let rect = r.rect;
+fn texture_box(ui: &mut egui::Ui, tex: &egui::TextureHandle, quarter: u8, size: egui::Vec2) -> (egui::Rect, bool) {
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
+    paint_turned(ui, tex, quarter, rect, true);
+    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
+    crate::kit::handles::publish(|| "info:texture".to_owned(), rect);
     let clicked = r
         .tip_ui(|ui| {
             ui.label(t!("panel.materials.texture_change_tip"));
-            ui.add(egui::Image::new(tex).max_size(egui::vec2(THUMB_PREVIEW, THUMB_PREVIEW)).corner_radius(4.0));
+            // The whole image, turned as on the parts.
+            let [w, h] = turned_size(tex, quarter);
+            let scale = (THUMB_PREVIEW / w.max(h)).min(1.0);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h) * scale, egui::Sense::hover());
+            paint_turned(ui, tex, quarter, rect, false);
         })
         .clicked();
     (rect, clicked)
+}
+
+/// A texture's image size (texels) once turned by `quarter` quarter turns.
+fn turned_size(tex: &egui::TextureHandle, quarter: u8) -> [f32; 2] {
+    let [w, h] = tex.size().map(|v| v.max(1) as f32);
+    if quarter % 2 == 1 { [h, w] } else { [w, h] }
+}
+
+/// `tex` in `rect`, turned anticlockwise by `quarter` quarter turns as the texture's rotation
+/// turns it on the parts; `cover`: its middle filling `rect`, its proportions kept (else all of
+/// it, stretched to `rect`).
+fn paint_turned(ui: &egui::Ui, tex: &egui::TextureHandle, quarter: u8, rect: egui::Rect, cover: bool) {
+    let [w, h] = turned_size(tex, quarter);
+    let (du, dv) = if cover {
+        let (image, room) = (w / h, rect.width() / rect.height().max(1.0));
+        if image > room { ((1.0 - room / image) / 2.0, 0.0) } else { (0.0, (1.0 - image / room) / 2.0) }
+    } else {
+        (0.0, 0.0)
+    };
+    // A point of the turned image (0 to 1, from its top left) taken from the image itself.
+    let source = |x: f32, y: f32| match quarter % 4 {
+        0 => egui::pos2(x, y),
+        1 => egui::pos2(1.0 - y, x),
+        2 => egui::pos2(1.0 - x, 1.0 - y),
+        _ => egui::pos2(y, 1.0 - x),
+    };
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for (corner, (x, y)) in [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()].into_iter().zip([
+        (du, dv),
+        (1.0 - du, dv),
+        (1.0 - du, 1.0 - dv),
+        (du, 1.0 - dv),
+    ]) {
+        mesh.vertices.push(egui::epaint::Vertex { pos: corner, uv: source(x, y), color: egui::Color32::WHITE });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(mesh);
+}
+
+/// A rotation (radians) as quarter turns, the nearest.
+fn quarters(rotation: f64) -> u8 {
+    (rotation / std::f64::consts::FRAC_PI_2).round().rem_euclid(4.0) as u8
 }
 
 /// The texture's box without an image: a dashed frame offering to add one; its rect, and whether
@@ -313,19 +359,22 @@ fn remove_badge(ui: &mut egui::Ui, rect: egui::Rect, id: Id) -> bool {
     r.clicked()
 }
 
-/// The UVs of `tex`'s middle filling `size`, its proportions kept.
-fn cover(tex: &egui::TextureHandle, size: egui::Vec2) -> egui::Rect {
-    let [tw, th] = tex.size().map(|v| v.max(1) as f32);
-    let (image, room) = (tw / th, size.x / size.y.max(1.0));
-    let (du, dv) = if image > room { ((1.0 - room / image) / 2.0, 0.0) } else { (0.0, (1.0 - image / room) / 2.0) };
-    egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv))
+/// The texture's quarter turn button, over its box's bottom left corner: whether it was clicked.
+fn rotate_badge(ui: &mut egui::Ui, rect: egui::Rect, id: Id) -> bool {
+    let badge = badge_rect(rect, egui::Align2::LEFT_BOTTOM);
+    badge_disc(ui, badge);
+    let r = IconButton::new(icons::ROTATE, BADGE, SMALL_ICON)
+        .show_at(ui, badge, ui.make_persistent_id(("texture_rotate", id)))
+        .tip(t!("panel.materials.texture_rotate_tip"));
+    crate::kit::handles::publish(|| "info:texture_rotate".to_owned(), r.rect);
+    r.clicked()
 }
 
 /// A texture's preview (points) under the pointer.
 const THUMB_PREVIEW: f32 = 256.0;
 
-/// The material chosen in its card: its family and type, name, colour, texture (its image, real
-/// size, rotation), its properties (docs/ui/catalog.md); how many parts show it is the card's.
+/// The material chosen in its card: its family and type, name, colour, texture (its image turned
+/// by quarter turns, its real size), its properties (docs/ui/catalog.md); how many parts show it is the card's.
 pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(m) = doc.material(id) else { return };
@@ -408,7 +457,7 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                             .as_ref()
                             .and_then(|t| crate::workspaces::common::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
                         let (rect, change) = match (&m.texture, &thumb) {
-                            (Some(_), Some(tex)) => texture_box(ui, tex, half),
+                            (Some(t), Some(tex)) => texture_box(ui, tex, quarters(t.rotation), half),
                             // Its image not decoded yet: its colour meanwhile, as the 3D view.
                             (Some(_), None) => {
                                 let (rect, r) = ui.allocate_exact_size(half, egui::Sense::click());
@@ -422,6 +471,14 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                         }
                         if m.texture.is_some() && remove_badge(ui, rect, id) {
                             actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None, color: None }));
+                        }
+                        // A quarter turn more at each click: the grain the other way.
+                        if let Some(t) = &m.texture
+                            && rotate_badge(ui, rect, id)
+                        {
+                            let rotation = f64::from((quarters(t.rotation) + 1) % 4) * std::f64::consts::FRAC_PI_2;
+                            let texture = Some(skraft_model::Texture { rotation, ..t.clone() });
+                            actions.push(Action::Apply(Operation::SetTexture { material: id, texture, image: None, color: None }));
                         }
                         caption(ui, t!("panel.materials.texture"));
                     });
@@ -451,17 +508,6 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                     }
                     ui.end_row();
                 }
-                field_label(ui, t!("panel.materials.texture_rotation"));
-                let deg = texture.rotation.to_degrees();
-                let shown = format!("{}°", skraft_i18n::number(&format!("{}", (deg * 100.0).round() / 100.0)));
-                let tip = t!("panel.materials.texture_rotation_tip");
-                let fid = ui.make_persistent_id(("texture_rotation", id));
-                if let Some(text) = ui.vertical(|ui| framed_field(ui, fid, &shown, &shown, number(width, &tip))).inner
-                    && let Ok(d) = measure::angle(&text, deg)
-                {
-                    actions.push(set(skraft_model::Texture { rotation: d.to_radians(), ..texture.clone() }));
-                }
-                ui.end_row();
             }
         }
     });
