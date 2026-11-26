@@ -1,7 +1,8 @@
 # Materials, coverings, colorations: three families, on the part's definition
 
 - Status: accepted (2026-11-26; step 1 built: the material on the definition; three families
-  decided the same day)
+  decided the same day; « Importer comme » dropped and the navigator's source mark decided
+  the same day)
 - Design: [Palette and materials](../render/look.md#palette-and-materials),
   [Parts list](../ui/parts-list.md), [Data model](../model/data-model.md),
   [STEP import](../io/step-import.md), [SketchUp import](../io/sketchup-import.md)
@@ -72,7 +73,9 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   many; the purge keeps a coat only schemes use.
 - **A component has a source** (`Component.source`), a field of the model like its name, not a
   property ([Properties](../model/properties.md)): it cannot be removed or renamed.
-  « Fabriqué » (`Made`, the default), « Acheté » (`Bought`), « Existant » (`Existing`).
+  « Fabriqué » (`Made`, the default), « Acheté » (`Bought`), « Existant » (`Existing`), chosen
+  in the entity info (« Provenance »). In the navigator, a component bought or existing has a
+  mark at the right of its row (a tag, a wall), its tooltip naming it.
 - **The parts list** walks the tree from the model: a `Made` part is a row per definition, a
   `Made` assembly is gone through; a `Bought` component (a part or an assembly) is **one row,
   not gone through**; an `Existing` component is **no row, not gone through**. A material counts
@@ -93,15 +96,15 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **Imports**:
   - STEP: a product's source from `.BOUGHT.` (`.MADE.` and `.NOT_KNOWN.` give `Made`); a colour
     on a body or a shell becomes a **coloration** of its part, a part's product's
-    `MATERIAL_DESIGNATION` a material (solid); an option « Importer comme » (Fabriqué / Acheté /
-    Existant) sets the imported root's source (a vendor's slide file: one article).
+    `MATERIAL_DESIGNATION` a material (solid).
   - SketchUp: an instance's material becomes a **material** of its part (what it is made of),
     a face's a **coloration** of its face — or, by OpenCutList's type of it when it has one,
     the material, covering or coloration it says (sheet good, dimensional, edge, veneer…; a
     type that does not go where it is laid gives a coloration); a definition painted
     differently by its instances is made unique, one per item (decided 2026-11-26, as the
     user's earlier files were converted).
-  - The same « Importer comme » option for a `.skp`.
+  - No option at import: the occurrence imported comes in selected, its source set in the
+    entity info in one click (a vendor's slide file: one article).
 
 ## Alternatives considered
 
@@ -134,6 +137,9 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   own material, not of one material; it would be shown nowhere, an exception to explain. An
   article is counted, not cut: it is told by its reference, not by a material.
 - **Source as a typed property**: it could be removed or renamed, and the parts list reads it.
+- **An option « Importer comme »** (Fabriqué / Acheté / Existant) at import (decided first,
+  the same day): a dialog of its own, the import having none, for what the entity info does in
+  one click on the occurrence imported, selected.
 - **Layers / tags for the environment** (SketchUp's): a display notion deciding what is made; a
   part left in the wrong layer would leave the list unnoticed. Layers may come later to hide the
   environment at once.
