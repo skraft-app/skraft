@@ -14,7 +14,7 @@
 
 use super::DragClicks;
 use skraft_i18n::t;
-use skraft_model::{EntityPath, Operation, Scope};
+use skraft_model::{EntityPath, Family, Operation, Scope};
 
 use super::select::{marquee_hits, marquee_parts};
 use super::{
@@ -33,6 +33,26 @@ const THIS: &str = "this";
 
 fn scope(cx: &Cx<'_>) -> Scope {
     if cx.choice(SCOPE) == Some(THIS) { Scope::This } else { Scope::All }
+}
+
+/// Where what the tool lays goes, on a part and on a face (none: not there): a material on the
+/// part, a covering on a face, a coloration on either (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+fn layers(cx: &Cx<'_>) -> (Option<Family>, Option<Family>) {
+    match cx.family {
+        Family::Material => (Some(Family::Material), None),
+        Family::Covering => (None, Some(Family::Covering)),
+        Family::Coloration => (Some(Family::Coloration), Some(Family::Coloration)),
+    }
+}
+
+/// Does a click paint a face: what the tool lays goes only there, or the option says so where
+/// it goes on either.
+fn paints_faces(cx: &Cx<'_>) -> bool {
+    match layers(cx) {
+        (None, _) => true,
+        (_, None) => false,
+        _ => cx.choice(TARGET) == Some(FACE),
+    }
 }
 
 /// A drag shorter than this (pixels, both ways) is a click.
@@ -64,7 +84,7 @@ impl PaintTool {
 
     /// The parts (or assemblies) `paths` painted.
     fn parts(paths: Vec<EntityPath>, cx: &Cx<'_>) -> PaintTarget {
-        PaintTarget::Parts { paths, scope: scope(cx) }
+        PaintTarget::Parts { paths, layer: layers(cx).0.unwrap_or(Family::Material), scope: scope(cx) }
     }
 
     /// What the rectangle `m` takes: parts at any depth (« Parts »), else the active context's
@@ -86,7 +106,8 @@ impl PaintTool {
     /// What a click on `hit` paints.
     fn target(&self, hit: &Hit, cx: &Cx<'_>) -> Result<PaintTarget, String> {
         if self.faces {
-            return Ok(PaintTarget::Face { path: hit.path.clone(), face: hit.face });
+            let layer = layers(cx).1.unwrap_or(Family::Covering);
+            return Ok(PaintTarget::Face { path: hit.path.clone(), face: hit.face, layer });
         }
         if cx.parts {
             let path = Self::part(hit, cx).ok_or_else(|| t!("tool.paint.outside"))?;
@@ -102,10 +123,10 @@ impl PaintTool {
     fn paint(target: PaintTarget, cx: &Cx<'_>) -> Result<Operation, String> {
         let material = cx.material;
         Ok(match target {
-            PaintTarget::Parts { paths, scope } => Operation::PaintParts { targets: paths, material, scope },
-            PaintTarget::Face { path, face } => {
+            PaintTarget::Parts { paths, layer, scope } => Operation::PaintParts { targets: paths, layer, material, scope },
+            PaintTarget::Face { path, face, layer } => {
                 let (part, _, _) = cx.doc.resolve_part(&path).map_err(|e| e.to_string())?;
-                Operation::PaintFaces { part, faces: vec![face], material }
+                Operation::PaintFaces { part, faces: vec![face], layer, material }
             }
         })
     }
@@ -116,12 +137,12 @@ impl Tool for PaintTool {
         ToolKind::Paint
     }
 
-    fn cursor(&self, _cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
-        Some(if self.faces { crate::tools::Cursor::PaintFace } else { crate::tools::Cursor::PaintPart })
+    fn cursor(&self, cx: &Cx<'_>) -> Option<crate::tools::Cursor> {
+        Some(if paints_faces(cx) { crate::tools::Cursor::PaintFace } else { crate::tools::Cursor::PaintPart })
     }
 
     fn input(&mut self, input: &ToolInput, cx: &Cx<'_>) -> Vec<Command> {
-        self.faces = cx.choice(TARGET) == Some(FACE);
+        self.faces = paints_faces(cx);
         // The other modifier pressed: « Prélever » over it, until released (not while a
         // rectangle is dragged).
         let pressed = cx.alt_down && !self.alt;
@@ -188,21 +209,25 @@ impl Tool for PaintTool {
     }
 
     fn options(&self, cx: &Cx<'_>) -> Vec<ToolOption> {
-        let faces = cx.choice(TARGET) == Some(FACE);
+        let faces = paints_faces(cx);
         let choice = |value, label, tip| OptionChoice { value, label, tip, icon: None };
-        let mut out = vec![ToolOption {
-            key: TARGET,
-            label: t!("tool.paint.option.target"),
-            tip: t!("tool.paint.option.target_tip"),
-            value: OptionValue::Choice(if faces { FACE } else { PART }.into()),
-            choices: vec![
-                choice(PART, t!("tool.paint.option.part"), t!("tool.paint.option.part_tip")),
-                choice(FACE, t!("tool.paint.option.face"), t!("tool.paint.option.face_tip")),
-            ],
-            saved: true,
-            icon: None,
-            swatch: None,
-        }];
+        let mut out = Vec::new();
+        // The target chosen only where what the tool lays goes on both.
+        if let (Some(_), Some(_)) = layers(cx) {
+            out.push(ToolOption {
+                key: TARGET,
+                label: t!("tool.paint.option.target"),
+                tip: t!("tool.paint.option.target_tip"),
+                value: OptionValue::Choice(if faces { FACE } else { PART }.into()),
+                choices: vec![
+                    choice(PART, t!("tool.paint.option.part"), t!("tool.paint.option.part_tip")),
+                    choice(FACE, t!("tool.paint.option.face"), t!("tool.paint.option.face_tip")),
+                ],
+                saved: true,
+                icon: None,
+                swatch: None,
+            });
+        }
         // A face is painted on every copy of its part: no scope. Nor for a part placed once:
         // both choices are the same (docs/model/data-model.md).
         let aimed = self.hover.as_ref().and_then(|h| Self::part(h, cx));
@@ -266,7 +291,11 @@ impl Tool for PaintTool {
 
     /// The level chosen in the tree drop-up is painted, not selected (docs/tools/selection.md).
     fn tree_pick(&self, path: &EntityPath, cx: &Cx<'_>) -> Option<Vec<Command>> {
-        let op = Operation::PaintParts { targets: vec![path.clone()], material: cx.material, scope: scope(cx) };
+        if paints_faces(cx) {
+            return Some(Vec::new());
+        }
+        let PaintTarget::Parts { paths, layer, scope } = Self::parts(vec![path.clone()], cx) else { return None };
+        let op = Operation::PaintParts { targets: paths, layer, material: cx.material, scope };
         Some(vec![Command::Apply(op)])
     }
 

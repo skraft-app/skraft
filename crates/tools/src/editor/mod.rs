@@ -235,6 +235,8 @@ pub struct Editor {
     tool_settings: BTreeMap<String, OptionValues>,
     /// The material the paint tool paints with (docs/render/look.md).
     paint: Option<Id>,
+    /// The family « Aucune » was chosen in (docs/ui/catalog.md): what the paint tool takes off.
+    paint_family: skraft_model::Family,
     /// A paste carried at the cursor (docs/tools/copy-paste.md).
     carry: Option<clipboard::Carry>,
     /// The tools waiting under the active one, the nearest last (the tool stack,
@@ -360,6 +362,7 @@ impl Editor {
             last_hover: None,
             tool_settings: BTreeMap::new(),
             paint: None,
+            paint_family: skraft_model::Family::Material,
             carry: None,
             stack: Vec::new(),
             aside: None,
@@ -819,6 +822,7 @@ impl Editor {
             reference: self.reference,
             options: self.tool_settings.get(kind.id()).unwrap_or(&NO_SETTINGS),
             material: self.paint_material(),
+            family: self.paint_family(),
             previewed: &self.stretch_swaps,
             tool_line: tool.infer_line(),
         }
@@ -831,6 +835,19 @@ impl Editor {
 
     pub fn set_paint_material(&mut self, material: Option<Id>) {
         self.paint = material;
+    }
+
+    /// The family the paint tool lays: its material's, else the one « Aucune » was chosen in.
+    pub fn paint_family(&self) -> skraft_model::Family {
+        match self.paint_material().and_then(|m| self.document().material(m).ok()) {
+            Some(m) => m.family(),
+            None => self.paint_family,
+        }
+    }
+
+    /// Which family « Aucune » takes off (the card's tab it is chosen in).
+    pub fn set_paint_family(&mut self, family: skraft_model::Family) {
+        self.paint_family = family;
     }
 
     // ---- the tool's options (the option bar) -------------------------------------------------

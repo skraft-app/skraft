@@ -32,7 +32,7 @@ fn a_step_file_becomes_parts_and_assemblies() {
     assert!(board.is_part() && board.named);
     assert_eq!(frag.occurrence_count(board.id), 2);
     // The body's colour on its part, which both occurrences show.
-    let m = frag.material(board.as_part().unwrap().material.unwrap()).unwrap();
+    let m = frag.material(board.as_part().unwrap().coloration.unwrap()).unwrap();
     assert_eq!(m.color, [204, 153, 102]);
     assert_eq!(frag.materials().count(), 1);
     assert_eq!(frag.root_assembly().occurrences().len(), 1);

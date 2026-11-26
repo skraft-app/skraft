@@ -47,8 +47,8 @@ impl Content {
             if let Ok(p) = doc.part(c) {
                 *count += 1;
                 match parts.iter_mut().find(|(p, _)| *p == c) {
-                    Some((_, places)) => places.push((t, p.material)),
-                    None => parts.push((c, vec![(t, p.material)])),
+                    Some((_, places)) => places.push((t, p.shown())),
+                    None => parts.push((c, vec![(t, p.shown())])),
                 }
                 return;
             }
@@ -257,9 +257,20 @@ mod tests {
         assert!((at(&content, 1) - at(&content, 0) - DVec3::new(100.0, 0.0, 0.0)).length() < 1e-9);
 
         // Its parts painted oak: drawn in oak; a hidden part left out.
-        let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+        let oak = e
+            .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+            .unwrap()
+            .unwrap()
+            .material
+            .unwrap();
         let targets = vec![skraft_model::EntityPath::root(g)];
-        e.apply(Operation::PaintParts { targets, material: Some(oak), scope: skraft_model::Scope::All }).unwrap();
+        e.apply(Operation::PaintParts {
+            targets,
+            layer: skraft_model::Family::Coloration,
+            material: Some(oak),
+            scope: skraft_model::Scope::All,
+        })
+        .unwrap();
         let paint = Operation::SetHidden { context: Id(0), entities: vec![b], hidden: true };
         e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
         let painted = Content::of(e.document(), asm);

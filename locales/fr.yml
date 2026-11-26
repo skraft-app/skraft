@@ -46,7 +46,6 @@ common:
   model: "Modèle"
   part: "Pièce"
   assembly: "Assemblage"
-  material: "Matière"
   materials: "Matières"
 
 # Key names, in hints and shortcuts.
@@ -819,7 +818,7 @@ parts_list:
   title: "$t(ribbon.workspace.parts)"
   column:
     name: "Nom"
-    material: "Matière"
+    material: "Matériau"
     length: "Longueur"
     width: "Largeur"
     thickness: "Épaisseur"
@@ -910,7 +909,10 @@ panel:
     # A part without material (no blank, or a machining swallowing it), docs/model/bodies.md.
     empty: "vide, à corriger"
     position: "Position"
-    material: "$t(common.material)"
+    # What a part is made of: a material of a part's type (docs/render/look.md).
+    material: "Matériau"
+    # What colours a part, over its material.
+    coloration: "Coloration"
     # The model's: parts and assemblies as placed (one per occurrence, at any depth), its
     # materials.
     parts: "Pièces"
@@ -985,6 +987,11 @@ panel:
     raw_tip: "Sans définition : la valeur est gardée telle quelle"
   materials:
     title: "$t(common.materials)"
+    # The card's three tabs (docs/ui/catalog.md#the-materials-card): what parts are made of,
+    # what covers a face, what colours it.
+    materials_tab: "Matériaux"
+    coverings_tab: "Revêtements"
+    colorations_tab: "Colorations"
     color: "Couleur"
     texture: "Texture"
     texture_width: "Largeur"
@@ -1000,7 +1007,9 @@ panel:
     count_tip_plural: "%{count} pièces du modèle la montrent"
     purge_tip: "Supprimer toutes les matières inutilisées"
     none: "Aucune"
-    new: "Nouvelle matière"
+    new: "Nouveau matériau"
+    new_covering: "Nouveau revêtement"
+    new_coloration: "Nouvelle coloration"
     paint_tip: "Peindre avec cette matière"
     unpaint_tip: "Dépeindre : le pot de peinture retire la matière"
     color_tip: "Couleur"
@@ -1010,6 +1019,19 @@ panel:
     texture_width_tip: "Largeur réelle de l'image, le long du fil"
     texture_height_tip: "Hauteur réelle de l'image"
     texture_rotation_tip: "Rotation de la texture"
+    # An item's family (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    family:
+      material: "Matériau"
+      covering: "Revêtement"
+      coloration: "Coloration"
+    # A material's or a covering's type: how it is counted and cut.
+    kind_label: "Catégorie"
+    kind:
+      solid: "Massif"
+      sheet: "Panneau"
+      profile: "Profilé"
+      veneer: "Placage"
+      edge: "Chant"
     texture_remove_tip: "Retirer la texture (la couleur reste)"
     export_tip: "Exporter toutes les matières (.skraftmat)"
     import_tip: "Importer des matières (.skraftmat)"
@@ -1780,6 +1802,7 @@ operation:
   paste_elements: "Coller sur la feuille"
   move_elements: "Déplacer vers la feuille"
   edit_material: "Modifier la matière"
+  set_material_kind: "Changer le type de la matière"
   delete_material: "Supprimer la matière"
   set_props: "Modifier les propriétés"
   set_prop_def: "Définir une propriété"
@@ -1825,7 +1848,9 @@ default_name:
   # A body node rounding or chamfering edges of its children (docs/decisions/0042).
   round: "Arrondi"
   chamfer: "Chanfrein"
-  material: "$t(common.material) %{number}"
+  material: "Matériau %{number}"
+  covering: "Revêtement %{number}"
+  coloration: "Coloration %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
   # An imported SketchUp definition holding both faces and components: its faces make
@@ -1924,6 +1949,7 @@ error:
     union_targets: "une union joint ses outils à une seule cible"
     nothing_reached: "aucun outil n'atteint une cible"
     no_such_face: "pas de telle face"
+    material_layer: "cette matière ne se pose pas là"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne s'éclate pas"
     flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"

@@ -43,7 +43,7 @@ shell or a body the reader refuses is excluded and counted.
 ## Colours
 
 A `STYLED_ITEM`'s surface colour (`COLOUR_RGB`, pre-defined colours), on the body, its shell, or
-shared by all its faces, becomes a **material** (one per colour, « Couleur #RRGGBB ») on its
+shared by all its faces, becomes a **coloration** (one per colour, « Couleur #RRGGBB ») of its
 part. Not yet: other face colours (a face's index in the built B-rep would
 have to be matched).
 

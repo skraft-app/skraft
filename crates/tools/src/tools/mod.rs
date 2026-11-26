@@ -290,12 +290,12 @@ pub struct PaintPreview {
 /// What a click of the paint tool paints.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaintTarget {
-    /// Parts or assemblies (every part below them), by their paths from the root, and whether
-    /// the parts' other copies take the material too.
-    Parts { paths: Vec<EntityPath>, scope: skraft_model::Scope },
-    /// One face of a part, by the path of the occurrence it is seen on: every occurrence of the
-    /// part shows it.
-    Face { path: EntityPath, face: u32 },
+    /// Parts or assemblies (every part below them), by their paths from the root, their
+    /// material or their coloration (`layer`), and whether the parts' other copies take it too.
+    Parts { paths: Vec<EntityPath>, layer: skraft_model::Family, scope: skraft_model::Scope },
+    /// One face of a part, by the path of the occurrence it is seen on, its covering or its
+    /// coloration (`layer`): every occurrence of the part shows it.
+    Face { path: EntityPath, face: u32, layer: skraft_model::Family },
 }
 
 /// A point a tool draws over everything (world; its radius in pixels), filled and / or ringed
@@ -669,6 +669,9 @@ pub struct Cx<'a> {
     pub options: &'a OptionValues,
     /// The material the paint tool paints with (none: it removes paint).
     pub material: Option<Id>,
+    /// The family it lays: the material's, else the one « Aucune » was chosen in
+    /// (docs/render/look.md#palette-and-materials).
+    pub family: skraft_model::Family,
     /// The occurrences the tool's preview draws otherwise — stretched or moved (docs/tools/stretch.md) —
     /// by path: not where they are drawn, so not to infer on.
     pub previewed: &'a std::collections::HashMap<EntityPath, (Id, DAffine3)>,
@@ -933,16 +936,17 @@ impl Cx<'_> {
         self.part_material(p)
     }
 
-    /// The material of the part `path` (from the root) leads to, if it is a known one.
+    /// What the part `path` (from the root) leads to shows: its coloration, else its material,
+    /// if it is a known one.
     pub fn part_material(&self, path: &EntityPath) -> Option<Id> {
         let (_, part, _) = self.doc.resolve_part(path).ok()?;
-        part.material.filter(|m| self.doc.material(*m).is_ok())
+        part.shown().filter(|m| self.doc.material(*m).is_ok())
     }
 
-    /// The material shown on `face` of the part `path` leads to (« Prélever »): the face's own,
-    /// else the part's (docs/render/look.md).
+    /// The material shown on `face` of the part `path` leads to (« Prélever »): the face's
+    /// coloration, else its covering, else what the part shows (docs/render/look.md).
     pub fn material_shown(&self, path: &EntityPath, face: u32) -> Option<Id> {
-        let own = self.doc.resolve_part(path).ok().and_then(|(_, part, _)| part.faces.get(&face).copied());
+        let own = self.doc.resolve_part(path).ok().and_then(|(_, part, _)| part.faces_shown().get(&face).copied());
         own.filter(|m| self.doc.material(*m).is_ok()).or_else(|| self.part_material(&path.part_path()))
     }
 

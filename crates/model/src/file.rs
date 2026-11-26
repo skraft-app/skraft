@@ -409,7 +409,7 @@ impl Document {
             Ok(())
         };
         let below = |id: Id| if id.0 < self.next_id { Ok(()) } else { Err(Error::File(FileError::BadOccurrenceId(id))) };
-        for (id, m) in &self.materials {
+        for (id, m) in self.materials.iter() {
             if id.0 >= self.next_id {
                 return Err(Error::File(FileError::BadMaterialId(*id)));
             }
@@ -502,9 +502,8 @@ impl Document {
                     if p.failed.iter().any(|id| p.body(*id).is_none()) {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
-                    material(&p.material)?;
-                    for m in p.faces.values() {
-                        material(&Some(*m))?;
+                    for m in p.materials_held() {
+                        material(&Some(m))?;
                     }
                     if p.is_plain() != p.shape.is_none() {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));

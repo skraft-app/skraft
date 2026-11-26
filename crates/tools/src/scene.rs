@@ -47,7 +47,8 @@ pub struct DefinitionMesh {
     /// Changes with the mesh and with the faces' materials.
     pub revision: u64,
     pub parts: Vec<PartMesh>,
-    /// The materials of single faces (by face index), over the part's (docs/render/look.md).
+    /// What single faces show (by face index), over the part's: their coloration, else their
+    /// covering (docs/render/look.md).
     pub faces: BTreeMap<u32, Id>,
 }
 
@@ -58,7 +59,8 @@ pub struct Placement {
     pub path: Vec<Id>,
     /// Part to world.
     pub transform: DAffine3,
-    /// The material its faces without one of their own take: the part's.
+    /// What its faces without anything of their own show: the part's coloration, else its
+    /// material.
     pub material: Option<Id>,
     /// Hidden by the user: it, or an occurrence above it, out of the active path (what is
     /// being edited shows).
@@ -361,7 +363,7 @@ impl DisplayScene {
         self.missing.clear();
         for c in doc.components() {
             let ComponentKind::Part(p) = &c.kind else { continue };
-            self.define(p.shape(), c.id, &p.faces, &mut seen);
+            self.define(p.shape(), c.id, &p.faces_shown(), &mut seen);
         }
         self.recipe = None;
         let shown = self.recipe_path.as_ref().and_then(|path| Some((doc.resolve_container(path).ok()?, path)));
@@ -401,7 +403,8 @@ impl DisplayScene {
             let mut path = p.path.occurrences;
             path.push(p.path.entity);
             let hidden = hidden_off(&path, p.hidden_at, &self.active);
-            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material, hidden });
+            let material = p.coloration.or(p.material);
+            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material, hidden });
         }
         self.section = doc.settings().display.active_section();
         self.show_hidden = doc.settings().display.show_hidden;
@@ -1033,11 +1036,11 @@ impl<'d> ContextIndex<'d> {
         out
     }
 
-    /// [`ContextIndex::solids_under`] as they would be drawn with `entity` painted with
-    /// `material` (none: unpainted): every part below it takes it (docs/render/look.md).
-    pub fn solids_under_painted(&self, entity: Id, material: Option<Id>) -> Vec<Under> {
+    /// [`ContextIndex::solids_under`] as they would be drawn with `layer` of every part below
+    /// `entity` painted with `material` (none: unpainted, docs/render/look.md).
+    pub fn solids_under_painted(&self, entity: Id, layer: skraft_model::Family, material: Option<Id>) -> Vec<Under> {
         let mut out = Vec::new();
-        self.walk_under(entity, Some(material), &mut out);
+        self.walk_under(entity, Some((layer, material)), &mut out);
         out
     }
 
@@ -1046,22 +1049,22 @@ impl<'d> ContextIndex<'d> {
         self.walk_under(entity, None, out);
     }
 
-    /// The parts under `entity`, each in its own material, or in `painted` when given.
-    fn walk_under(&self, entity: Id, painted: Option<Option<Id>>, out: &mut Vec<Under>) {
-        fn walk(
-            doc: &Document,
-            show_hidden: bool,
-            component: Id,
-            t: DAffine3,
-            painted: Option<Option<Id>>,
-            out: &mut Vec<Under>,
-            depth: usize,
-        ) {
+    /// The parts under `entity`, each showing what it shows, or would with `painted` (a layer,
+    /// its material).
+    fn walk_under(&self, entity: Id, painted: Painted, out: &mut Vec<Under>) {
+        fn walk(doc: &Document, show_hidden: bool, component: Id, t: DAffine3, painted: Painted, out: &mut Vec<Under>, depth: usize) {
             if depth > MAX_DEPTH {
                 return;
             }
             match doc.component(component).map(|c| &c.kind) {
-                Ok(ComponentKind::Part(p)) => out.push(Under { part: component, transform: t, material: painted.unwrap_or(p.material) }),
+                Ok(ComponentKind::Part(p)) => {
+                    let material = match painted {
+                        None => p.shown(),
+                        Some((skraft_model::Family::Material, m)) => p.coloration.or(m),
+                        Some((_, m)) => m.or(p.material),
+                    };
+                    out.push(Under { part: component, transform: t, material })
+                }
                 Ok(ComponentKind::Assembly(a)) => {
                     for o in a.occurrences().iter().filter(|o| show_hidden || !o.hidden) {
                         walk(doc, show_hidden, o.component, t * o.transform, painted, out, depth + 1);
@@ -1075,6 +1078,9 @@ impl<'d> ContextIndex<'d> {
         }
     }
 }
+
+/// A layer of the parts painted, and what with.
+type Painted = Option<(skraft_model::Family, Option<Id>)>;
 
 /// A definition's revision: changes with its solid, its state (a stand-in, then the real
 /// mesh) and its faces' materials.

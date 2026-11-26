@@ -12,10 +12,10 @@ placed, in which material, of which size, how many.
 ## Rows
 
 - **One row per part placed in the model**: a part's occurrences, at any depth, in its
-  material (`PlacedPart::material`, the part's own: two copies in two materials are two parts,
-  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)).
+  material (`PlacedPart::material`, what it is made of, not its coloration: two copies in two
+  materials are two parts, [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)).
   Hidden occurrences count: they are in the model. Parts not placed are not listed.
-- **Columns**: name (the part's), material (« Aucune » when none), length, width, thickness —
+- **Columns**: name (the part's), material (« Matériau »; « Aucune » when none), length, width, thickness —
   the box of the part's final B-rep along its red, green and blue axes (the scene's
   exact bounds, else the shape's vertices; « — » while the kernel computes it) —, quantity (its
   occurrences). Lengths in the document's units; their

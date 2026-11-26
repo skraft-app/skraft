@@ -1,12 +1,13 @@
-//! The « Matières » card (docs/ui/catalog.md, docs/render/look.md): the document's materials as
-//! tiles or rows, how many parts show each, the unused ones apart. A click chooses one (what the
-//! paint tool paints with, its properties in the entity info) without changing the tool.
+//! The « Matières » card (docs/ui/catalog.md, docs/render/look.md): the document's materials,
+//! coverings and colorations in a tab each, as tiles or rows, how many parts show each, the
+//! unused ones apart. A click chooses one (what the paint tool paints with, its properties in
+//! the entity info) without changing the tool.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use skraft_i18n::{t, tp};
-use skraft_model::{Document, Id, Operation};
+use skraft_model::{Document, Family, Id, Operation};
 use skraft_tools::search::Matcher;
 use skraft_tools::{Editor, ToolKind};
 
@@ -14,25 +15,39 @@ use crate::commands::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::system::images::{Decoder, Size};
+use crate::window::ribbon::Corners;
 use crate::workspaces::common::cards::NEW_COLORS;
 use crate::workspaces::common::cards::catalog::{self, Card, Ink, LIST_ROW, Renaming, Rows, Shelf};
 use crate::workspaces::common::cards::library::natural_cmp;
 
-/// What the card keeps of a document between frames (never on disk): its search, its rows, made
-/// again when the document or the search changes.
+/// What the card keeps of a document between frames (never on disk): its search, its tab, its
+/// rows, made again when the document or the search changes.
 #[derive(Default)]
 pub struct MaterialsState {
     search: String,
-    rows: Option<(u64, String, Rows)>,
+    /// The family whose tab is shown.
+    pub family: Family,
+    rows: Option<(u64, String, [Rows; 3])>,
 }
 
-/// The materials `matcher` lets through: those a part or an unused component carries first
-/// (with how many parts of the model show them), then those nothing refers to.
-fn rows_of(doc: &Document, matcher: &Matcher) -> Rows {
+/// How the card is drawn: as a list or tiles, its height, where its tabs' band starts.
+pub struct Look {
+    pub list: bool,
+    /// The height the card gives its content.
+    pub height: f32,
+    /// The bottom of the card's title bar, where the tabs' band goes on from it, and the
+    /// card's inner margin, which the band spans (as the library's, `library::Look`).
+    pub band_top: f32,
+    pub margin: f32,
+}
+
+/// The items of `family` that `matcher` lets through: those a part or an unused component
+/// carries first (with how many parts of the model show them), then those nothing refers to.
+fn rows_of(doc: &Document, matcher: &Matcher, family: Family) -> Rows {
     let counts = doc.material_counts();
     let referenced = doc.materials_referenced();
     let mut rows = Rows::default();
-    for (id, _) in doc.materials().filter(|(_, m)| matcher.name([m.name.as_str()])) {
+    for (id, _) in doc.family(family).filter(|(_, m)| matcher.name([m.name.as_str()])) {
         match counts.get(&id) {
             Some(&n) => rows.used.push((id, n)),
             None if referenced.contains(&id) => rows.used.push((id, 0)),
@@ -45,25 +60,40 @@ fn rows_of(doc: &Document, matcher: &Matcher) -> Rows {
     rows
 }
 
-/// The card's content, `height` high, in `area`: the search, the buttons (new, export, import)
-/// and the grid / list toggle, then the materials in their sections.
-pub fn card(
-    ui: &mut egui::Ui,
-    editor: &Editor,
-    state: &mut MaterialsState,
-    as_list: bool,
-    height: f32,
-    actions: &mut Vec<Action>,
-    area: egui::ScrollArea,
-) {
+/// The card's content, in `area`: the tabs (materials, coverings, colorations), the search, the
+/// buttons (new, export, import) and the grid / list toggle, then the tab's items in their
+/// sections.
+pub fn card(ui: &mut egui::Ui, editor: &Editor, state: &mut MaterialsState, look: Look, actions: &mut Vec<Action>, area: egui::ScrollArea) {
     let doc = editor.document();
     let top = ui.cursor().top();
     let matcher = Matcher::new(&state.search);
-    let rows = crate::kit::search::listed(&mut state.rows, editor.history().revision(), &state.search, || rows_of(doc, &matcher));
+    let all = crate::kit::search::listed(&mut state.rows, editor.history().revision(), &state.search, || {
+        Family::ALL.map(|f| rows_of(doc, &matcher, f))
+    });
+    // The tabs, as the library's, without counts: three would not fit the card's width.
+    let labels = [t!("panel.materials.materials_tab"), t!("panel.materials.coverings_tab"), t!("panel.materials.colorations_tab")];
+    let ids = [
+        ui.make_persistent_id("materials_tab_materials"),
+        ui.make_persistent_id("materials_tab_coverings"),
+        ui.make_persistent_id("materials_tab_colorations"),
+    ];
+    let m = look.margin as i8;
+    let inset = egui::Margin { left: m, right: m, top: (ui.cursor().top() - look.band_top).max(0.0).ceil() as i8, bottom: 0 };
+    let handles = ["materials:materials_tab", "materials:coverings_tab", "materials:colorations_tab"];
+    let shown = Family::ALL.iter().position(|f| *f == state.family).unwrap_or(0);
+    if let Some(k) =
+        crate::window::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &handles)
+    {
+        state.family = Family::ALL[k];
+    }
+    ui.add_space(crate::kit::search::GAP - ui.spacing().item_spacing.y);
+    let family = state.family;
+    let rows = &all[shown];
+    let (as_list, height) = (look.list, look.height);
     let salt = ui.make_persistent_id("materials_search");
     crate::kit::search::field(ui, salt, "materials", &mut state.search, |ui, side| {
         catalog::view_toggle(ui, side, as_list, Card::Materials, actions);
-        buttons(ui, doc, side, actions);
+        buttons(ui, doc, side, family, actions);
     });
     ui.add_space(crate::kit::search::GAP - ui.spacing().item_spacing.y);
     if rows.is_empty() && matcher.is_active() {
@@ -76,13 +106,17 @@ pub fn card(
         doc,
         painting: editor.tool_kind() == ToolKind::Paint,
         current: editor.paint_material(),
+        // « Aucune » is this tab's when the tool takes this family off.
+        none: editor.paint_material().is_none() && editor.paint_family() == family,
+        family,
         lead: !matcher.is_active(),
     };
     catalog::show(ui, &mut shelf, rows, as_list, actions, area);
 }
 
-/// The search row's buttons, laid right to left: import, export all, new.
-fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, actions: &mut Vec<Action>) {
+/// The search row's buttons, laid right to left: import, export all, new (an item of the tab's
+/// family, its first type).
+fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, family: Family, actions: &mut Vec<Action>) {
     let ink = ui.visuals().text_color();
     let button = |ui: &mut egui::Ui, enabled: bool, icon: egui::ImageSource<'static>, tip: String, handle: &'static str| {
         let image = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
@@ -97,11 +131,22 @@ fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, actions: &mut Vec<Actio
     if button(ui, any, icons::EXPORT, t!("panel.materials.export_tip"), "materials:export") {
         actions.push(Action::ExportMaterials(None));
     }
-    if button(ui, true, icons::ADD, t!("panel.materials.new"), "materials:new") {
+    let tip = match family {
+        Family::Material => t!("panel.materials.new"),
+        Family::Covering => t!("panel.materials.new_covering"),
+        Family::Coloration => t!("panel.materials.new_coloration"),
+    };
+    if button(ui, true, icons::ADD, tip, "materials:new") {
         let count = doc.materials().count();
         let taken = |n: &str| doc.materials().any(|(_, m)| m.name == n);
-        let name = (count + 1..).map(|k| t!("default_name.material", number = k)).find(|n| !taken(n)).unwrap_or_default();
-        actions.push(Action::Apply(Operation::AddMaterial { name, color: NEW_COLORS[count % NEW_COLORS.len()] }));
+        let named = |k| match family {
+            Family::Material => t!("default_name.material", number = k),
+            Family::Covering => t!("default_name.covering", number = k),
+            Family::Coloration => t!("default_name.coloration", number = k),
+        };
+        let name = (1..).map(named).find(|n| !taken(n)).unwrap_or_default();
+        let kind = family.kinds().first().copied();
+        actions.push(Action::Apply(Operation::AddMaterial { name, color: NEW_COLORS[count % NEW_COLORS.len()], kind }));
     }
 }
 
@@ -111,6 +156,10 @@ struct Materials<'a> {
     doc: &'a Document,
     painting: bool,
     current: Option<Id>,
+    /// The tool takes this tab's family off (« Aucune » chosen here).
+    none: bool,
+    /// The tab's family.
+    family: Family,
     /// « Aucune » shown first: not under a search.
     lead: bool,
 }
@@ -205,7 +254,7 @@ impl Shelf for Materials<'_> {
     }
 
     fn lead_ink(&mut self, ui: &egui::Ui) -> Ink {
-        Ink::new(ui, self.painting && self.current.is_none(), false)
+        Ink::new(ui, self.painting && self.none, false)
     }
 
     /// No material: a frame crossed out.
@@ -219,11 +268,13 @@ impl Shelf for Materials<'_> {
         crate::kit::handles::publish(|| "materials:none".into(), response.rect);
         let response = response.tip(t!("panel.materials.unpaint_tip"));
         if response.clicked() {
+            actions.push(Action::PaintFamily(self.family));
             actions.push(Action::ChooseMaterial(None));
         }
-        if ui.rect_contains_pointer(response.rect) || (self.painting && self.current.is_none()) {
-            let on = self.painting && self.current.is_none();
+        if ui.rect_contains_pointer(response.rect) || (self.painting && self.none) {
+            let on = self.painting && self.none;
             if brush(ui, &response, on, &t!("panel.materials.unpaint_tip"), "materials:none:paint") {
+                actions.push(Action::PaintFamily(self.family));
                 actions.push(Action::PaintWith(None));
             }
         }
@@ -317,7 +368,7 @@ mod tests {
         let asset = Asset::new(png.into_inner()).unwrap();
         let image = asset.id();
         let mut h = History::new(Document::new());
-        h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [1, 2, 3] }).unwrap();
+        h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [1, 2, 3], kind: Default::default() }).unwrap();
         let material = h.document().materials().next().unwrap().0;
         let texture = Texture { image: image.clone(), size: [600.0, 400.0], rotation: 0.0 };
         h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(asset) }).unwrap();

@@ -967,42 +967,38 @@ impl Editor {
     fn paint_marks(&self, paint: &tools::PaintPreview, out: &mut Vec<ViewHighlight>) {
         let doc = self.document();
         let xray = self.xray();
-        let mut mark = |part: Id, transform: DAffine3| {
-            out.push(ViewHighlight {
-                definition: part,
-                solid: part,
-                transform,
-                mark: Mark::Painted,
-                material: paint.material,
-                ghost: xray,
-                face: None,
-            });
+        let mut mark = |part: Id, transform: DAffine3, material: Option<Id>| {
+            out.push(ViewHighlight { definition: part, solid: part, transform, mark: Mark::Painted, material, ghost: xray, face: None });
         };
         match &paint.target {
-            tools::PaintTarget::Parts { paths, scope } => {
-                let mut parts = std::collections::HashSet::new();
+            tools::PaintTarget::Parts { paths, layer, scope } => {
+                let mut parts = std::collections::HashMap::new();
                 for p in paths {
-                    for u in ContextIndex::new(doc, &p.occurrences)
-                        .map(|i| i.solids_under_painted(p.entity, paint.material))
-                        .into_iter()
-                        .flatten()
-                    {
+                    let index = ContextIndex::new(doc, &p.occurrences);
+                    for u in index.map(|i| i.solids_under_painted(p.entity, *layer, paint.material)).into_iter().flatten() {
                         match scope {
                             skraft_model::Scope::All => {
-                                parts.insert(u.part);
+                                parts.insert(u.part, u.material);
                             }
-                            skraft_model::Scope::This => mark(u.part, u.transform),
+                            skraft_model::Scope::This => mark(u.part, u.transform, u.material),
                         }
                     }
                 }
-                for (part, places) in self.scene.placements().filter(|(p, _)| parts.contains(p)) {
+                for (part, places) in self.scene.placements() {
+                    let Some(material) = parts.get(&part) else { continue };
                     for p in places.iter().filter(|p| self.scene.is_shown(p)) {
-                        mark(part, p.transform);
+                        mark(part, p.transform, *material);
                     }
                 }
             }
-            tools::PaintTarget::Face { path, face } => {
-                let Ok((part, _, _)) = doc.resolve_part(path) else { return };
+            tools::PaintTarget::Face { path, face, layer } => {
+                let Ok((part, q, _)) = doc.resolve_part(path) else { return };
+                // What the face would show: its coloration over its covering, else its part's.
+                let (coloration, covering) = (q.faces.get(face).copied(), q.coverings.get(face).copied());
+                let shown = match layer {
+                    skraft_model::Family::Covering => coloration.or(paint.material),
+                    _ => paint.material.or(covering),
+                };
                 let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part) else { return };
                 for p in places.iter().filter(|p| self.scene.is_shown(p)) {
                     out.push(ViewHighlight {
@@ -1010,8 +1006,8 @@ impl Editor {
                         solid: part,
                         transform: p.transform,
                         mark: Mark::Painted,
-                        // Unpainted, it takes its part's again.
-                        material: paint.material.or(p.material),
+                        // Nothing of its own: what its part shows.
+                        material: shown.or(p.material),
                         ghost: xray,
                         face: Some(*face),
                     });

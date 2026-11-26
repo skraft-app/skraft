@@ -376,9 +376,9 @@ fn occurrence_line(
         if let Some(parts) = &links.shapes {
             ui.add(linked_mark(ui, mark)).tip(t!("panel.navigator.imprints_in", parts = parts));
         }
-        // A part's material, if any: a dot of its colour left of the eye, a column of its own
-        // so the names stay aligned.
-        if let Some(m) = doc.part(o.component).ok().and_then(|p| p.material).and_then(|m| doc.material(m).ok()) {
+        // What a part shows, if anything: a dot of its colour left of the eye, a column of its
+        // own so the names stay aligned.
+        if let Some(m) = doc.part(o.component).ok().and_then(|p| p.shown()).and_then(|m| doc.material(m).ok()) {
             material_dot(ui, m, greyed);
         }
         eye

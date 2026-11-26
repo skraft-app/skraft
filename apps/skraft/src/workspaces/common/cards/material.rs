@@ -20,9 +20,37 @@ pub(crate) fn swatch(ui: &mut egui::Ui, color: Option<[u8; 3]>, size: f32) {
     }
 }
 
-/// A material picked in a list (« Aucune » first), framed as a [`framed_field`]: its name and a
-/// downward triangle. `Some(choice)` when it changed.
-pub(super) fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id), current: Option<Id>, width: f32) -> Option<Option<Id>> {
+/// A family of the catalog, as the interface names one of its items.
+pub(crate) fn family_label(family: Family) -> String {
+    match family {
+        Family::Material => t!("panel.materials.family.material"),
+        Family::Covering => t!("panel.materials.family.covering"),
+        Family::Coloration => t!("panel.materials.family.coloration"),
+    }
+}
+
+/// A material's or a covering's type, as the interface names it
+/// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+pub(crate) fn kind_label(kind: MaterialKind) -> String {
+    match kind {
+        MaterialKind::Solid => t!("panel.materials.kind.solid"),
+        MaterialKind::Sheet => t!("panel.materials.kind.sheet"),
+        MaterialKind::Profile => t!("panel.materials.kind.profile"),
+        MaterialKind::Veneer => t!("panel.materials.kind.veneer"),
+        MaterialKind::Edge => t!("panel.materials.kind.edge"),
+    }
+}
+
+/// A material picked among those `keep` lets through (« Aucune » first), framed as a
+/// [`framed_field`]: its name and a downward triangle. `Some(choice)` when it changed.
+pub(super) fn material_choice(
+    ui: &mut egui::Ui,
+    doc: &Document,
+    salt: (&str, Id),
+    current: Option<Id>,
+    width: f32,
+    keep: impl Fn(&skraft_model::Material) -> bool,
+) -> Option<Option<Id>> {
     let name = |m: Option<Id>| match m {
         Some(id) => doc.material(id).map_or("?".to_owned(), |m| m.name.clone()),
         None => t!("panel.materials.none"),
@@ -52,7 +80,7 @@ pub(super) fn material_choice(ui: &mut egui::Ui, doc: &Document, salt: (&str, Id
         egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(ui.available_width());
             ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
-            for (id, m) in doc.materials() {
+            for (id, m) in doc.materials().filter(|(_, m)| keep(m)) {
                 ui.horizontal(|ui| {
                     swatch(ui, Some(m.color), 12.0);
                     ui.selectable_value(&mut picked, Some(id), &m.name);
@@ -99,9 +127,22 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
         }
     }
     info_grid(ui).show(ui, |ui| {
+        // Its family; a material's or a covering's type, among its family's: how it is counted.
         ui.label(t!("panel.entity_info.type"));
-        ui.label(t!("common.material"));
+        ui.label(family_label(m.family()));
         ui.end_row();
+        if let Some(kind) = m.kind {
+            field_label(ui, t!("panel.materials.kind_label"));
+            let kinds = m.family().kinds();
+            let labels: Vec<String> = kinds.iter().map(|k| kind_label(*k)).collect();
+            let current = kind_label(kind);
+            let salt = ("material_kind", id);
+            let picked = ui.scope(|ui| super::props::choice_field(ui, ui.make_persistent_id(salt), Some(&current), &labels, width)).inner;
+            if let Some(k) = picked.and_then(|p| labels.iter().position(|l| *l == p)) {
+                actions.push(Action::Apply(Operation::SetMaterialKind { material: id, kind: kinds[k] }));
+            }
+            ui.end_row();
+        }
         field_label(ui, t!("panel.entity_info.name"));
         if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
             actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));

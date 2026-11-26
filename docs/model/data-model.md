@@ -19,13 +19,14 @@ Document
 ├─ root       : Id of the root assembly (the model, never counted itself)
 ├─ next_id
 ├─ settings   : display style and units, saved with the model
-├─ materials  : Id → Material { name, color, texture, props }
+├─ materials  : Catalog — materials, coverings, colorations: Id → Material { name, kind, color, texture, props }
 └─ prop_defs  : key → PropDef — the properties' definitions (Properties)
 
 Component { id, name, named, kind, guides, behavior, props }
   guides   : construction lines and circles in the component's axes (Tape measure and guides)
   behavior : how it is stretched — its cutters and locked axes (Stretch)
-  kind     = Part     { defs, bodies, shape, failed, material, faces } — a part (Bodies)
+  kind     = Part     { defs, bodies, shape, failed, material, coloration, coverings, faces }
+                                                                    — a part (Bodies)
            | Assembly { occurrences: Vec<Occurrence>, links: Vec<Link> } — an assembly
 Occurrence { id, name, component: Id, transform: T, hidden, props }  — an occurrence
 ```
@@ -76,13 +77,12 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   own. A parent left holding only it goes too, once left in turn. Unlike empty parts, kept and
   flagged ([Empty parts](bodies.md#empty-parts)): an empty part still holds bodies (its
   machinings) to fix, an empty assembly holds nothing.
-- A part's **material** — what it is made of — is on its definition (`Part::material`): every
-  occurrence of it shows it; an assembly has none
+- A part's **material** — what it is made of — and its **coloration** are on its definition,
+  its faces' **coverings** (veneers, edges) and colorations too: every occurrence of it shows them; an assembly has none
   ([Palette and materials](../render/look.md#palette-and-materials),
-  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)). Not yet: the
-  material's **type** (substance, surface, untyped) and the kind of stock it comes from (for
-  wood, OpenCutList's solid wood, sheet good, dimensional…), and the component's **source**
-  (made, bought, existing), which decides how the parts list counts it.
+  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)). Not yet:
+  the component's **source** (made, bought, existing), which decides how the parts list
+  counts it.
 
 ## Occurrences and transformation
 

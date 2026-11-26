@@ -57,7 +57,7 @@ impl Document {
             {
                 let base = product_name.clone().or_else(|| Some(body.name.clone()).filter(|n| !n.is_empty()));
                 let mut part = doc.plain_part(Arc::new(body.solid.clone()));
-                part.material = material(&mut doc, body.color);
+                part.coloration = material(&mut doc, body.color);
                 let id = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
                     base.is_some(),
@@ -71,7 +71,7 @@ impl Document {
                 let base =
                     Some(body.name.clone()).filter(|n| !n.is_empty()).or_else(|| product_name.as_ref().map(|n| format!("{n} {}", b + 1)));
                 let mut part = doc.plain_part(Arc::new(body.solid.clone()));
-                part.material = material(&mut doc, body.color);
+                part.coloration = material(&mut doc, body.color);
                 let part = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
                     base.is_some(),

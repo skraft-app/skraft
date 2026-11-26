@@ -133,7 +133,7 @@ impl Document {
             }
             match &self.component(id)?.kind {
                 ComponentKind::Assembly(a) => stack.extend(a.occurrences().iter().map(|o| o.component)),
-                ComponentKind::Part(p) => materials.extend(p.faces.values().copied().chain(p.material)),
+                ComponentKind::Part(p) => materials.extend(p.materials_held()),
             }
         }
 

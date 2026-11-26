@@ -21,7 +21,12 @@ colours, picture, interaction, section headers.
 
 ## The materials card
 
-- **« Aucune »** comes first, but under a search: it removes paint.
+- **Three tabs**, the library's: « Matériaux », « Revêtements », « Colorations » (no counts:
+  three would not fit the card's width), each with its own « + » (an item of its family, its first type),
+  « Aucune », search results and unused items
+  ([Palette and materials](../render/look.md#palette-and-materials)).
+- **« Aucune »** comes first, but under a search: it takes off what its tab's family lays (a
+  part's material, a face's covering, a coloration).
 - **A click chooses** a material (`Editor::choose_material`): the paint tool's material, **the
   active tool unchanged** and the selection kept, so a selection can still be painted. Its
   entity info shows until the selection changes, something else is chosen, or a click in the
@@ -30,10 +35,12 @@ colours, picture, interaction, section headers.
 - **The brush** over the picture of the item hovered or current starts the paint tool with it;
   so does its menu, which also renames, exports and deletes it. The key B paints with the
   material chosen.
-- **The entity info edits it**: name, colour, texture (image, width, height, rotation), its
+- **The entity info edits it**: its family shown (« Type »), a material's or a covering's
+  « Catégorie » among its family's (« Massif », « Panneau », « Profilé »; « Placage »,
+  « Chant »), name, colour, texture (image, width, height, rotation), its
   [properties](../model/properties.md).
-- **The count** `×n` is how many placed parts of the model show the material, on a face or as
-  the part's own, each placement once (`Document::material_counts`).
+- **The count** `×n` is how many placed parts of the model hold it, in any of their layers,
+  each placement once (`Document::material_counts`).
 - **Unused** means nothing refers to it. A material only on unused components stays in
   « Utilisées » with ×0, so that `Operation::PurgeMaterials` never takes paint from a component
   that may be placed again.

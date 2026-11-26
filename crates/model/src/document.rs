@@ -222,13 +222,19 @@ pub struct Part {
     /// computed (docs/model/data-model.md). Part of the same cache.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) failed: BTreeSet<Id>,
-    /// What the part is made of (docs/render/look.md): every occurrence shows it, its faces
-    /// without one of their own take it.
+    /// What the part is made of, a material of a part's type (docs/render/look.md): counted,
+    /// and seen under its coloration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<Id>,
-    /// The material of single faces of the shape, by their index in its record (docs/render/look.md):
-    /// over the part's. A boolean renumbers faces: an index may then name another
-    /// face, or none (ignored).
+    /// What the part looks like, a coloration, over its material.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coloration: Option<Id>,
+    /// The veneers and edges of single faces of the shape, by their index in its record. A
+    /// boolean renumbers faces: an index may then name another face, or none (ignored).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub coverings: BTreeMap<u32, Id>,
+    /// The colorations of single faces, by their index as [`Part::coverings`]: over the face's
+    /// covering, else over the part.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub faces: BTreeMap<u32, Id>,
 }
@@ -242,7 +248,16 @@ impl Part {
 
     /// A part of the single positive body `body`, of `def`; computed when it is placed.
     pub(crate) fn of_body(def: BodyDef, body: Body) -> Self {
-        Part { defs: vec![def], bodies: vec![body], shape: None, failed: BTreeSet::new(), material: None, faces: BTreeMap::new() }
+        Part {
+            defs: vec![def],
+            bodies: vec![body],
+            shape: None,
+            failed: BTreeSet::new(),
+            material: None,
+            coloration: None,
+            coverings: BTreeMap::new(),
+            faces: BTreeMap::new(),
+        }
     }
 
     /// Settles the automatic names of its body definitions (docs/model/bodies.md#body-names): each its
@@ -355,6 +370,8 @@ impl Part {
             shape: None,
             failed: g.failed,
             material: self.material,
+            coloration: self.coloration,
+            coverings: BTreeMap::new(),
             faces: BTreeMap::new(),
         };
         // Only a plain part reads its shape from its body: an emptied group has none to read.
@@ -377,6 +394,45 @@ impl Part {
 
     /// Is the part its single positive body, placed or not: its shape that body's, its faces
     /// in the same order (docs/decisions/0054-changing-a-components-axes.md)?
+    /// What the part shows where its faces have nothing of their own: its coloration, else its
+    /// material (docs/render/look.md#palette-and-materials).
+    pub fn shown(&self) -> Option<Id> {
+        self.coloration.or(self.material)
+    }
+
+    /// What each face with something of its own shows: its coloration, else its covering.
+    pub fn faces_shown(&self) -> std::borrow::Cow<'_, BTreeMap<u32, Id>> {
+        if self.coverings.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.faces);
+        }
+        let mut all = self.coverings.clone();
+        all.extend(self.faces.iter().map(|(f, m)| (*f, *m)));
+        std::borrow::Cow::Owned(all)
+    }
+
+    /// Every material and coloration it holds, each slot's (a material may come twice).
+    pub fn materials_held(&self) -> impl Iterator<Item = Id> + '_ {
+        self.material.into_iter().chain(self.coloration).chain(self.coverings.values().copied()).chain(self.faces.values().copied())
+    }
+
+    /// The slot of `layer`, on the part.
+    pub(crate) fn slot_mut(&mut self, layer: Family) -> Option<&mut Option<Id>> {
+        match layer {
+            Family::Material => Some(&mut self.material),
+            Family::Coloration => Some(&mut self.coloration),
+            Family::Covering => None,
+        }
+    }
+
+    /// The faces' slots of `layer`.
+    pub(crate) fn faces_mut(&mut self, layer: Family) -> Option<&mut BTreeMap<u32, Id>> {
+        match layer {
+            Family::Covering => Some(&mut self.coverings),
+            Family::Coloration => Some(&mut self.faces),
+            Family::Material => None,
+        }
+    }
+
     pub fn is_one_body(&self) -> bool {
         matches!(&self.bodies[..], [b] if b.sign == Sign::Positive)
     }
@@ -881,11 +937,68 @@ pub struct Occurrence {
     pub props: Props,
 }
 
-/// A material: a name, a colour, maybe a texture (docs/render/look.md). Kinds of material
-/// (wood species, sheets, metals…) come later.
+/// The three families of the « Matières » card, each a table of the document
+/// (docs/decisions/0057-materials-on-the-definition-typed-sources.md), and where each goes on a
+/// part.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Family {
+    /// What a part is made of, counted and cut ([`Part::material`]).
+    #[default]
+    Material,
+    /// What covers a face: a veneer, an edge banding ([`Part::coverings`]).
+    Covering,
+    /// What colours a part or a face, never counted ([`Part::coloration`], [`Part::faces`]).
+    Coloration,
+}
+
+impl Family {
+    pub const ALL: [Family; 3] = [Family::Material, Family::Covering, Family::Coloration];
+
+    /// Its types, in the order they are offered, the first a new item's (none for colorations).
+    pub fn kinds(self) -> &'static [MaterialKind] {
+        match self {
+            Family::Material => &[MaterialKind::Solid, MaterialKind::Sheet, MaterialKind::Profile],
+            Family::Covering => &[MaterialKind::Veneer, MaterialKind::Edge],
+            Family::Coloration => &[],
+        }
+    }
+}
+
+/// A material's or a covering's type: how it is counted and cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MaterialKind {
+    /// Solid wood, a block of metal… (« Massif »).
+    Solid,
+    /// A sheet good (« Panneau »).
+    Sheet,
+    /// Dimensional timber, a tube, a bar (« Profilé »).
+    Profile,
+    /// A veneer (« Placage »).
+    Veneer,
+    /// An edge banding (« Chant »).
+    Edge,
+}
+
+impl MaterialKind {
+    /// The family it is a type of.
+    pub fn family(self) -> Family {
+        match self {
+            MaterialKind::Solid | MaterialKind::Sheet | MaterialKind::Profile => Family::Material,
+            MaterialKind::Veneer | MaterialKind::Edge => Family::Covering,
+        }
+    }
+}
+
+/// An item of the catalog — a material, a covering or a coloration: a name, a colour, maybe a
+/// texture (docs/render/look.md), the type of a material or a covering. Its family is its
+/// table's ([`Catalog`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<MaterialKind>,
     /// sRGB; under a texture, what is shown until its image is loaded.
     pub color: [u8; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -896,9 +1009,149 @@ pub struct Material {
 }
 
 impl Material {
-    /// A material of `color`, named `name`, without texture nor properties.
+    /// A coloration of `color`, named `name`, without texture nor properties.
     pub fn new(name: String, color: [u8; 3]) -> Self {
-        Material { name, color, texture: None, props: Props::default() }
+        Material::of_kind(name, color, None)
+    }
+
+    /// An item of `kind` (none: a coloration) and `color`, named `name`.
+    pub fn of_kind(name: String, color: [u8; 3], kind: Option<MaterialKind>) -> Self {
+        Material { name, kind, color, texture: None, props: Props::default() }
+    }
+
+    /// Its family: its type's, a coloration without one.
+    pub fn family(&self) -> Family {
+        self.kind.map_or(Family::Coloration, MaterialKind::family)
+    }
+}
+
+/// The document's catalog: a table per family (docs/decisions/0057-materials-on-the-definition-typed-sources.md),
+/// the ids unique across them (all from `next_id`). Each item's family is told by its type
+/// ([`Material::family`]), set right when a file is read: a table's item takes its family's
+/// first type when it has none of its family.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(from = "CatalogFile", into = "CatalogFile")]
+pub struct Catalog {
+    materials: BTreeMap<Id, Material>,
+    coverings: BTreeMap<Id, Material>,
+    colorations: BTreeMap<Id, Material>,
+}
+
+/// The catalog as a file holds it: three tables.
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct CatalogFile {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    materials: BTreeMap<Id, Material>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    coverings: BTreeMap<Id, Material>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    colorations: BTreeMap<Id, Material>,
+}
+
+impl From<CatalogFile> for Catalog {
+    fn from(f: CatalogFile) -> Self {
+        let mut c = Catalog::default();
+        for (family, table) in [(Family::Material, f.materials), (Family::Covering, f.coverings), (Family::Coloration, f.colorations)] {
+            for (id, mut m) in table {
+                if m.family() != family {
+                    m.kind = family.kinds().first().copied();
+                }
+                c.insert(id, m);
+            }
+        }
+        c
+    }
+}
+
+impl From<Catalog> for CatalogFile {
+    fn from(c: Catalog) -> Self {
+        CatalogFile { materials: c.materials, coverings: c.coverings, colorations: c.colorations }
+    }
+}
+
+impl FromIterator<(Id, Material)> for Catalog {
+    fn from_iter<I: IntoIterator<Item = (Id, Material)>>(items: I) -> Self {
+        let mut c = Catalog::default();
+        for (id, m) in items {
+            c.insert(id, m);
+        }
+        c
+    }
+}
+
+impl Catalog {
+    fn table(&self, family: Family) -> &BTreeMap<Id, Material> {
+        match family {
+            Family::Material => &self.materials,
+            Family::Covering => &self.coverings,
+            Family::Coloration => &self.colorations,
+        }
+    }
+
+    fn table_mut(&mut self, family: Family) -> &mut BTreeMap<Id, Material> {
+        match family {
+            Family::Material => &mut self.materials,
+            Family::Covering => &mut self.coverings,
+            Family::Coloration => &mut self.colorations,
+        }
+    }
+
+    /// Adds `m` to its family's table.
+    pub(crate) fn insert(&mut self, id: Id, m: Material) {
+        self.table_mut(m.family()).insert(id, m);
+    }
+
+    pub(crate) fn get(&self, id: &Id) -> Option<&Material> {
+        Family::ALL.iter().find_map(|f| self.table(*f).get(id))
+    }
+
+    pub(crate) fn get_mut(&mut self, id: &Id) -> Option<&mut Material> {
+        let family = Family::ALL.into_iter().find(|f| self.table(*f).contains_key(id))?;
+        self.table_mut(family).get_mut(id)
+    }
+
+    pub(crate) fn contains_key(&self, id: &Id) -> bool {
+        self.get(id).is_some()
+    }
+
+    pub(crate) fn remove(&mut self, id: &Id) -> Option<Material> {
+        Family::ALL.into_iter().find_map(|f| self.table_mut(f).remove(id))
+    }
+
+    /// Every item, family by family, each in id order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&Id, &Material)> {
+        self.materials.iter().chain(&self.coverings).chain(&self.colorations)
+    }
+
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &Id> {
+        self.iter().map(|(id, _)| id)
+    }
+
+    pub(crate) fn values(&self) -> impl Iterator<Item = &Material> {
+        self.iter().map(|(_, m)| m)
+    }
+
+    pub(crate) fn values_mut(&mut self) -> impl Iterator<Item = &mut Material> {
+        self.materials.values_mut().chain(self.coverings.values_mut()).chain(self.colorations.values_mut())
+    }
+
+    pub(crate) fn retain(&mut self, mut keep: impl FnMut(&Id, &mut Material) -> bool) {
+        for f in Family::ALL {
+            self.table_mut(f).retain(&mut keep);
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.materials.len() + self.coverings.len() + self.colorations.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The items of `family`, in id order.
+    pub fn family(&self, family: Family) -> impl Iterator<Item = (Id, &Material)> {
+        self.table(family).iter().map(|(id, m)| (*id, m))
     }
 }
 
@@ -1005,11 +1258,21 @@ pub struct PlacedPart {
     /// Part to world.
     pub transform: DAffine3,
     pub shape: Arc<Solid>,
-    /// The part's material ([`Part::material`]): its faces without one of their own take it.
+    /// The part's material ([`Part::material`]), what is counted.
     pub material: Option<Id>,
+    /// The part's coloration ([`Part::coloration`]).
+    pub coloration: Option<Id>,
     /// The deepest hidden occurrence of its path, by its index in the path (the occurrence
     /// itself last): none when nothing along it is hidden.
     pub hidden_at: Option<u32>,
+}
+
+impl PlacedPart {
+    /// What it shows where its faces have nothing of their own: its coloration, else its
+    /// material ([`Part::shown`]).
+    pub fn shown(&self) -> Option<Id> {
+        self.coloration.or(self.material)
+    }
 }
 
 /// A guide placed in the scene, by [`Document::placed_guides`].
@@ -1036,9 +1299,10 @@ pub struct Document {
     /// Display style and units, saved with the model.
     #[serde(default)]
     pub(crate) settings: Settings,
-    /// The materials parts and occurrences are painted with, by id (ids from `next_id`).
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(crate) materials: BTreeMap<Id, Material>,
+    /// The materials, coverings and colorations parts are painted with, a table each
+    /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    #[serde(default, rename = "catalog", skip_serializing_if = "Catalog::is_empty")]
+    pub(crate) materials: Catalog,
     /// The definitions of the properties (docs/model/properties.md), by key: optional, a key
     /// without one keeps its values as they are.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1087,7 +1351,7 @@ impl Document {
             root,
             next_id: 2,
             settings,
-            materials: BTreeMap::new(),
+            materials: Catalog::default(),
             prop_defs: BTreeMap::new(),
             assets: BTreeMap::new(),
             drawing: Arc::default(),
@@ -1099,9 +1363,14 @@ impl Document {
         &self.settings
     }
 
-    /// Every material, in id order.
+    /// Every item of the catalog — materials, coverings, colorations —, family by family.
     pub fn materials(&self) -> impl Iterator<Item = (Id, &Material)> {
         self.materials.iter().map(|(id, m)| (*id, m))
+    }
+
+    /// The items of `family`, in id order.
+    pub fn family(&self, family: Family) -> impl Iterator<Item = (Id, &Material)> {
+        self.materials.family(family)
     }
 
     pub fn material(&self, id: Id) -> Result<&Material> {
@@ -1132,7 +1401,7 @@ impl Document {
     /// textures' images, every definition of properties (a `.skraftmat`, docs/io/file-format.md).
     pub fn materials_fragment(&self, ids: &[Id]) -> Result<Document> {
         let mut out = Document::new();
-        for (id, m) in &self.materials {
+        for (id, m) in self.materials.iter() {
             if ids.is_empty() || ids.contains(id) {
                 let k = out.fresh_id();
                 out.materials.insert(k, m.clone());
@@ -1321,7 +1590,7 @@ impl Document {
                     }
                 }
                 ComponentKind::Part(p) => {
-                    let shown: FastSet<Id> = p.faces.values().copied().chain(p.material).collect();
+                    let shown: FastSet<Id> = p.materials_held().collect();
                     for m in shown {
                         let k = counts.entry(m).or_insert(0);
                         *k = k.saturating_add(n);
@@ -1338,7 +1607,7 @@ impl Document {
         let mut out = FastSet::default();
         for c in self.components.values() {
             if let ComponentKind::Part(p) = &c.kind {
-                out.extend(p.faces.values().copied().chain(p.material));
+                out.extend(p.materials_held());
             }
         }
         out
@@ -1520,6 +1789,7 @@ impl Document {
                         transform: t,
                         shape: p.shape().clone(),
                         material: p.material,
+                        coloration: p.coloration,
                         hidden_at,
                     },
                     cb.id,
@@ -1561,6 +1831,7 @@ impl Document {
                     transform: t,
                     shape: p.shape().clone(),
                     material: p.material,
+                    coloration: p.coloration,
                     hidden_at,
                 }),
                 ComponentKind::Assembly(_) => {
@@ -1762,7 +2033,7 @@ impl Document {
             self.assets.entry(id.clone()).or_insert_with(|| a.clone());
         }
         let mut materials: HashMap<Id, Id> = HashMap::new();
-        for (id, m) in &fragment.materials {
+        for (id, m) in fragment.materials.iter() {
             let same = if here.contains(id) { Some(*id) } else { self.materials.iter().find(|(_, here)| *here == m).map(|(k, _)| *k) };
             let to = match same {
                 Some(k) => k,
@@ -1840,6 +2111,8 @@ impl Document {
                         g.failed = g.failed.iter().filter_map(|id| own.get(id).copied()).collect();
                     }
                     p.material = p.material.and_then(|m| materials.get(&m).copied());
+                    p.coloration = p.coloration.and_then(|m| materials.get(&m).copied());
+                    p.coverings = p.coverings.iter().filter_map(|(f, m)| materials.get(m).map(|m| (*f, *m))).collect();
                     p.faces = p.faces.iter().filter_map(|(f, m)| materials.get(m).map(|m| (*f, *m))).collect();
                     ComponentKind::Part(p)
                 }

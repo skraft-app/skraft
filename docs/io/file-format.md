@@ -30,7 +30,8 @@ model.skraft
   the assemblies' [links](../model/bodies.md#links),
   the parts' bodies and body definitions with their profiles and `source`, the components' guides
   ([Tape measure and guides](../tools/tape-measure.md)), the drawing's presentations, sheets and compositions
-  ([Drawing](../ui/drawing.md)), the materials, the settings
+  ([Drawing](../ui/drawing.md)), the catalog (`catalog`: its three tables, `materials`,
+  `coverings`, `colorations`), the settings
   (`settings`; missing: default values). Its solids are the **names** of their entries. Indented,
   arrays of plain values on one line (`"transform": [1.0, 0.0, …]`): read with `unzip -p
   model.skraft document.json`.

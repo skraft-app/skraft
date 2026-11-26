@@ -41,6 +41,7 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.name",
         "panel.entity_info.occurrence",
         "panel.entity_info.material",
+        "panel.entity_info.coloration",
         "panel.entity_info.materials",
         "panel.entity_info.dimensions",
         "panel.entity_info.position",
@@ -203,11 +204,21 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 }
                 ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
-                    // The part's material: every copy of it shows it (docs/render/look.md).
+                    // What the part is made of and what it looks like: every copy of it shows
+                    // them (docs/render/look.md#palette-and-materials).
+                    let targets = || vec![EntityPath::new(editor.context().to_vec(), o.id)];
                     field_label(ui, t!("panel.entity_info.material"));
-                    if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field) {
-                        let targets = vec![EntityPath::new(editor.context().to_vec(), o.id)];
-                        actions.push(Action::Apply(Operation::PaintParts { targets, material: m, scope: Scope::All }));
+                    let on_part = |m: &skraft_model::Material| m.family() == Family::Material;
+                    if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part) {
+                        let op = Operation::PaintParts { targets: targets(), layer: Family::Material, material: m, scope: Scope::All };
+                        actions.push(Action::Apply(op));
+                    }
+                    ui.end_row();
+                    field_label(ui, t!("panel.entity_info.coloration"));
+                    let seen = |m: &skraft_model::Material| m.family() == Family::Coloration;
+                    if let Some(m) = material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen) {
+                        let op = Operation::PaintParts { targets: targets(), layer: Family::Coloration, material: m, scope: Scope::All };
+                        actions.push(Action::Apply(op));
                     }
                     ui.end_row();
                     // In the part's own axes: length, width, thickness as the part lies; the
@@ -286,10 +297,10 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
     let units = &doc.settings().units;
     let field = info_field_width(ui);
     let count = doc.counts_in_model().get(&id).copied().unwrap_or(0);
-    // Its materials: the part's own, its faces'; in the order of the document's.
+    // Its materials and colorations, the part's and its faces'; in the order of the document's.
     let mut used: FastSet<Id> = FastSet::default();
     if let ComponentKind::Part(p) = &c.kind {
-        used.extend(p.faces.values().copied().chain(p.material));
+        used.extend(p.materials_held());
     }
     let materials: Vec<&str> = doc.materials().filter(|(m, _)| used.contains(m)).map(|(_, m)| m.name.as_str()).collect();
     info_grid(ui).show(ui, |ui| {

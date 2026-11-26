@@ -377,6 +377,8 @@ pub enum Action {
     ChooseMaterial(Option<Id>),
     /// Paint with this material (none: remove paint): the paint tool starts.
     PaintWith(Option<Id>),
+    /// The family « Aucune » is chosen in: what the paint tool takes off.
+    PaintFamily(skraft_model::Family),
     /// Pick an image for this material's texture (docs/render/look.md#textures).
     PickTexture(Id),
     /// Export the document's materials (`.skraftmat`): one, or all (`None`); import some

@@ -106,22 +106,37 @@ symbols the code writes, and of Greek.
 
 ## Palette and materials
 
-- **Model**: `Document.materials: Id → Material { name, color, texture, props }` (sRGB; a
-  texture: [Textures](#textures); properties: [Properties](../model/properties.md));
-  `Part.material: Option<Id>`, what the part is made of, on its definition: every occurrence
-  shows it, an assembly has none
-  ([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md));
-  `Part.faces: BTreeMap<u32, Id>`, the material of single **faces** of the part's final B-rep
-  (so of all its occurrences). Priority: face > part > the theme's default; back faces keep the
-  back colour.
-  **Accepted limit**: a face is named by its index in the record, which a boolean renumbers;
-  an index past the solid's faces is ignored.
-- **Operations**: `AddMaterial`, `EditMaterial` (name, colour; dragging a colour merges into one
-  step), `DeleteMaterial` (unpaints what used it), `PaintParts`, `PaintFaces`,
+- **Three families, a table each** (`Catalog`: `materials`, `coverings`, `colorations`, under
+  the file's `catalog`), every item a `Material { name, kind, color, texture, props }` (sRGB; a
+  texture: [Textures](#textures); properties: [Properties](../model/properties.md); ids unique
+  across the tables) — [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md):
+  - **materials**, what a part is made of, counted and cut; their type (`kind`): « Massif »
+    (`Solid`, a new one's), « Panneau » (`Sheet`), « Profilé » (`Profile`);
+  - **coverings**, what covers a face; their type: « Placage » (`Veneer`, a new one's),
+    « Chant » (`Edge`);
+  - **colorations**, what colours a part or a face, never counted, no type; the colours of
+    imports are colorations.
+  An item's family is its type's (`Material::family`, a coloration without one); a type changes
+  only within its family (`SetMaterialKind`), an item never changes family. A file's item
+  without a type of its table's family takes the family's first.
+- **Where they go** (`Family`), on the part's definition, so every occurrence shows them; an
+  assembly has none:
+
+  | | Counted | Seen |
+  |---|---|---|
+  | Part | `Part.material` | `Part.coloration` (all its faces), else its material |
+  | Face | `Part.coverings` | `Part.faces` (its coloration), else its covering, else the part's |
+
+  Then the theme's default; back faces keep the back colour (`Part::shown`,
+  `Part::faces_shown`, `PlacedPart::shown`). An item laid in a slot of another family is
+  refused (`Refusal::MaterialLayer`).
+- **Operations**: `AddMaterial` (its type: its family), `EditMaterial` (name, colour; dragging a colour merges into one
+  step), `SetMaterialKind`, `DeleteMaterial` (unpaints what used it), `PaintParts`, `PaintFaces` (each
+  on a family's layer),
   `SetTexture`, `ImportMaterials`. None calls the kernel. A file painting with an unknown
   material is refused.
 - **Rendering**: a **palette** (a storage buffer of linear RGBA); each instance carries a
-  palette index (its part's material), each vertex the index of its painted face (or none).
+  palette index (what its part shows), each vertex the index of what its face shows (or none).
   Changing a material's colour rewrites only the palette; painting a part only the instances
   (rewritten each frame); painting a face re-uploads that one part's mesh. The app gives each material a
   palette slot for the session, never reused, so baked face indices stay valid. A highlight
@@ -129,15 +144,17 @@ symbols the code writes, and of Greek.
   its faces' runs of triangles in the index buffer, `PartRange::faces`), without edges, its
   colour forced over the face's own paint (the instance's palette entry flagged `FORCED`).
 - **Paint tool** (`tool.paint`, B, as SketchUp's paint bucket and OpenCutList's Smart Paint): a
-  click paints with the current material (none: the paint is removed). Its option « Peindre »
-  (Tab turns it over): « La pièce » — the part clicked, every part below an assembly clicked,
-  or the whole selection when it is in it — or « La face » — the face clicked, on every
-  occurrence of its part. Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
+  click lays the current item (none: it is taken off) where its family goes: a material on
+  « la pièce » — the part clicked, every part below an assembly clicked, or the whole
+  selection when it is in it —, a covering on « la face » clicked, on every occurrence of its
+  part; a coloration on either, as its option « Peindre » says (Tab turns it over), shown only
+  then. « Aucune » takes off the family of the card's tab it was chosen in
+  (`Editor::set_paint_family`). Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
   the cursor at any depth, in its assembly (the parts selected when it is one of them), and
   the level chosen in the tree drop-up. Painting parts, a drag draws a rectangle: what it
   encloses (left to right) or touches (right to left) is painted when it is released (one
-  step); Esc drops it. `Operation::PaintParts { targets, material, scope }`, the targets by
-  their paths from the root.
+  step); Esc drops it. `Operation::PaintParts { targets, layer, material, scope }`, the targets
+  by their paths from the root.
   - **Scope** (« Portée », painting parts; hidden for a part placed once, as the other tools'):
     « Tous les exemplaires ×n » paints the parts' definitions, so every copy; « Celui-ci »
     paints only the placements aimed at: a part some of whose placements are not painted gets
@@ -146,20 +163,22 @@ symbols the code writes, and of Greek.
     when their copies differ.
   - **Preview** (OCL's `_preview_instances`): what a click (or the rectangle) would paint is
     drawn in the colour it would take (`Preview::paint`, `Mark::Painted`: no tint, hovered
-    edges): each part under the targets in the material — every copy of it shown under « Tous
-    les exemplaires » —, the default colour when the paint is removed; a face alone, on every
-    occurrence of its part, in the material (none: its part's). Not in an open part.
+    edges): each part under the targets as it would then show — every copy of it shown under
+    « Tous les exemplaires »; a material under a coloration shows the coloration —; a face
+    alone, on every occurrence of its part, as it would show. Not in an open part.
   - The other modifier held (Command on macOS, Alt elsewhere) holds « Prélever » over it
     ([tool stack](../tools/interaction.md#tool-stack)).
 - **« Prélever »** (`tool.sample`, SketchUp's Sample Paint, OCL's `ACTION_PICK`; ribbon
-  « Apparence », no key): a click takes the material shown under the cursor — the face's own,
-  else its part's, else none — as the paint tool's; its
+  « Apparence », no key): a click takes what is shown under the cursor — the face's
+  coloration, else its covering, else the part's coloration, else its material, else none — as
+  the paint tool's; its
   tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
   the paint tool with it; held over the paint tool, each click takes, until the key is released
   (or Esc).
 - **Interface**: the **Matières** card ([Catalog cards](../ui/catalog.md#the-materials-card)):
   the materials as tiles or rows; one chosen is what the paint tool paints with and is edited
-  in the entity info. A part's material in the entity info (« Matière », every copy).
+  in the entity info. A part's material and coloration in its entity info (« Matériau »,
+  « Coloration »: every copy).
   The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
   it would hide what the tool paints with); it stays so when the tool ends.
 

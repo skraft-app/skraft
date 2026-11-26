@@ -5,8 +5,8 @@
 use glam::{DAffine3, DVec3};
 use skraft_i18n::{t, tp};
 use skraft_model::{
-    BodiesTo, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, Nature, Occurrence, Operation, PropTarget, Scope,
-    Sign, Units, measure,
+    BodiesTo, ComponentKind, Document, EntityPath, Family, FastMap, FastSet, GuideShape, Id, MaterialKind, Nature, Occurrence, Operation,
+    PropTarget, Scope, Sign, Units, measure,
 };
 use skraft_tools::Editor;
 

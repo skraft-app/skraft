@@ -26,8 +26,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assets::Asset;
 use crate::clipboard::BodyFragment;
 use crate::document::{
-    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
-    Texture, is_identity,
+    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Family, Guide, GuideShape, Id, Material, MaterialKind,
+    Occurrence, Part, Sign, Texture, is_identity,
 };
 use crate::drawing::{Border, Container, ElementKind, FieldOn, Paper, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
@@ -431,8 +431,17 @@ pub enum Operation {
     SetBehavior { component: Id, behavior: Behavior },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
-    /// A new material (docs/render/look.md).
-    AddMaterial { name: String, color: [u8; 3] },
+    /// A new item of the catalog (docs/render/look.md): a material or a covering of `kind`, a
+    /// coloration without one.
+    AddMaterial {
+        name: String,
+        color: [u8; 3],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<MaterialKind>,
+    },
+    /// Changes the type of a material or a covering, within its family
+    /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    SetMaterialKind { material: Id, kind: MaterialKind },
     /// Renames or recolours a material.
     EditMaterial { material: Id, name: String, color: [u8; 3] },
     /// Removes a material: what was painted with it is not any more.
@@ -461,15 +470,22 @@ pub enum Operation {
     /// with `material` (`None`: removed). A material is a part's, on its definition: under
     /// « only this one » (`scope`), the parts some of whose placements are not among the
     /// targets are made unique first (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
-    PaintParts { targets: Vec<EntityPath>, material: Option<Id>, scope: Scope },
+    PaintParts { targets: Vec<EntityPath>, layer: Family, material: Option<Id>, scope: Scope },
     /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
     /// is hidden in every occurrence of the assembly.
     SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
     /// Shows every occurrence hidden, in every assembly.
     ShowAll,
-    /// Paints faces of a part's shape, by their index in its record (every occurrence of the
-    /// part shows it; `None`: they take the part's material again).
-    PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
+    /// Paints faces of a part's shape, by their index in its record, on `layer` — their veneer
+    /// or edge, or their coloration — (every occurrence of the part shows it; `None`: they show
+    /// what is under again).
+    PaintFaces {
+        part: Id,
+        faces: Vec<u32>,
+        #[serde(default)]
+        layer: Family,
+        material: Option<Id>,
+    },
     /// A construction guide added to `component` (a part or an assembly), in its axes
     /// (docs/tools/tape-measure.md). Every occurrence shows it; no scope.
     AddGuide { component: Id, shape: GuideShape },
@@ -659,6 +675,7 @@ impl Operation {
             Operation::MoveElements { .. } => t!("operation.move_elements"),
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
+            Operation::SetMaterialKind { .. } => t!("operation.set_material_kind"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
             Operation::PurgeMaterials => t!("operation.purge_materials"),
             Operation::SetProps { .. } => t!("operation.set_props"),
@@ -1097,10 +1114,19 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::SetField { on, key, value } => self.set_field(*on, key, value.as_ref()).map(|_| Outcome::default()),
-            Operation::AddMaterial { name, color } => {
+            Operation::AddMaterial { name, color, kind } => {
                 let id = self.fresh_id();
-                self.materials.insert(id, Material::new(name.clone(), *color));
+                self.materials.insert(id, Material::of_kind(name.clone(), *color, *kind));
                 Ok(Outcome { material: Some(id), ..Outcome::default() })
+            }
+            Operation::SetMaterialKind { material, kind } => {
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                // Within its family only: an item never changes family.
+                if m.family() != kind.family() {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                m.kind = Some(*kind);
+                Ok(Outcome::default())
             }
             Operation::EditMaterial { material, name, color } => {
                 let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
@@ -1148,24 +1174,25 @@ impl Document {
                 let users: Vec<Id> = self
                     .components
                     .values()
-                    .filter(|c| c.as_part().is_some_and(|p| p.material == Some(*material) || p.faces.values().any(|m| m == material)))
+                    .filter(|c| c.as_part().is_some_and(|p| p.materials_held().any(|m| m == *material)))
                     .map(|c| c.id)
                     .collect();
                 for id in users {
                     let p = self.part_mut(id)?;
                     p.faces.retain(|_, m| m != material);
-                    if p.material == Some(*material) {
-                        p.material = None;
+                    p.coverings.retain(|_, m| m != material);
+                    for slot in [&mut p.material, &mut p.coloration] {
+                        if *slot == Some(*material) {
+                            *slot = None;
+                        }
                     }
                 }
                 self.prune_assets();
                 Ok(Outcome::default())
             }
-            Operation::PaintParts { targets, material, scope } => {
-                if let Some(m) = material {
-                    self.material(*m)?;
-                }
-                self.paint_parts(targets, *material, *scope)?;
+            Operation::PaintParts { targets, layer, material, scope } => {
+                self.check_layer(*material, *layer, Family::Covering)?;
+                self.paint_parts(targets, *layer, *material, *scope)?;
                 Ok(Outcome::default())
             }
             Operation::SetHidden { context, entities, hidden } => {
@@ -1197,19 +1224,17 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
-            Operation::PaintFaces { part, faces, material } => {
-                if let Some(m) = material {
-                    self.material(*m)?;
-                }
+            Operation::PaintFaces { part, faces, layer, material } => {
+                self.check_layer(*material, *layer, Family::Material)?;
                 let count = self.part(*part)?.shape().record().faces.len() as u32;
                 if faces.is_empty() || faces.iter().any(|f| *f >= count) {
                     return Err(Error::Invalid(Refusal::NoSuchFace));
                 }
-                let p = self.part_mut(*part)?;
+                let slots = self.part_mut(*part)?.faces_mut(*layer).ok_or(Error::Invalid(Refusal::MaterialLayer))?;
                 for f in faces {
                     match material {
-                        Some(m) => p.faces.insert(*f, *m),
-                        None => p.faces.remove(f),
+                        Some(m) => slots.insert(*f, *m),
+                        None => slots.remove(f),
                     };
                 }
                 Ok(Outcome::default())
@@ -1302,7 +1327,16 @@ impl Document {
                     [b] => std::mem::take(&mut b.name),
                     _ => String::new(),
                 };
-                let part = Part { defs, bodies, shape: None, failed: Default::default(), material: None, faces: Default::default() };
+                let part = Part {
+                    defs,
+                    bodies,
+                    shape: None,
+                    failed: Default::default(),
+                    material: None,
+                    coloration: None,
+                    coverings: Default::default(),
+                    faces: Default::default(),
+                };
                 let part = self.insert_component(&base, false, ComponentKind::Part(part));
                 self.component_mut(part)?.guides = fragment.guides.iter().map(|g| Guide { id: self.fresh_id(), ..g.clone() }).collect();
                 self.recompute(part, None, solver)?;
@@ -1331,16 +1365,20 @@ impl Document {
                 if !is_rigid(placement) {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
-                if let Some(m) = material {
-                    self.material(*m)?;
-                }
+                // A material where its kind says, on the part (a face's, nowhere).
+                let layer = match material {
+                    Some(m) => Some(self.material(*m)?.family()),
+                    None => None,
+                };
                 let (local, at) = primitive.at_origin();
                 let solid = solver.primitive(&local)?;
                 // The shapes drawn keep their profile (docs/tools/prism.md, step 3).
                 let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
                 let body = Body::new(self.fresh_id(), def.id, Sign::Positive, DAffine3::IDENTITY);
                 let mut part = Part::of_body(def, body);
-                part.material = *material;
+                if let Some(slot) = layer.and_then(|l| part.slot_mut(l)) {
+                    *slot = *material;
+                }
                 let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);

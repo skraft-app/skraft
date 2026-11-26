@@ -327,13 +327,18 @@ impl SkraftApp {
                         PanelId::Materials => {
                             let (doc_id, list) = (doc.id, self.prefs.materials_list);
                             let (editor, state) = (&doc.editor, &mut doc.materials);
+                            let look = crate::workspaces::common::cards::materials::Look {
+                                list,
+                                height: body,
+                                band_top: head_rect.bottom() + HEAD_PAD,
+                                margin: CARD_MARGIN,
+                            };
                             ui.push_id(doc_id, |ui| {
                                 crate::workspaces::common::cards::materials::card(
                                     ui,
                                     editor,
                                     state,
-                                    list,
-                                    body,
+                                    look,
                                     actions,
                                     area.id_salt("materials"),
                                 )

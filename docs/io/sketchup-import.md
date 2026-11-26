@@ -69,16 +69,17 @@ part) and its top instances; [`Operation::Insert`](step-import.md#insertion) pla
 
 ## Materials
 
-A material used by an instance or a face becomes a document material: its name, its colour (a
+A material used by an instance or a face becomes a **coloration** of the document (never a
+material: it says nothing of what the part is made of): its name, its colour (a
 texture's average colour), and its **texture**, the image (PNG or JPEG, as the file holds it)
 among the document's assets laid at the real size SketchUp gives it
 ([Textures](../render/look.md#textures): a box projection in the part's axes, not SketchUp's
-per-face placement). An instance's material goes on its **part** (a material is a part's,
+per-face placement). An instance's goes on its **part**'s coloration (on the definition,
 [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)): a part takes
-the material of the nearest instance above it that has one (`Document::settle_occurrence_paints`);
-a definition reached in several materials stays one part for the material most of its
-placements take, and gets a copy for each other — the instance pointed at its copy where it
-stands, the assemblies on the way made their own only when their copies differ. A **face's** goes on its
+the one of the nearest instance above it that has one (`Document::settle_occurrence_paints`);
+a definition reached in several stays one part for the one most of its placements take, and
+gets a copy for each other — the instance pointed at its copy where it stands, the
+assemblies on the way made their own only when their copies differ. A **face's** goes on its
 part (`Part::faces`, by the face's index in the solid's record): the material of its side facing
 out — a face SketchUp holds reversed shows its back —, none when only its inner side is
 painted (unseen in SketchUp too). The kernel finds each face again in the built solid by its

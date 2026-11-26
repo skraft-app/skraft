@@ -1028,8 +1028,10 @@ mod tests {
     fn a_view_picture_is_drawn_again_when_the_model_changes() {
         let mut h = skraft_model::History::new(Document::new());
         let root = h.document().root();
-        let material = h.apply(Operation::AddMaterial { name: "M".into(), color: [200, 40, 40] }).unwrap().material.unwrap();
-        let other = h.apply(Operation::AddMaterial { name: "O".into(), color: [10, 10, 10] }).unwrap().material.unwrap();
+        let material =
+            h.apply(Operation::AddMaterial { name: "M".into(), color: [200, 40, 40], kind: Default::default() }).unwrap().material.unwrap();
+        let other =
+            h.apply(Operation::AddMaterial { name: "O".into(), color: [10, 10, 10], kind: Default::default() }).unwrap().material.unwrap();
         let primitive = skraft_model::Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(1000.0, 500.0, 300.0) };
         let made =
             h.apply(Operation::AddPrimitive { context: root, primitive, placement: DAffine3::IDENTITY, material: Some(material) }).unwrap();
@@ -1080,7 +1082,11 @@ mod tests {
         let mut h = skraft_model::History::new(Document::new());
         let root = h.document().root();
         let textured = |h: &mut skraft_model::History, byte: u8| {
-            let material = h.apply(Operation::AddMaterial { name: format!("M{byte}"), color: [9, 9, 9] }).unwrap().material.unwrap();
+            let material = h
+                .apply(Operation::AddMaterial { name: format!("M{byte}"), color: [9, 9, 9], kind: Default::default() })
+                .unwrap()
+                .material
+                .unwrap();
             let image = skraft_model::Asset::new([&b"\x89PNG\r\n\x1a\n"[..], &[byte]].concat()).unwrap();
             let texture = skraft_model::Texture { image: image.id(), size: [100.0, 100.0], rotation: 0.0 };
             let id = texture.image.clone();
@@ -1095,7 +1101,7 @@ mod tests {
         let mut e = Editor::new(h.document().clone(), Box::new(hold.clone()));
         settle(&mut e, &hold);
         let placed = e.document().subject_parts(&skraft_model::Subject::Model);
-        let parts: Vec<(Id, Vec<Placed>)> = placed.iter().map(|p| (p.part, vec![(p.transform, p.material)])).collect();
+        let parts: Vec<(Id, Vec<Placed>)> = placed.iter().map(|p| (p.part, vec![(p.transform, p.shown())])).collect();
         assert_eq!(&*images_of(&e, &parts), &[image], "the material it shows, not the other");
     }
 

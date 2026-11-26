@@ -40,6 +40,7 @@ impl Document {
                     transform: DAffine3::IDENTITY,
                     shape: p.shape().clone(),
                     material: p.material,
+                    coloration: p.coloration,
                     hidden_at: None,
                 }],
                 Ok(ComponentKind::Assembly(_)) => {

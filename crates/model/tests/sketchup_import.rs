@@ -52,11 +52,11 @@ fn definitions_become_shared_parts_and_assemblies() {
         let high = cab.occurrences().iter().find(|o| o.name == "Haut").unwrap();
         assert!(high.transform.matrix3.determinant() < 0.0);
         assert!((high.transform.translation - DVec3::new(0.0, 0.0, 500.0)).length() < 1e-9);
-        let oak = doc.material(doc.part(high.component).unwrap().material.unwrap()).unwrap();
+        let oak = doc.material(doc.part(high.component).unwrap().coloration.unwrap()).unwrap();
         assert_eq!((oak.name.as_str(), oak.color), ("Chêne", [180, 140, 90]));
         let low = cab.occurrences().iter().find(|o| o.name == "Bas").unwrap();
         assert_ne!(low.component, high.component);
-        assert_eq!(doc.part(low.component).unwrap().material, None);
+        assert_eq!(doc.part(low.component).unwrap().coloration, None);
 
         // The scale is in the geometry: a part 1200 long, placed by a translation only.
         let top = doc.root_assembly().occurrences().iter().find(|o| o.name == "Longue").unwrap();
@@ -123,7 +123,7 @@ fn faces_take_the_material_of_their_side_facing_out_and_textures_come_along() {
     assert!((normal - DVec3::X).length() < 1e-9 && (point.x - 100.0).abs() < 1e-9, "the face at X 100");
 
     // The instance's material, on its part, its texture with its image.
-    let wood = doc.material(cube.as_part().unwrap().material.unwrap()).unwrap();
+    let wood = doc.material(cube.as_part().unwrap().coloration.unwrap()).unwrap();
     assert!(wood.name.starts_with("Bois"), "{}", wood.name);
     let texture = wood.texture.as_ref().unwrap();
     assert_eq!(texture.size, [100.0, 50.0]);

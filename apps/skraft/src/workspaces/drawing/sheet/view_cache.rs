@@ -111,7 +111,7 @@ impl ViewsCache {
                 let placed = e.document().subject_parts(r.subject);
                 let mut by_part: HashMap<Id, Vec<Placed>> = HashMap::new();
                 for p in &placed {
-                    by_part.entry(p.part).or_default().push((p.transform, p.material));
+                    by_part.entry(p.part).or_default().push((p.transform, p.shown()));
                 }
                 let mut parts: Vec<_> = by_part.into_iter().collect();
                 parts.sort_by_key(|(p, _)| *p);
