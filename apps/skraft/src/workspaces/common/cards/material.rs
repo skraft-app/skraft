@@ -95,24 +95,13 @@ pub(super) fn material_choice(
 /// A texture's preview (points) under the pointer.
 const THUMB_PREVIEW: f32 = 160.0;
 
-/// The material chosen in its card: its name, colour, texture (its image, real size, rotation),
-/// how many parts show it, its properties (docs/ui/catalog.md).
+/// The material chosen in its card: its family and type, name, colour, texture (its image, real
+/// size, rotation), its properties (docs/ui/catalog.md); how many parts show it is the card's.
 pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(m) = doc.material(id) else { return };
     let units = &doc.settings().units;
     let width = info_field_width(ui);
-    // Walking the model once per revision, not per frame.
-    let key = ui.make_persistent_id(("material_count", id));
-    let revision = editor.history().revision();
-    let count = match ui.data(|d| d.get_temp::<(u64, u64)>(key)) {
-        Some((r, n)) if r == revision => n,
-        _ => {
-            let n = doc.material_counts().get(&id).copied().unwrap_or(0);
-            ui.data_mut(|d| d.insert_temp(key, (revision, n)));
-            n
-        }
-    };
     fn number(width: f32, tip: &str) -> Field<'_> {
         Field {
             hint: None,
@@ -153,9 +142,6 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
         if ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed() {
             actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
         }
-        ui.end_row();
-        ui.label(t!("panel.entity_info.in_model"));
-        ui.label(count.to_string());
         ui.end_row();
         field_label(ui, t!("panel.materials.texture"));
         ui.horizontal(|ui| {

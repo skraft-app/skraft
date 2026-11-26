@@ -35,7 +35,8 @@ colours, picture, interaction, section headers.
 - **The brush** over the picture of the item hovered or current starts the paint tool with it;
   so does its menu, which also renames, exports and deletes it. The key B paints with the
   material chosen.
-- **The entity info edits it**: its family shown (« Type »), a material's or a covering's
+- **The entity info edits it** (how many parts show it is the item's tip in the card, not
+  repeated there): its family shown (« Type »), a material's or a covering's
   « Catégorie » among its family's (« Massif », « Panneau », « Profilé »; « Placage »,
   « Chant »), name, colour, texture (image, width, height, rotation), its
   [properties](../model/properties.md).
