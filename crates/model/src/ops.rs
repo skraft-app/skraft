@@ -1157,7 +1157,9 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::SetTexture { material, texture, image, color } => {
-                self.material(*material)?;
+                if texture.is_some() && self.material(*material)?.family() == crate::Family::Coloration {
+                    return Err(Error::Invalid(Refusal::ColorationTexture));
+                }
                 if let Some(a) = image {
                     self.assets.insert(a.id(), a.clone());
                 }

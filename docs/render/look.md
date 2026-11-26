@@ -144,9 +144,9 @@ symbols the code writes, and of Greek.
   coloration's coats composed into one map per channel, `x -> A·x + B` (`compose`: covering
   `(1 − t)·x + t·c`, tinting `x·((1 − t) + t·c)`), two `vec4` per entry in a third buffer
   (`Style::overlays`) that the shader applies over the colour or the texture: a scheme of any
-  number of coats costs one. A coat covering fully with a texture is what is under from it on;
-  otherwise a coat's colour counts. Each instance carries a palette index (what its part
-  shows), each vertex the index of what its face shows (or none).
+  number of coats costs one; a coloration has no texture, its colour alone. Each instance
+  carries a palette index (what its part shows), each vertex the index of what its face shows
+  (or none).
   Changing a material's colour rewrites only the palette; painting a part only the instances
   (rewritten each frame); painting a face re-uploads that one part's mesh. The app gives each material a
   palette slot for the session, never reused, so baked face indices stay valid. A highlight
@@ -194,7 +194,10 @@ symbols the code writes, and of Greek.
 
 ## Textures
 
-A material may have a **texture**: an image laid on the faces at its real size.
+A material or a covering may have a **texture**: an image laid on the faces at its real size.
+A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when it is read,
+`Catalog::insert`): it only colours what is under,
+[decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md).
 
 - **Model**: `Material.texture: Option<Texture { image, size, rotation }>` — `image` the id of
   one of the document's images (`Document.assets: id → Asset { kind, bytes }`, a PNG or a

@@ -133,6 +133,9 @@ pub enum Refusal {
     /// A material laid where its kind does not go: a part's material on a face, a veneer on a
     /// part, a coloration as what a part is made of (docs/render/look.md).
     MaterialLayer,
+    /// A texture given to a coloration, which has its colour alone
+    /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    ColorationTexture,
     /// A change to bodies names none.
     NoBodies,
     /// A guide with no length or direction, or not finite.
@@ -306,6 +309,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NothingReached => t!("error.model.nothing_reached"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
             Refusal::MaterialLayer => t!("error.model.material_layer"),
+            Refusal::ColorationTexture => t!("error.model.coloration_texture"),
             Refusal::NoBodies => t!("error.model.no_bodies"),
             Refusal::BadGuide => t!("error.model.bad_guide"),
             Refusal::NothingStretched => t!("error.model.nothing_stretched"),

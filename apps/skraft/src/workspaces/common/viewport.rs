@@ -964,19 +964,11 @@ impl Viewport {
                 }
                 None => palette[k] = theme.face_front,
             }
-            // The coats over it, composed (docs/decisions/0057-materials-on-the-definition-typed-sources.md);
-            // a coat covering fully with a texture is what is under from it on.
+            // The coats over it, composed (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
             let coats = seen.over.map(|o| doc.coats_of(o)).unwrap_or_default();
-            let layers: Vec<Coat> = coats
-                .iter()
-                .map(|(_, m)| Coat { blend: m.blend, intensity: m.intensity, color: linear(m.color), textured: texture(m).is_some() })
-                .collect();
-            let (from, a, b) = compose(&layers);
-            if let Some(f) = from {
-                let m = coats[f].1;
-                palette[k] = linear(m.color);
-                textures[k] = texture(m).unwrap_or(render::NO_TEXTURE);
-            }
+            let layers: Vec<Coat> =
+                coats.iter().map(|(_, m)| Coat { blend: m.blend, intensity: m.intensity, color: linear(m.color) }).collect();
+            let (a, b) = compose(&layers);
             overlays[2 * k] = [a[0], a[1], a[2], 1.0];
             overlays[2 * k + 1] = [b[0], b[1], b[2], 0.0];
         }
@@ -1417,26 +1409,23 @@ struct Colours {
     layers: Vec<String>,
 }
 
-/// A coat as [`compose`] reads it: its blend, intensity, linear colour, and whether its texture
-/// is ready.
+/// A coat as [`compose`] reads it: its blend, intensity, linear colour (a coloration has no
+/// texture).
 struct Coat {
     blend: BlendMode,
     intensity: f32,
     color: [f32; 4],
-    textured: bool,
 }
 
 /// The coats `coats`, from the bottom up, composed per channel into one map of what is under,
 /// `x -> A·x + B` (docs/decisions/0057-materials-on-the-definition-typed-sources.md): covering,
-/// `(1 − t)·x + t·c`; tinting, `x·((1 − t) + t·c)`. A coat covering fully with its texture is
-/// what is under from it on: its index, then the map of the coats above it.
-fn compose(coats: &[Coat]) -> (Option<usize>, [f32; 3], [f32; 3]) {
-    let (mut from, mut a, mut b) = (None, [1.0f32; 3], [0.0f32; 3]);
-    for (k, coat) in coats.iter().enumerate() {
+/// `(1 − t)·x + t·c`; tinting, `x·((1 − t) + t·c)`.
+fn compose(coats: &[Coat]) -> ([f32; 3], [f32; 3]) {
+    let (mut a, mut b) = ([1.0f32; 3], [0.0f32; 3]);
+    for coat in coats {
         let t = coat.intensity.clamp(0.0, 1.0);
         let c = coat.color;
         match coat.blend {
-            BlendMode::Cover if t >= 1.0 && coat.textured => (from, a, b) = (Some(k), [1.0; 3], [0.0; 3]),
             BlendMode::Cover => {
                 for ch in 0..3 {
                     a[ch] *= 1.0 - t;
@@ -1452,7 +1441,7 @@ fn compose(coats: &[Coat]) -> (Option<usize>, [f32; 3], [f32; 3]) {
             }
         }
     }
-    (from, a, b)
+    (a, b)
 }
 
 /// The palette entry of `seen` among `slots`, none when it has none.
@@ -2177,20 +2166,17 @@ mod tests {
 
     #[test]
     fn coats_compose_into_one_map_of_what_is_under() {
-        let coat = |blend, intensity, c: f32, textured| Coat { blend, intensity, color: [c, c, c, 1.0], textured };
-        let apply = |(_, a, b): (Option<usize>, [f32; 3], [f32; 3]), x: f32| x * a[0] + b[0];
+        let coat = |blend, intensity, c: f32| Coat { blend, intensity, color: [c, c, c, 1.0] };
+        let apply = |(a, b): ([f32; 3], [f32; 3]), x: f32| x * a[0] + b[0];
         // A paint covering fully hides what is under; half covering, half of each.
-        assert!((apply(compose(&[coat(BlendMode::Cover, 1.0, 0.2, false)]), 0.9) - 0.2).abs() < 1e-6);
-        assert!((apply(compose(&[coat(BlendMode::Cover, 0.5, 0.2, false)]), 0.8) - 0.5).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Cover, 1.0, 0.2)]), 0.9) - 0.2).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Cover, 0.5, 0.2)]), 0.8) - 0.5).abs() < 1e-6);
         // A stain multiplies: the wood darker, its grain (x) still there.
-        assert!((apply(compose(&[coat(BlendMode::Tint, 1.0, 0.5, false)]), 0.8) - 0.4).abs() < 1e-6);
-        assert!((apply(compose(&[coat(BlendMode::Tint, 0.5, 0.5, false)]), 0.8) - 0.6).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Tint, 1.0, 0.5)]), 0.8) - 0.4).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Tint, 0.5, 0.5)]), 0.8) - 0.6).abs() < 1e-6);
         // A scheme: a stain then a covering varnish at 20 %, one map, as laid one after the other.
-        let two = compose(&[coat(BlendMode::Tint, 1.0, 0.5, false), coat(BlendMode::Cover, 0.2, 1.0, false)]);
+        let two = compose(&[coat(BlendMode::Tint, 1.0, 0.5), coat(BlendMode::Cover, 0.2, 1.0)]);
         assert!((apply(two, 0.8) - (0.8 * 0.5 * 0.8 + 0.2)).abs() < 1e-6);
-        // A textured coat covering fully starts it again: what is above it only.
-        let textured = compose(&[coat(BlendMode::Tint, 1.0, 0.5, false), coat(BlendMode::Cover, 1.0, 0.3, true)]);
-        assert_eq!((textured.0, textured.1[0], textured.2[0]), (Some(1), 1.0, 0.0));
     }
 
     /// A tooltip goes under the cursor's drawing, above it at the view's bottom, and stays in

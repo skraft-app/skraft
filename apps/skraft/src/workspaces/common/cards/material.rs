@@ -300,6 +300,10 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                 }
                 ui.end_row();
             }
+            // A coloration has its colour alone (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+            if m.family() == Family::Coloration {
+                return;
+            }
             field_label(ui, t!("panel.materials.texture"));
             // Top-down, as the fields: a grid centres a cell on the row's height of the frame
             // before, which a cell taller than a row would make drift.

@@ -1980,6 +1980,7 @@ error:
     nothing_reached: "aucun outil n'atteint une cible"
     no_such_face: "pas de telle face"
     material_layer: "cette matière ne se pose pas là"
+    coloration_texture: "une coloration n'a pas de texture, seulement une couleur"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne s'éclate pas"
     flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"

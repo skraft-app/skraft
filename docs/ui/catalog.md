@@ -40,8 +40,8 @@ colours, picture, interaction, section headers.
   « Catégorie » among its family's (« Massif », « Panneau », « Profilé »; « Placage »,
   « Chant »; « Couche », « Schéma »), name; a coat's « Mode » (« Couvrant », « Teintant ») and
   « Intensité » (%); a scheme's « Couches »: « Ajouter une couche » (among the coats, laid on top),
-  then its coats as they lie, the top one first, each moved up or down or taken out; colour, texture (image, width, height,
-  rotation) but for a scheme; its [properties](../model/properties.md). A scheme's tile shows
+  then its coats as they lie, the top one first, each moved up or down or taken out; colour but for a scheme; a material's
+  or a covering's texture (image, width, height, rotation); its [properties](../model/properties.md). A scheme's tile shows
   its coats as bands, the bottom one below.
 - **Deleting a coat that schemes lay** asks first, saying how many: it leaves them.
 - **The count** `×n` is how many placed parts of the model hold it, in any of their layers,
