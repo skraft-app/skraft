@@ -38,9 +38,16 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
     « Massif » (the default), « Panneau », « Profilé » (dimensional timber, a tube, a bar);
   - **coverings** (« Revêtements »): what covers a face, counted (later, with stable face
     names); a type: « Placage » (the default), « Chant »;
-  - **colorations** (« Colorations »): what colours a face, never counted — a colour, maybe a
-    texture; an **opacity** next (a paint opaque, a stain or a tinted varnish letting what is
-    under show). The colours of imports are colorations.
+  - **colorations** (« Colorations »): what colours a face, never counted. The colours of
+    imports are colorations. Two categories:
+    - a **coat** (« Couche », the default): a colour, maybe a texture, a **mode** and an
+      **intensity** (0 to 100 %): « Couvrant » lays it over what is under (normal blending,
+      the intensity its opacity: a paint, a thinned paint), « Teintant » multiplies what is
+      under by it (the intensity its strength: a stain, a tinted varnish, the grain still
+      seen). Its product and price, later, are the coat's;
+    - a **scheme** (« Schéma »): an ordered list of coats of the catalog, referred to, not
+      copied — « Noyer verni » is « Teinte noyer » then « Vernis ambré », the varnish existing
+      once whatever the schemes using it. One level: a scheme holds coats, never schemes.
   Each item has a colour and maybe a texture, to be seen. **A type changes only within its
   family**, and every type of a family goes to the same place: nothing can end up where it does
   not go. An item never changes family (a new one is made).
@@ -50,11 +57,19 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 
   | | Counted | Seen |
   |---|---|---|
-  | Part | its material | its coloration (all its faces), else its material |
-  | Face | its covering | its coloration, else its covering, else what the part shows |
+  | Part | its material | its coloration over its material |
+  | Face | its covering | its coloration, else the part's, over its covering, else the part's material |
 
-  Then the theme's default. A slot takes only an item of its family (the model refuses any
-  other).
+  Under a coloration, the theme's default when nothing is there. A slot takes only an item of
+  its family (the model refuses any other); a coat or a scheme alike.
+- **A coloration is composed, not drawn layer by layer**: each coat maps what is under, per
+  channel, to `A·x + B` (covering: `(1 − a)·x + a·c`; tinting: `x·((1 − s) + s·c)`), and the
+  coats of a scheme compose into one such map, worked out once, applied by the shader over what
+  is under (its colour or its texture): any number of coats costs one. A coat's texture shows
+  only when it covers fully (« Couvrant », 100 %: it hides what is under and starts the
+  composition again); otherwise its colour counts.
+- **Deleting a coat used by schemes** removes it from them, after a confirmation saying how
+  many; the purge keeps a coat only schemes use.
 - **A component has a source** (`Component.source`), a field of the model like its name, not a
   property ([Properties](../model/properties.md)): it cannot be removed or renamed.
   « Fabriqué » (`Made`, the default), « Acheté » (`Bought`), « Existant » (`Existing`).
@@ -100,6 +115,14 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **One material for the solid and the veneer**, where it is laid telling them apart: counted
   and cut alike, which they are not.
 - **Three cards**: three places to choose what the paint tool lays.
+- **An opacity alone** for colorations: a thinned white over walnut greys it; a stain darkens
+  and colours the wood, its grain still seen — a multiplication, not a mix.
+- **Coats copied into each scheme**: the varnish (its product, its price) repeated in every
+  combination.
+- **A stack of coats on each face**, painted coat by coat: the same scheme painted again
+  coat by coat on every face, the tool to tell adding from replacing, and the finishing
+  scheme, a notion of the workshop, nameless.
+- **Schemes holding schemes**: cycles, and stacks hard to read; one level suffices.
 - **The type deciding nothing, the tool's option choosing the target**: the user picks a mode
   where the material already says where it goes.
 - **« Acheté » as a material type** (OpenCutList's *hardware*): a bought slide has a substance
@@ -122,6 +145,9 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   the part's).
 - An article assembly shows no material in the parts list until articles get their
   reference, supplier and price.
-- Coverings in the parts list wait for stable face names; a coloration's opacity is the next
-  step (the renderer blends two layers).
+- Coverings in the parts list wait for stable face names.
+- The renderer shows what is under and the coloration over it: a palette entry per pair met
+  (what is under, the coloration), its colour or texture and the coloration's map.
+- Later modes (« Éclaircissant », a whitewash: lighten or overlay) fit the same map only in
+  part (overlay is not affine): to see when asked.
 - A lock on components (`locked`, as SketchUp's) may come later, apart from the source.
