@@ -103,7 +103,7 @@ impl Document {
         let before = refused(p);
         let mut outcome = match to {
             BodiesTo::Level(to) => self.move_in_part(part, from, bodies, to, copy, solver)?,
-            BodiesTo::NewPart(instances) => self.move_to_new_part(from, bodies, instances, copy, scope, solver)?,
+            BodiesTo::NewPart(occurrences) => self.move_to_new_part(from, bodies, occurrences, copy, scope, solver)?,
             // Another occurrence of the same part: its level.
             BodiesTo::Part(to) if self.resolve_part(to)?.0 == part => self.move_in_part(part, from, bodies, &to.group, copy, solver)?,
             BodiesTo::Part(to) => self.move_to_part(from, bodies, to, copy, scope, solver)?,
@@ -262,14 +262,14 @@ impl Document {
         })
     }
 
-    /// The move out of the part: a new part in the assembly `instances` leads to (the part's
+    /// The move out of the part: a new part in the assembly `occurrences` leads to (the part's
     /// own: « Sortir de la pièce »), as bodies pasted out of a part (docs/tools/copy-paste.md),
     /// then those left taken away.
     fn move_to_new_part(
         &mut self,
         from: &EntityPath,
         bodies: &[Id],
-        instances: &[Id],
+        occurrences: &[Id],
         copy: bool,
         scope: Scope,
         solver: &mut dyn Solver,
@@ -280,8 +280,8 @@ impl Document {
         if turn {
             fragment.bodies.iter_mut().for_each(|b| b.sign = flip(b.sign));
         }
-        let context = self.context_of(instances)?;
-        let transform = self.transform_of(instances)?.inverse();
+        let context = self.context_of(occurrences)?;
+        let transform = self.transform_of(occurrences)?.inverse();
         let outcome = self.apply_in_place(&Operation::PasteAsPart { context, fragment: Arc::new(fragment), transform }, solver)?;
         if !copy {
             self.apply_in_place(&Operation::DeleteBodies { target: from.clone(), bodies: bodies.to_vec(), scope }, solver)?;
@@ -325,7 +325,7 @@ impl Document {
     /// assembly. A part into itself, or into a part an assembly moved holds, is refused.
     pub(crate) fn move_parts(
         &mut self,
-        instances: &[Id],
+        from: &[Id],
         occurrences: &[Id],
         to: &EntityPath,
         copy: bool,
@@ -334,17 +334,17 @@ impl Document {
         if occurrences.is_empty() {
             return Err(Error::Invalid(Refusal::NoBodies));
         }
-        let context = self.context_of(instances)?;
+        let context = self.context_of(from)?;
         let moved: Vec<Id> = self.occurrences_of(context, occurrences)?.iter().map(|o| o.component).collect();
         let (part, q, _) = self.resolve_part(to)?;
         // The target itself moved, or inside an assembly moved.
-        let n = instances.len();
-        let inside = |o: &Id| to.instances.len() > n && to.instances[..n] == *instances && to.instances[n] == *o;
-        if moved.contains(&part) || occurrences.iter().any(inside) || (to.instances == instances && occurrences.contains(&to.entity)) {
+        let n = from.len();
+        let inside = |o: &Id| to.occurrences.len() > n && to.occurrences[..n] == *from && to.occurrences[n] == *o;
+        if moved.contains(&part) || occurrences.iter().any(inside) || (to.occurrences == from && occurrences.contains(&to.entity)) {
             return Err(Error::Cycle);
         }
         let negative = effective(q, &to.group)? == Sign::Negative;
-        let fragment = self.entities_fragment(instances, occurrences)?;
+        let fragment = self.entities_fragment(from, occurrences)?;
         let (_, _, world) = self.resolve_container(to)?;
         let outcome = self.apply_in_place(
             &Operation::PasteParts { target: to.clone(), fragment: Arc::new(fragment), transform: world.inverse(), scope: Scope::All },
@@ -363,32 +363,32 @@ impl Document {
     /// [`Operation::MoveOccurrences`]: out of their assembly into another, their world place
     /// kept; that assembly's definition changes (every copy of it). Nothing to do into the
     /// assembly they lie in.
-    pub(crate) fn move_occurrences(&mut self, instances: &[Id], occurrences: &[Id], to: &[Id], copy: bool) -> Result<Outcome> {
+    pub(crate) fn move_occurrences(&mut self, from: &[Id], occurrences: &[Id], to: &[Id], copy: bool) -> Result<Outcome> {
         if occurrences.is_empty() {
             return Err(Error::Invalid(Refusal::NoBodies));
         }
-        let (from, into) = (self.context_of(instances)?, self.context_of(to)?);
-        let moving: Vec<Occurrence> = self.occurrences_of(from, occurrences)?;
-        if from == into {
+        let (source, into) = (self.context_of(from)?, self.context_of(to)?);
+        let moving: Vec<Occurrence> = self.occurrences_of(source, occurrences)?;
+        if source == into {
             return Ok(Outcome::default());
         }
         // Into one of them, or an assembly one of them holds.
         if moving.iter().any(|o| self.contains_component(o.component, into)) {
             return Err(Error::Cycle);
         }
-        let carry: DAffine3 = self.transform_of(to)?.inverse() * self.transform_of(instances)?;
+        let carry: DAffine3 = self.transform_of(to)?.inverse() * self.transform_of(from)?;
         let mut placed = Vec::with_capacity(moving.len());
         for o in moving {
             let id = if copy { self.fresh_id() } else { o.id };
             placed.push(Occurrence { id, transform: carry * o.transform, ..o });
         }
         if !copy {
-            self.assembly_mut(from)?.occurrences_mut().retain(|o| !occurrences.contains(&o.id));
+            self.assembly_mut(source)?.occurrences_mut().retain(|o| !occurrences.contains(&o.id));
         }
         let created: Vec<Id> = placed.iter().map(|o| o.id).collect();
         self.assembly_mut(into)?.occurrences_mut().extend(placed);
         if !copy {
-            self.links_moved(instances, occurrences, to)?;
+            self.links_moved(from, occurrences, to)?;
         }
         Ok(Outcome { created, ..Outcome::default() })
     }

@@ -13,7 +13,7 @@ use super::{Command, Cursor, Cx, DragClicks, Key, Preview, Steps, Tool, ToolInpu
 
 /// The occurrences a part's path goes through, from the model, its own last.
 pub fn occurrences(path: &EntityPath) -> Vec<Id> {
-    let mut out = path.instances.clone();
+    let mut out = path.occurrences.clone();
     out.push(path.entity);
     out
 }

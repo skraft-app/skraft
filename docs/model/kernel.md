@@ -70,7 +70,7 @@ Decision record: [The kernel runs off the UI thread, as stateless jobs](../decis
 - **During a computation**: one operation at a time; navigation and hovering stay active, tool
   clicks, editing shortcuts, undo / redo are ignored; the status bar says it is computing and
   the cursor waits. Esc abandons: the result will be dropped. Compound actions (exploding
-  several instances) go through an internal queue, one operation at a time. Replacing a copy by
+  several occurrences) go through an internal queue, one operation at a time. Replacing a copy by
   an array (`Command::Replace`) restores the copy if the array fails or is abandoned.
 - **Meshes**: the scene keeps the mesh of every solid still held by the history (undo / redo do
   not remesh), within the history's memory cap ([Memory cap](undo.md#memory-cap)). A solid

@@ -40,7 +40,6 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.type",
         "panel.entity_info.name",
         "panel.entity_info.occurrence",
-        "panel.entity_info.occurrences",
         "panel.entity_info.material",
         "panel.entity_info.materials",
         "panel.entity_info.dimensions",
@@ -132,11 +131,11 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
     // shown as in its own assembly; several, or a part's guide, counted.
     let (context, sel) = match (editor.deep_selection(), editor.deep_guides()) {
         ([], []) => (editor.context_definition(), editor.selection().to_vec()),
-        ([p], []) => match doc.context_of(&p.instances) {
+        ([p], []) => match doc.context_of(&p.occurrences) {
             Ok(c) => (c, vec![p.entity]),
             Err(_) => return,
         },
-        ([], [g]) if let Ok(c) = doc.context_of(&g.instances) => (c, vec![g.guide]),
+        ([], [g]) if let Ok(c) = doc.context_of(&g.occurrences) => (c, vec![g.guide]),
         (parts, guides) => {
             ui.label(tp!("panel.entity_info.selected", parts.len() + guides.len()));
             return;
@@ -202,9 +201,6 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 if let Some(name) = name_field(ui, (o.id, 0), &o.name, field, true) {
                     actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
                 }
-                ui.end_row();
-                ui.label(t!("panel.entity_info.occurrences"));
-                ui.label(doc.occurrence_count(c.id).to_string());
                 ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
                     // The part's material: every copy of it shows it (docs/render/look.md).

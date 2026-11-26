@@ -804,7 +804,7 @@ impl Cx<'_> {
         if self.open_part.is_some() {
             return None;
         }
-        self.pick(px).map(|h| h.path).filter(|p| p.instances.starts_with(self.context))
+        self.pick(px).map(|h| h.path).filter(|p| p.occurrences.starts_with(self.context))
     }
 
     /// Is `id` an occurrence of the context (not a guide, nor a machining)?
@@ -838,8 +838,8 @@ impl Cx<'_> {
     /// occurrences of its component) moves once, unless made unique.
     pub fn moved_deep(&self, paths: &[EntityPath], guides: &[GuidePath]) -> Moved {
         let unique = self.part_scope == Scope::This
-            && (paths.iter().any(|p| self.doc.shared_along(&p.instances))
-                || guides.iter().any(|g| !self.is_part_guide(g) && self.doc.shared_along(&g.instances)));
+            && (paths.iter().any(|p| self.doc.shared_along(&p.occurrences))
+                || guides.iter().any(|g| !self.is_part_guide(g) && self.doc.shared_along(&g.occurrences)));
         let mut groups: Vec<DeepGroup> = Vec::new();
         let mut add = |parent: &[Id], id: Id, part: Option<EntityPath>, frame: &dyn Fn() -> DAffine3| match groups
             .iter_mut()
@@ -850,26 +850,26 @@ impl Cx<'_> {
             None => groups.push(DeepGroup { parent: parent.to_vec(), frame: frame(), entities: vec![id], part }),
         };
         for p in paths {
-            add(&p.instances, p.entity, None, &|| self.doc.transform_of(&p.instances).unwrap_or(DAffine3::IDENTITY));
+            add(&p.occurrences, p.entity, None, &|| self.doc.transform_of(&p.occurrences).unwrap_or(DAffine3::IDENTITY));
         }
         let mut seen: Vec<(Id, Id)> = Vec::new();
         for g in guides {
-            let Ok((component, frame)) = self.doc.component_at(&g.instances) else { continue };
+            let Ok((component, frame)) = self.doc.component_at(&g.occurrences) else { continue };
             let part = self.is_part_guide(g);
             // The same guide through another occurrence of its component: once.
             if (part || !unique) && seen.contains(&(component, g.guide)) {
                 continue;
             }
             seen.push((component, g.guide));
-            let target = g.instances.split_last().filter(|_| part).map(|(&last, parents)| EntityPath::new(parents.to_vec(), last));
-            add(&g.instances, g.guide, target, &|| frame);
+            let target = g.occurrences.split_last().filter(|_| part).map(|(&last, parents)| EntityPath::new(parents.to_vec(), last));
+            add(&g.occurrences, g.guide, target, &|| frame);
         }
         Moved::Deep { groups, unique }
     }
 
     /// Does the guide `g` belong to a part (else to an assembly)?
     fn is_part_guide(&self, g: &GuidePath) -> bool {
-        self.doc.component_at(&g.instances).is_ok_and(|(c, _)| self.doc.part(c).is_ok())
+        self.doc.component_at(&g.occurrences).is_ok_and(|(c, _)| self.doc.part(c).is_ok())
     }
 
     /// The operation erasing the parts `paths` and the guides `guides` at any depth (« Parts »,
@@ -889,14 +889,14 @@ impl Cx<'_> {
     /// Is `o` under one of the parts `paths` at any depth (« Parts »)? What a move or a
     /// rotation of them leaves out of inferences.
     pub fn is_moving_deep(&self, o: &Owner<'_>, paths: &[EntityPath]) -> bool {
-        let chain = |p: &EntityPath| p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
+        let chain = |p: &EntityPath| p.occurrences.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
         let under = chain(o.path);
         paths.iter().any(|p| under.starts_with(&chain(p)))
     }
 
     /// Is `o` one of the guides `guides` at any depth (« Parts »)?
     pub fn is_moving_guide(&self, o: &Owner<'_>, guides: &[GuidePath]) -> bool {
-        matches!(o.piece, Piece::Guide(id) if guides.iter().any(|g| g.guide == id && g.instances == o.path.instances))
+        matches!(o.piece, Piece::Guide(id) if guides.iter().any(|g| g.guide == id && g.occurrences == o.path.occurrences))
     }
 
     /// The operation making `primitive`, drawn in the axes and placed by `placement` there:
@@ -923,7 +923,7 @@ impl Cx<'_> {
     /// The assembly « Dessiner dans » makes a part in, for the part `picked`: the one holding
     /// it, by its occurrences from the root, unless it is the context (or the option is off).
     pub fn draw_in<'p>(&self, picked: Option<&'p EntityPath>) -> Option<&'p [Id]> {
-        let parent = picked.filter(|_| self.open_part.is_none() && self.toggle(DRAW_IN))?.instances.as_slice();
+        let parent = picked.filter(|_| self.open_part.is_none() && self.toggle(DRAW_IN))?.occurrences.as_slice();
         (parent != self.context && self.doc.context_of(parent).is_ok()).then_some(parent)
     }
 
@@ -987,7 +987,7 @@ impl Cx<'_> {
         match o.piece {
             Piece::Tool(id) | Piece::Blank(id) => moving.contains(&id),
             Piece::Shape => self.selectable(o.path).is_some_and(|id| moving.contains(&id)),
-            Piece::Guide(id) => moving.contains(&id) && o.path.instances == self.guide_path(),
+            Piece::Guide(id) => moving.contains(&id) && o.path.occurrences == self.guide_path(),
         }
     }
 
@@ -1003,13 +1003,13 @@ impl Cx<'_> {
         if self.open_part.is_some() {
             return None;
         }
-        let rest = path.instances.strip_prefix(self.context)?;
+        let rest = path.occurrences.strip_prefix(self.context)?;
         Some(rest.first().copied().unwrap_or(path.entity))
     }
 
     /// Is `path` under one of the selected entities?
     pub fn in_selection(&self, path: &EntityPath) -> bool {
-        let chain = |p: &EntityPath| p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
+        let chain = |p: &EntityPath| p.occurrences.iter().copied().chain([p.entity]).collect::<Vec<Id>>();
         self.selectable(path).is_some_and(|id| self.selection.contains(&id))
             || (!self.deep.is_empty() && {
                 let under = chain(path);

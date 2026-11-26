@@ -57,7 +57,7 @@ pub fn drawing_pdf(
             dash: dash.map(|[a, b]| StrokeDash { array: vec![(a * PT) as f32, (b * PT) as f32], offset: 0.0 }),
             ..Stroke::default()
         };
-        // What it shows through its instances (docs/ui/drawing.md#compositions).
+        // What it shows through its occurrences (docs/ui/drawing.md#compositions).
         let placed = d.placed(sheet.id);
         let fields = Fields {
             document: title,
@@ -81,7 +81,7 @@ pub fn drawing_pdf(
                 continue;
             }
             let el = shown.element;
-            // Drawn in its container's axes, the page taking it where its instances put it.
+            // Drawn in its container's axes, the page taking it where its occurrences put it.
             surface.push_transform(&page_transform(shown.transform, h));
             'element: {
                 match &el.kind {
@@ -185,7 +185,7 @@ pub fn drawing_pdf(
                         surface.pop();
                     }
                     // Never one: `placed` goes through them.
-                    ElementKind::Instance(_) => {}
+                    ElementKind::Occurrence(_) => {}
                 }
             }
             surface.pop();
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn an_instance_acts_on_the_page_as_on_the_sheet() {
+    fn an_occurrence_acts_on_the_page_as_on_the_sheet() {
         let h = 297.0;
         let page = |p: DVec2| DVec2::new(p.x * super::PT, (h - p.y) * super::PT);
         let t = glam::DAffine2::from_angle_translation(0.7, DVec2::new(120.0, 40.0));

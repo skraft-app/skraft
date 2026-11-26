@@ -76,7 +76,7 @@ pub struct SheetState {
     frames: Vec<(Id, egui::Rect)>,
     /// Their boxes in the axes of the level open, last frame.
     boxes: HashMap<Id, (DVec2, DVec2)>,
-    /// The instances entered, from the sheet down (docs/ui/drawing.md#compositions): what they place
+    /// The occurrences entered, from the sheet down (docs/ui/drawing.md#compositions): what they place
     /// is edited, the rest faded.
     pub open: Vec<Id>,
     /// The box of what the level open shows, in its axes: a click off it leaves it.
@@ -172,7 +172,7 @@ fn offset_into(lo: DVec2, hi: DVec2, paper: Paper) -> DVec2 {
     DVec2::new(along(lo.x, hi.x, paper.width), along(lo.y, hi.y, paper.height))
 }
 
-/// The box of `el` in its container's axes; an instance has none of its own.
+/// The box of `el` in its container's axes; an occurrence has none of its own.
 fn element_box(e: &Editor, el: &skraft_model::Element, projection: Projection) -> Option<(DVec2, DVec2)> {
     Some(match &el.kind {
         ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => (*min, *max),
@@ -185,7 +185,7 @@ fn element_box(e: &Editor, el: &skraft_model::Element, projection: Projection) -
         }
         ElementKind::View(_) => view_frame(e, &e.document().drawing().resolve_as(el.id, projection)?),
         ElementKind::Dimension(dim) => dim_shape(e, dim, projection)?.bounds(),
-        ElementKind::Instance(_) => return None,
+        ElementKind::Occurrence(_) => return None,
     })
 }
 
@@ -214,7 +214,7 @@ pub fn sketch_of(e: &Editor, id: Id, projection: Projection) -> Option<Sketch> {
     fn walk(e: &Editor, list: &[skraft_model::Element], to: DAffine2, projection: Projection, depth: usize, s: &mut Sketch) {
         let d = e.document().drawing();
         for el in list.iter().filter(|el| !el.hidden) {
-            if let Some(i) = el.kind.instance() {
+            if let Some(i) = el.kind.occurrence() {
                 if let Some(c) = d.composition(i.composition).filter(|_| depth < 32) {
                     walk(e, &c.elements, to * i.place.transform(None), projection, depth + 1, s);
                 }
@@ -292,7 +292,7 @@ fn free_bounds(e: &Editor, sheet: Id, ids: &[Id]) -> Option<(DVec2, DVec2)> {
     let doc = e.document();
     let d = doc.drawing();
     let members = doc.families(Container::Sheet(sheet), ids).ok()?;
-    let anchored = |id: Id| d.element(id).and_then(|el| el.kind.instance()).is_some_and(|i| i.place.corner.is_some());
+    let anchored = |id: Id| d.element(id).and_then(|el| el.kind.occurrence()).is_some_and(|i| i.place.corner.is_some());
     let mut out: Option<(DVec2, DVec2)> = None;
     for shown in d.placed(sheet) {
         let top = shown.top();
@@ -527,7 +527,7 @@ impl SheetState {
         self.presentation(d).map_or_else(Projection::default, |p| p.projection)
     }
 
-    /// What holds what is edited now: the composition of the last instance entered, else the sheet
+    /// What holds what is edited now: the composition of the last occurrence entered, else the sheet
     /// shown.
     pub fn container(&self, d: &Drawing) -> Option<Container> {
         let s = self.shown(d)?;
@@ -553,7 +553,7 @@ impl SheetState {
         }
     }
 
-    /// Instance `id`, in the level open, entered.
+    /// Occurrence `id`, in the level open, entered.
     pub fn enter(&mut self, id: Id) {
         self.open.push(id);
         self.selected.clear();
@@ -562,7 +562,7 @@ impl SheetState {
         self.sketch = None;
     }
 
-    /// One level up, the instance left picked.
+    /// One level up, the occurrence left picked.
     pub fn leave(&mut self) {
         if let Some(id) = self.open.pop() {
             self.selected = vec![id];
@@ -885,10 +885,10 @@ fn moved_element(kind: &ElementKind, offset: DVec2) -> ElementKind {
             };
             ElementKind::Dimension(Dimension { view: dim.view, kind })
         }
-        ElementKind::Instance(i) => {
+        ElementKind::Occurrence(i) => {
             let mut i = i.clone();
             i.place.at += offset;
-            ElementKind::Instance(i)
+            ElementKind::Occurrence(i)
         }
     }
 }
@@ -960,7 +960,7 @@ pub fn scale_label(scale: f64) -> String {
 #[cfg(test)]
 mod tests {
     use skraft_model::kernel::{Job, JobId, JobResult, KernelService};
-    use skraft_model::{Corner, Document, Instance, Place};
+    use skraft_model::{Corner, Document, Place, drawing::Occurrence};
 
     use super::*;
 
@@ -984,9 +984,9 @@ mod tests {
         let line = add(ElementKind::Line { from: DVec2::new(-40.0, 10.0), to: DVec2::new(0.0, 10.0) });
         let group = Operation::MakeComposition { elements: vec![rect, line], name: Some("Cartouche".into()) };
         let i = e.apply(group).unwrap().unwrap().element.unwrap();
-        let composition = e.document().drawing().element(i).unwrap().kind.instance().unwrap().composition;
+        let composition = e.document().drawing().element(i).unwrap().kind.occurrence().unwrap().composition;
         let place = Place::anchored(Corner::BottomRight, DVec2::new(-10.0, 10.0));
-        let kind = ElementKind::Instance(Instance { composition, place, props: Default::default() });
+        let kind = ElementKind::Occurrence(Occurrence { composition, place, props: Default::default() });
         e.apply(Operation::SetElement { element: i, kind }).unwrap();
         (e, sheet, i)
     }
@@ -1134,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn an_instance_is_picked_whole_where_it_shows_its_composition() {
+    fn an_occurrence_is_picked_whole_where_it_shows_its_composition() {
         let (mut e, sheet, i) = sheet_with_a_composition();
         // Its origin at (287, 10): the rectangle from (247, 10) to (287, 30), y down on screen,
         // and 3 points on each side for its line's reach.
@@ -1151,23 +1151,23 @@ mod tests {
     }
 
     #[test]
-    fn a_point_snaps_on_what_an_instance_shows() {
+    fn a_point_snaps_on_what_an_occurrence_shows() {
         let (e, sheet, i) = sheet_with_a_composition();
         let d = e.document().drawing();
         let (on, align) = snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], &[]);
         for q in [DVec2::new(247.0, 10.0), DVec2::new(287.0, 30.0), DVec2::new(247.0, 20.0)] {
             assert!(on.iter().any(|p| p.distance(q) < 1e-9) && align.iter().any(|p| p.distance(q) < 1e-9), "{q}");
         }
-        // Not on the instance being dragged.
+        // Not on the occurrence being dragged.
         assert!(snap_points(&e, d, &mut ViewsCache::default(), sheet, &[], &[i]).0.is_empty());
     }
 
     #[test]
-    fn an_anchored_instance_moves_from_its_corner() {
+    fn an_anchored_occurrence_moves_from_its_corner() {
         let (e, _, i) = sheet_with_a_composition();
         let kind = &e.document().drawing().element(i).unwrap().kind;
         let moved = moved_element(kind, DVec2::new(-5.0, 2.0));
-        let place = moved.instance().unwrap().place;
+        let place = moved.occurrence().unwrap().place;
         assert_eq!((place.corner, place.at), (Some(Corner::BottomRight), DVec2::new(-15.0, 12.0)));
     }
 
@@ -1217,14 +1217,14 @@ mod tests {
     }
 
     #[test]
-    fn levels_are_entered_and_left_the_instance_picked() {
+    fn levels_are_entered_and_left_the_occurrence_picked() {
         let (e, sheet, i) = sheet_with_a_composition();
         let d = e.document().drawing();
         let mut st = SheetState { current: Some(sheet), ..Default::default() };
         assert_eq!(st.container(d), Some(Container::Sheet(sheet)));
         st.selected = vec![i];
         edit_selected(&e, &mut st).unwrap();
-        let composition = d.element(i).unwrap().kind.instance().unwrap().composition;
+        let composition = d.element(i).unwrap().kind.occurrence().unwrap().composition;
         assert_eq!((st.container(d), st.selected.len()), (Some(Container::Composition(composition)), 0));
         st.leave();
         assert_eq!((st.container(d), st.selected.as_slice()), (Some(Container::Sheet(sheet)), &[i][..]));
@@ -1233,18 +1233,18 @@ mod tests {
     #[test]
     fn a_definition_placed_on_another_sheet_takes_its_corner() {
         let (mut e, _, i) = sheet_with_a_composition();
-        let composition = e.document().drawing().element(i).unwrap().kind.instance().unwrap().composition;
+        let composition = e.document().drawing().element(i).unwrap().kind.occurrence().unwrap().composition;
         let other = e.apply(Operation::AddSheet { presentation: None, name: None, paper: Paper::A3 }).unwrap().unwrap().sheet.unwrap();
         let mut st = SheetState { current: Some(other), ..Default::default() };
         place_composition(&mut e, &mut st, composition);
         let d = e.document().drawing();
         let placed = st.selected[0];
-        let p = d.element(placed).unwrap().kind.instance().unwrap().place;
+        let p = d.element(placed).unwrap().kind.occurrence().unwrap().place;
         assert_eq!((p.corner, p.at), (Some(Corner::BottomRight), DVec2::new(-10.0, 10.0)));
         assert_eq!(d.container_of(placed), Some(Container::Sheet(other)));
         // Again on the same sheet: a little aside.
         place_composition(&mut e, &mut st, composition);
-        let p = e.document().drawing().element(st.selected[0]).unwrap().kind.instance().unwrap().place;
+        let p = e.document().drawing().element(st.selected[0]).unwrap().kind.occurrence().unwrap().place;
         assert_eq!(p.at, DVec2::new(0.0, 0.0));
     }
 
@@ -1379,7 +1379,7 @@ mod tests {
         let Some(ElementKind::Rect { min: got, .. }) = d.element(rect).map(|el| &el.kind) else { panic!() };
         assert!(got.distance(from + min + DVec2::new(5.0, -300.0) - to) < 1e-9, "{got}");
         // Anchored, it keeps its corner.
-        let p = d.element(title_block).unwrap().kind.instance().unwrap().place;
+        let p = d.element(title_block).unwrap().kind.occurrence().unwrap().place;
         assert_eq!((p.corner, p.at), (Some(Corner::BottomRight), DVec2::new(-10.0, 10.0)));
         e.undo();
         assert_eq!(e.document().drawing().container_of(rect), Some(Container::Sheet(a)), "one step");
@@ -1431,7 +1431,7 @@ mod tests {
         let b = e.apply(Operation::AddSheet { presentation: None, name: None, paper: Paper::A3 }).unwrap().unwrap().sheet.unwrap();
         let d = e.document().drawing();
         let board = Board::of(d);
-        let composition = d.element(i).unwrap().kind.instance().unwrap().composition;
+        let composition = d.element(i).unwrap().kind.occurrence().unwrap().composition;
         let view = Paperview::new(egui::Pos2::ZERO, DVec2::ZERO, 1.0);
         let level = Some((a, Container::Composition(composition), view.at(board.sheet(a).unwrap().origin)));
         let (s, to, _) = carry_target(&board, view, level, a).unwrap();
@@ -1466,7 +1466,7 @@ mod tests {
         assert_eq!(d.sheet(sheet).unwrap().elements.len(), 2);
         let copy = st.selected[0];
         assert_ne!(copy, i);
-        let (a, b) = (d.element(i).unwrap().kind.instance().unwrap(), d.element(copy).unwrap().kind.instance().unwrap());
+        let (a, b) = (d.element(i).unwrap().kind.occurrence().unwrap(), d.element(copy).unwrap().kind.occurrence().unwrap());
         assert_eq!(a.composition, b.composition, "the same composition");
         assert!(b.place.origin(Some(Paper::A4)).distance(DVec2::new(120.0, 90.0)) < 1e-9, "its box centred on the pointer");
         select_all(&e, &mut st);
@@ -1677,9 +1677,9 @@ mod tests {
             f.fill("{client} {autre}", path)
         };
         assert_eq!(fill(&e, &[i]), "Martin {autre}", "from the presentation; one without a value left");
-        e.apply(set(skraft_model::FieldOn::Instance(i), text("Dupont"))).unwrap();
+        e.apply(set(skraft_model::FieldOn::Occurrence(i), text("Dupont"))).unwrap();
         assert_eq!(fill(&e, &[i]), "Dupont {autre}");
-        assert_eq!(fill(&e, &[]), "Martin {autre}", "not under the instance");
+        assert_eq!(fill(&e, &[]), "Martin {autre}", "not under the occurrence");
         assert_eq!(custom_fields(["client".to_owned(), "scale".to_owned(), "sheet.number".to_owned()]), vec!["client".to_owned()]);
     }
 

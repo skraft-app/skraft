@@ -24,9 +24,9 @@ impl Document {
             let placed = match self.part(component) {
                 Ok(_) => vec![(t.clone(), component)],
                 Err(_) => {
-                    let (mut path, mut out) = (t.instances.clone(), Vec::new());
+                    let (mut path, mut out) = (t.occurrences.clone(), Vec::new());
                     path.push(t.entity);
-                    self.walk(component, &mut path, glam::DAffine3::IDENTITY, None, &mut out, t.instances.len() + 1);
+                    self.walk(component, &mut path, glam::DAffine3::IDENTITY, None, &mut out, t.occurrences.len() + 1);
                     out.into_iter().map(|p| (p.path, p.part)).collect()
                 }
             };
@@ -112,7 +112,7 @@ impl Document {
                 // The placements by occurrence: its assembly, its id.
                 let mut slots: Vec<((Id, Id), Vec<&EntityPath>)> = Vec::new();
                 for p in paths {
-                    let slot = (self.context_of(&p.instances)?, p.entity);
+                    let slot = (self.context_of(&p.occurrences)?, p.entity);
                     match slots.iter_mut().find(|(s, _)| *s == slot) {
                         Some((_, list)) => list.push(p),
                         None => slots.push((slot, vec![p])),

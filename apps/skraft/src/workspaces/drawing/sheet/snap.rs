@@ -18,7 +18,7 @@ pub(super) struct Aim {
 
 /// The points of sheet `sheet` a point snaps on, and those it aligns with: rectangles' and
 /// images' corners, circles' centres and quadrants, lines' ends, views' frame corners (both);
-/// views' vertices (snapped on only: so many would align everywhere), through its instances; not
+/// views' vertices (snapped on only: so many would align everywhere), through its occurrences; not
 /// those of `skip` (right in the level `open`), nor what is hidden.
 pub(super) fn snap_points(
     e: &Editor,

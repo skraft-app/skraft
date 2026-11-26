@@ -109,7 +109,7 @@ pub const COMMANDS: &[Command] = &[
     c("drawing.project_view", || t!("menu.drawing.project_view"), M::Edit, None),
     // The view picked turned from the sheet (docs/ui/drawing.md#framing-a-view).
     c("drawing.frame_view", || t!("menu.drawing.frame_view"), M::Edit, None),
-    // The elements picked gathered into a composition, an instance exploded, given a composition of its own,
+    // The elements picked gathered into a composition, an occurrence exploded, given a composition of its own,
     // its composition edited in place (docs/ui/drawing.md#compositions).
     g("drawing.make_composition", || t!("menu.drawing.make_composition"), M::Edit, Some("G")),
     c("drawing.explode", || t!("menu.drawing.explode"), M::Edit, None),

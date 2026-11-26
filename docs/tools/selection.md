@@ -1,6 +1,6 @@
 ---
 status: built
-code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/workspaces/common/viewport/drop_up.rs, apps/skraft/src/workspaces/common/instance_name.rs]
+code: [crates/tools/src/tools/pick.rs, crates/tools/src/tools/select.rs, crates/tools/src/tools/mod.rs, crates/tools/src/editor/mod.rs, crates/tools/src/editor/selection.rs, crates/tools/src/editor/tree.rs, crates/model/src/ops.rs, crates/model/src/clipboard.rs, crates/tools/src/tools/handle.rs, apps/skraft/src/workspaces/common/cards.rs, apps/skraft/src/workspaces/common/cards/, apps/skraft/src/workspaces/common/viewport/drop_up.rs, apps/skraft/src/workspaces/common/occurrence_name.rs]
 ---
 
 # Select first, and a selection scope
@@ -125,7 +125,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   Delete, SetHidden, MakeAssembly) on the assembly `parent` leads into, its `context` set
   when applied; `unique` makes the assemblies along it unique first, outermost first
   (`MakeUnique`, ids kept) — and `Operation::Batch(ops)`, applied in order, outcomes put
-  together, one history step; `Document::shared_along(instances)`. An operation `At` / `Batch`
+  together, one history step; `Document::shared_along(occurrences)`. An operation `At` / `Batch`
   selects nothing it makes (its ids are not the context's).
 - `Moved::Deep { groups, unique }` (`Cx::moved_deep(paths, guides)`): Move / Rotate (copies
   and `5x` arrays too), Delete (`Cx::erase_deep`), Erase (click, sweep, Shift hides) at each
@@ -152,7 +152,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   the status saying so (`status.group_one_assembly`). The command is enabled by a selection
   at any depth (`Editor::anything_selected`), as « Effacer ».
 - **« Rendre unique »**: each element selected gets a definition of its own, whatever the
-  « Portée »: the assemblies along its path are made unique first, so that only this instance
+  « Portée »: the assemblies along its path are made unique first, so that only this occurrence
   changes (`MakeUnique` taken by `At { unique: true }`, one step). The toast names the element
   selected, not the assemblies made unique on the way.
 - **« Éclater »**: the assemblies selected (the tree drop-up) put in their parent, the deepest
@@ -190,6 +190,6 @@ picking is over the key keeps its other meanings (copy in Move / Rotate, mirror 
 tools), as in OCL where the state decides. The status says it (« Option maintenu : élément
 parent », « Choisir un élément dans la liste »).
 
-**One name writer** (`apps/skraft/src/workspaces/common/instance_name.rs`), for the navigator's rows and the
-drop-up: the instance's own name in semibold, then its definition's between faint angle
+**One name writer** (`apps/skraft/src/workspaces/common/occurrence_name.rs`), for the navigator's rows and the
+drop-up: the occurrence's own name in semibold, then its definition's between faint angle
 brackets, own name or not (an automatic one in italics, greyed).

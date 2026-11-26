@@ -16,7 +16,7 @@ pub(super) fn carry_target(
     }
 }
 
-/// The composition dragged from the card: its outline at the pointer over a sheet, an instance
+/// The composition dragged from the card: its outline at the pointer over a sheet, an occurrence
 /// there, free, when the button is let go, that sheet becoming active; given up off the papers,
 /// over a card, inside itself, or by Esc.
 #[allow(clippy::too_many_arguments)]
@@ -63,7 +63,7 @@ pub(super) fn carry_composition(
     st.carried = None;
     if let (Some(at), Some((sheet, to, _))) = (at, target) {
         let place = Place::free(at);
-        let element = ElementKind::Instance(skraft_model::Instance { composition, place, props: Default::default() });
+        let element = ElementKind::Occurrence(skraft_model::drawing::Occurrence { composition, place, props: Default::default() });
         match e.apply(Operation::AddElement { to, element }) {
             Ok(Some(o)) => {
                 if level.map(|l| l.0) != Some(sheet) {
@@ -77,9 +77,9 @@ pub(super) fn carry_composition(
     }
 }
 
-/// The instances among them.
-pub fn selected_instances<'a>(e: &'a Editor, st: &SheetState) -> Vec<(Id, &'a skraft_model::Instance)> {
-    selection(e, st).into_iter().filter_map(|el| el.kind.instance().map(|i| (el.id, i))).collect()
+/// The occurrences among them.
+pub fn selected_occurrences<'a>(e: &'a Editor, st: &SheetState) -> Vec<(Id, &'a skraft_model::drawing::Occurrence)> {
+    selection(e, st).into_iter().filter_map(|el| el.kind.occurrence().map(|i| (el.id, i))).collect()
 }
 
 /// The elements picked gathered into a composition placed there, picked.
@@ -94,9 +94,9 @@ pub fn compose_selected(e: &mut Editor, st: &mut SheetState) -> Result<(), Strin
     Ok(())
 }
 
-/// The instances picked replaced by what their compositions hold, picked.
+/// The occurrences picked replaced by what their compositions hold, picked.
 pub fn explode_selected(e: &mut Editor, st: &mut SheetState) -> Result<(), String> {
-    let ops: Vec<Operation> = selected_instances(e, st).iter().map(|(id, _)| Operation::ExplodeInstance { instance: *id }).collect();
+    let ops: Vec<Operation> = selected_occurrences(e, st).iter().map(|(id, _)| Operation::ExplodeOccurrence { occurrence: *id }).collect();
     let op = match ops.len() {
         0 => return Err(t!("drawing.no_view_selected")),
         1 => ops.into_iter().next().expect("one"),
@@ -108,9 +108,10 @@ pub fn explode_selected(e: &mut Editor, st: &mut SheetState) -> Result<(), Strin
     Ok(())
 }
 
-/// The instances picked each given a composition of its own.
+/// The occurrences picked each given a composition of its own.
 pub fn unique_selected(e: &mut Editor, st: &SheetState) -> Result<(), String> {
-    let ops: Vec<Operation> = selected_instances(e, st).iter().map(|(id, _)| Operation::MakeInstanceUnique { instance: *id }).collect();
+    let ops: Vec<Operation> =
+        selected_occurrences(e, st).iter().map(|(id, _)| Operation::MakeOccurrenceUnique { occurrence: *id }).collect();
     match ops.len() {
         0 => Err(t!("drawing.no_view_selected")),
         1 => e.apply(ops.into_iter().next().expect("one")).map(|_| ()),
@@ -118,21 +119,21 @@ pub fn unique_selected(e: &mut Editor, st: &SheetState) -> Result<(), String> {
     }
 }
 
-/// The instance picked entered, its composition edited in place.
+/// The occurrence picked entered, its composition edited in place.
 pub fn edit_selected(e: &Editor, st: &mut SheetState) -> Result<(), String> {
-    let Some((id, _)) = selected_instances(e, st).first().copied() else { return Err(t!("drawing.no_view_selected")) };
+    let Some((id, _)) = selected_occurrences(e, st).first().copied() else { return Err(t!("drawing.no_view_selected")) };
     st.enter(id);
     Ok(())
 }
 
-/// Definition `composition` placed on the level open: where its first instance on a sheet is (a title
+/// Definition `composition` placed on the level open: where its first occurrence on a sheet is (a title
 /// block at its corner), a little aside on the sheet already showing it.
 pub(super) fn place_composition(e: &mut Editor, st: &mut SheetState, composition: Id) {
     let d = e.document().drawing();
     let Some(s) = st.shown(d) else { return };
     let Some(to) = st.container(d) else { return };
     let on = |list: &[skraft_model::Element]| {
-        list.iter().find_map(|el| el.kind.instance().filter(|i| i.composition == composition).map(|i| i.place))
+        list.iter().find_map(|el| el.kind.occurrence().filter(|i| i.composition == composition).map(|i| i.place))
     };
     let mut place = match on(d.elements_in(to).unwrap_or(&[])) {
         Some(p) => Place { at: p.at + DVec2::new(10.0, -10.0), ..p },
@@ -142,7 +143,7 @@ pub(super) fn place_composition(e: &mut Editor, st: &mut SheetState, composition
     if matches!(to, Container::Composition(_)) {
         place.corner = None;
     }
-    let element = ElementKind::Instance(skraft_model::Instance { composition, place, props: Default::default() });
+    let element = ElementKind::Occurrence(skraft_model::drawing::Occurrence { composition, place, props: Default::default() });
     if let Ok(Some(o)) = e.apply(Operation::AddElement { to, element }) {
         st.selected = o.element.into_iter().collect();
     }

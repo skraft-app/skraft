@@ -173,7 +173,7 @@ pub fn camera_look(doc: &Document, subject: &Subject, camera: &Camera, size: DVe
     let to_subject = match subject {
         Subject::Component(c) => first_path(doc, doc.root(), *c, &mut Vec::new())
             .and_then(|p| {
-                let chain: Vec<Id> = p.instances.iter().copied().chain([p.entity]).collect();
+                let chain: Vec<Id> = p.occurrences.iter().copied().chain([p.entity]).collect();
                 doc.transform_of(&chain).ok()
             })
             .map_or(DAffine3::IDENTITY, |t| t.inverse()),

@@ -4,5 +4,5 @@
 
 pub(crate) mod cards;
 pub(crate) mod dialogs;
-pub(crate) mod instance_name;
+pub(crate) mod occurrence_name;
 pub(crate) mod viewport;

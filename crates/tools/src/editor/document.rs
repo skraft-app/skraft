@@ -703,9 +703,9 @@ impl Editor {
         // drop-up) that is still there, under the context and no part open.
         let context = &self.context;
         let closed = self.open_part.is_none();
-        self.deep.retain(|p| closed && p.instances.starts_with(context) && doc.resolve(p).is_ok());
+        self.deep.retain(|p| closed && p.occurrences.starts_with(context) && doc.resolve(p).is_ok());
         let shown = doc.settings().display.guides;
-        self.deep_guides.retain(|g| closed && shown && g.instances.starts_with(context) && doc.resolve_guide(g).is_ok());
+        self.deep_guides.retain(|g| closed && shown && g.occurrences.starts_with(context) && doc.resolve_guide(g).is_ok());
         self.sync_scene();
     }
 }

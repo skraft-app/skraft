@@ -26,7 +26,7 @@ drawing
    └─ sheets     : { name, paper, grid, border, props }
       └─ elements: { hidden, locked, kind }
          kind = View | Text | Line | Rect | Circle | Image | Dimension
-              | Instance { composition, place, props }
+              | Occurrence { composition, place, props }
 ```
 
 - **Presentations** ([Presentations](#presentations)), in their order, hold their **sheets**: a
@@ -34,7 +34,7 @@ drawing
   border, their elements.
 - **Elements**, drawn in their container's order, bottom first: views, texts, lines,
   rectangles, images (the document's assets, kept while an element shows them), dimensions,
-  **instances** of a composition ([Compositions](#compositions)). Coordinates are paper millimetres in their
+  **occurrences** of a composition ([Compositions](#compositions)). Coordinates are paper millimetres in their
   container's axes: a sheet's from its bottom left corner, y up. An element may be **hidden**
   (not drawn, nor what it holds) or **locked** (drawn, not picked).
 
@@ -44,13 +44,13 @@ the first, made if there is none), `AddSheetFrom`, `SetSheet`, `DeleteSheet`, `C
 its presentation or to another); `AddElement` (on top of a sheet or a composition), `SetElement` (same
 kind; consecutive changes of one element merge in the history), `DeleteElements` (and what hangs
 on them), `SetElementState` (hidden, locked), `MoveElement` (its order); `MakeComposition`,
-`ExplodeInstance`, `MakeInstanceUnique`, `RenameComposition`, `DeleteComposition`, `PurgeCompositions`; `SetField`. Refused: a
+`ExplodeOccurrence`, `MakeOccurrenceUnique`, `RenameComposition`, `DeleteComposition`, `PurgeCompositions`; `SetField`. Refused: a
 paper outside 1 mm – 10 m, a border leaving no paper inside, an element not finite or of scale
 not positive, a view of a component gone, a view projected from itself or from one of its
 projections, or from a perspective view, a view's projection or dimension in another container
 (`SplitView`), a composition made to hold itself (`CompositionLoop`). A file whose drawing has an id taken or
 above `next_id`, an image missing, a view that does not resolve, what hangs on a view away from
-it, an instance of a composition gone, a composition holding itself or a paper's corner in a composition is refused
+it, an occurrence of a composition gone, a composition holding itself or a paper's corner in a composition is refused
 (`FileError::BadDrawing`).
 
 ## Views
@@ -213,7 +213,7 @@ each save ([File format](../io/file-format.md)).
   name on top. A presentation without a sheet keeps its column, saying how to make one.
 - **Its sheets stacked** below, in their order, each on its white paper with a shadow, **centred
   on the column** (as wide as its widest sheet), its name above it. A sheet shows its **border**
-  under its elements, and what it holds through its instances ([Compositions](#compositions)).
+  under its elements, and what it holds through its occurrences ([Compositions](#compositions)).
 - **In board millimetres**, y up, from the tree and the papers alone. The gaps follow the drawing's
   largest paper side, so that an A0 among A4s leaves room: a tenth of it between sheets, three
   tenths between columns, which read apart without a rule.
@@ -239,7 +239,7 @@ handles, snapping, the entity info and paste act on it.
   its clicks are its own. A drag from another sheet makes it active and goes on there: a selection
   rectangle with Select, never moving what lies under it, a shape with a drawing tool.
 - **A double click**: on another sheet, makes it active and frames it, never entering a
-  composition under the pointer; on the active sheet, enters an instance, or frames the sheet
+  composition under the pointer; on the active sheet, enters an occurrence, or frames the sheet
   from its void; in the board's void, frames the whole board.
 
 ### Framing
@@ -315,70 +315,70 @@ chevron, the active sheet and its presentation unfolding when another becomes ac
   end, also from another presentation. The board and the numbering follow, the active sheet
   staying where it is on screen. **With the copy modifier** (Option on macOS, Ctrl elsewhere) a
   copy goes there instead (`CopySheet`, one step), beside the sheet itself too: its elements under
-  ids of their own, its views keeping their projections and dimensions, its instances placing the
+  ids of their own, its views keeping their projections and dimensions, its occurrences placing the
   same compositions, its name kept unless the presentation has it (then the next free « Feuille n »
   for a default name, else « Plan#2 »). The copy becomes active.
 - **Its elements, the topmost first**: a view's name, a text's first line, a composition's name for an
-  instance, else their kind. A click makes their sheet active and picks them, the camera going to
+  occurrence, else their kind. A click makes their sheet active and picks them, the camera going to
   the sheet and never to the element ([Framing](#framing)), Shift adding or taking off;
   hidden or locked, they are not picked. At the row's right end **the eye** (hidden or shown), **the
   padlock** (under the pointer, or while locked), and under the pointer **up** and **down**, over or
   under the next element (`SetElementState`, `MoveElement`).
-- **An instance** unfolds on what its composition holds, one level after another. Its menu: « Modifier
+- **An occurrence** unfolds on what its composition holds, one level after another. Its menu: « Modifier
   la composition », « Éclater », « Rendre unique », « Placer une copie ». Only the rows right in the
-  level open have their buttons and names to edit, those of the instance entered lit; a click on
+  level open have their buttons and names to edit, those of the occurrence entered lit; a click on
   another row leaves the levels that do not lead to it and picks what stands for it in the last
-  one left open (the instance, on the sheet).
+  one left open (the occurrence, on the sheet).
 - **« Nouvelle présentation »**, last: a blank one (an A3 sheet), or one from a template.
 
 A double click (or F2 on the one element picked) renames in place a presentation, a sheet, a view
-or a composition (from an instance's row too).
+or a composition (from an occurrence's row too).
 
 ### Moving between sheets
 
 An element right on a sheet is **dragged by its row onto another sheet's** (`MoveElements`), with
 what is picked when it is, in any presentation, the copy modifier copying it instead. A view goes
 with its projections and dimensions. It keeps its place on the paper, brought back onto a smaller
-one (`sheet::offset_into`; too large for it, centred); an instance anchored to a corner keeps its
+one (`sheet::offset_into`; too large for it, centred); an occurrence anchored to a corner keeps its
 corner and offset. The sheet it lands on is shown, what moved picked. Not into a composition: that
-would change all its instances at once.
+would change all its occurrences at once.
 
 **On the board**, the selection dragged from the active sheet and let go over another sheet's paper
 moves there (`MoveElements`, one step undone at once), where it was let go, that sheet becoming
-active, what moved picked, the camera still; the sheet it would land on is outlined meanwhile. An instance anchored to a corner keeps its corner and
+active, what moved picked, the camera still; the sheet it would land on is outlined meanwhile. An occurrence anchored to a corner keeps its corner and
 offset. A view goes with its projections and dimensions. A projected view or a dimension picked
 without its base view stays on its sheet, and nothing leaves a composition open.
 
 ## Compositions
 
-A **composition** is a definition: elements in axes of its own, placed by **instances**, as a
+A **composition** is a definition: elements in axes of its own, placed by **occurrences**, as a
 component by its occurrences, in types of their own (they stay out of the cut list, the
-components' counts and the purge). A composition may hold instances of others, never itself, at any
-depth. `Drawing::placed` walks a sheet through them: each element with its path of instances,
-what takes it to the sheet, whether it or an instance above it is hidden or locked.
+components' counts and the purge). A composition may hold occurrences of others, never itself, at any
+depth. `Drawing::placed` walks a sheet through them: each element with its path of occurrences,
+what takes it to the sheet, whether it or an occurrence above it is hidden or locked.
 
 - **Making one** (« Créer une composition », `drawing.make_composition`, G; `MakeComposition`): the
   elements picked become a composition placed there, at the identity, where the topmost of them
   was; « Composition#n » unless named. A view comes with its
   whole family (its base, its projections, their dimensions). What was anchored to the paper
   keeps its place, without the anchor.
-- **A copy** is an instance of the same composition, placed from the navigator (« Placer une copie » on
-  an instance, a little aside; « Placer sur la feuille » on a composition, where its first
-  instance on a sheet is: a title block at its corner). « Rendre unique » (`drawing.make_unique`,
-  `MakeInstanceUnique`) gives one a copy of its own.
-- **Exploding** (« Éclater », `drawing.explode`, `ExplodeInstance`) puts copies of what the composition holds where the instance shows
-  them. Refused when the instance is turned over a text, a rectangle, an image or a view, which
+- **A copy** is an occurrence of the same composition, placed from the navigator (« Placer une copie » on
+  an occurrence, a little aside; « Placer sur la feuille » on a composition, where its first
+  occurrence on a sheet is: a title block at its corner). « Rendre unique » (`drawing.make_unique`,
+  `MakeOccurrenceUnique`) gives one a copy of its own.
+- **Exploding** (« Éclater », `drawing.explode`, `ExplodeOccurrence`) puts copies of what the composition holds where the occurrence shows
+  them. Refused when the occurrence is turned over a text, a rectangle, an image or a view, which
   have no rotation of their own.
 - A composition **neither named nor placed** goes away; a named one stays until `DeleteComposition`, which
-  takes its instances.
+  takes its occurrences.
 - **The place** (`Place`): a move and a rotation, never a scale (a view at 1:10 stays true). On
-  a sheet it may be measured from a **corner of the paper** (`Corner`): the instance then follows
+  a sheet it may be measured from a **corner of the paper** (`Corner`): the occurrence then follows
   it when the format changes, so one title block serves an A3 and an A4. The sheet's frame is not
   an element: it is its **border** (a margin, a line width), drawn from its paper.
 
-**On the sheet** (`sheet::draw_elements`, through `Drawing::placed`), what an instance holds is
+**On the sheet** (`sheet::draw_elements`, through `Drawing::placed`), what an occurrence holds is
 drawn in its place and turned with it: lines, boxes, texts, dimensions, views (their picture on
-their turned frame, asked for once per projection however many times the view is placed). **An instance is
+their turned frame, asked for once per projection however many times the view is placed). **An occurrence is
 picked whole**: a click, the selection rectangle and a drag take what is right on the sheet, by
 the box of all it shows, outlined when picked; it has no handles, and moving it keeps its anchor
 (its offset from the corner changes). Hidden, nothing of it is drawn; locked, it is drawn and not
@@ -386,16 +386,16 @@ picked. Its content is snapped on as the sheet's ([Snapping](#snapping)), but a 
 picks only in the views right in the level open: a dimension stays beside its view.
 
 **Editing a composition in place**, as an assembly in the 3D view
-([Selection](../tools/interaction.md#selection)): a double click on an instance (or « Modifier la
-composition », `drawing.edit_composition`) enters it (`SheetState::open`, the instances entered from the
+([Selection](../tools/interaction.md#selection)): a double click on an occurrence (or « Modifier la
+composition », `drawing.edit_composition`) enters it (`SheetState::open`, the occurrences entered from the
 sheet down; not saved). What lies outside is drawn first, under a veil of the paper's white, then
 what it shows, in a dashed grey box 2 mm around it. Everything the sheet does then acts on the
 composition, in its axes, turned or not (`Drawing::opened`): picking, moving, handles, the tools, a new
-view; what is snapped on stays the sheet's, its points and grid. Every instance of the composition
+view; what is snapped on stays the sheet's, its points and grid. Every occurrence of the composition
 shows the change as it is made. **To leave it**, one level at a time: a click off its box (inside,
-a click in the void only clears the selection), or Esc once nothing is picked; the instance left
+a click in the void only clears the selection), or Esc once nothing is picked; the occurrence left
 is then the one picked. Showing another sheet leaves it too. A composition left empty goes with its
-instances, as an empty assembly, as a step of its own.
+occurrences, as an empty assembly, as a step of its own.
 
 ### The compositions card
 
@@ -408,18 +408,18 @@ In a workspace of sheets the library is shown at first, under the navigator.
   its preference are the components card's), with a search. Its picture is **its outline**
   (`sheet::Sketch`: lines, rectangles, view frames, a bar per line of text), made again when the
   document changes. **« ×n »**: how many times it shows on the sheets, one inside another counted
-  per instance of it (`Drawing::counts_on_sheets`).
+  per occurrence of it (`Drawing::counts_on_sheets`).
 - **« Inutilisées »**, apart: those on no sheet, even if another unused one places them.
   « Purger » deletes them (`PurgeCompositions`).
-- **A click** picks its instances in the level open.
+- **A click** picks its occurrences in the level open.
 - **A drag onto a sheet places one more**, its outline following the pointer, held by the middle
   of its box since a composition's origin may be anywhere (a title block's is its corner). It
   lands free on the sheet under the pointer, which becomes active (in the level open when it
   already was), and is picked. Let go off the papers or over a card, or Esc, gives it up. Not
   into itself.
-- **Its menu**: « Placer sur la feuille » (where its first instance on a sheet is: a title block
-  at its corner), « Renommer » (also a double click, or F2 while its instances are picked),
-  « Supprimer », with its instances.
+- **Its menu**: « Placer sur la feuille » (where its first occurrence on a sheet is: a title block
+  at its corner), « Renommer » (also a double click, or F2 while its occurrences are picked),
+  « Supprimer », with its occurrences.
 
 ## Copy and paste
 
@@ -433,10 +433,10 @@ level open holds, but what is hidden or locked.
 - **Pasted** (`PasteElements`) on top of the active sheet or composition open: at the pointer,
   the box of what was copied centred on it (off that sheet's paper, a little aside), or **in
   place** (⌘⇧V).
-  An instance anchored keeps its corner; into a composition, which has no paper, its place.
+  An occurrence anchored keeps its corner; into a composition, which has no paper, its place.
   What is pasted is picked.
-- **In its document**, an instance stays one of its composition and a view keeps showing the
-  model. A composition gone with its last instance (a cut) comes back under its id: every paste
+- **In its document**, an occurrence stays one of its composition and a view keeps showing the
+  model. A composition gone with its last occurrence (a cut) comes back under its id: every paste
   places the same one. Pasted into itself: refused (`CompositionLoop`).
 - **From another document** (or a state no longer in the history): as a template's, without
   views nor dimensions, the compositions brought once.
@@ -482,7 +482,7 @@ Where the pointer aims while a rectangle, a circle, a line or a text is put, or 
 circle's or a line's handle dragged (`Aim`, `aim_for`), as the 3D view's inferences:
 
 - **on a point** within 8 points: the rectangles' and images' corners, the circles' centres and
-  their right, top, left and bottom points, the lines' ends, the views' frame corners and their parts' vertices (`ViewData::snaps`), those in instances where
+  their right, top, left and bottom points, the lines' ends, the views' frame corners and their parts' vertices (`ViewData::snaps`), those in occurrences where
   they show them; the element dragged left out; circled in orange;
 - else **aligned**, each axis apart, with the nearest such point within 8 points across it (the
   views' vertices left out: so many would align everywhere), or with where the shape started
@@ -528,25 +528,25 @@ A value refused says why in the status bar until the next one or a click.
 
 A text's `{…}` are filled when drawn (`sheet::Fields`): `{document}` (the document's name, its
 file's), `{date}` (today, day/month/year), `{sheet}` (the sheet's name), `{sheet.number}`,
-`{sheet.count}`, `{scale}` (the first base view the sheet shows, through its instances); an
+`{sheet.count}`, `{scale}` (the first base view the sheet shows, through its occurrences); an
 unknown one is left as it is.
 The entity info's « Insérer un champ » menu puts one at the text's end.
 
 **Values in cascade** (`Document::field`): any other field — `{client}`, `{indice}` — takes its
-value from the instance showing the text (the innermost first), the sheet, its presentation, then
+value from the occurrence showing the text (the innermost first), the sheet, its presentation, then
 the document's properties: the model's typed properties (`Props`, set by `SetField`, the document's
 by `SetProps`); `{client}` stands for `user.client`. A field without a value stays written
 `{client}`, on the sheet and in the PDF, whose export says which ([PDF](#pdf)).
 
 The entity info lists, under « Valeurs », the fields of what is shown (`Drawing::field_names`,
-through its instances) with the value set **at that level**; while it has none, the field shows
+through its occurrences) with the value set **at that level**; while it has none, the field shows
 faintly the one it inherits. Typing sets it, emptying takes it off. « Insérer un champ » offers
 Skraft's fields, those the drawing's texts already name, and a new one.
 
 ## Templates
 
 A **template** is a presentation — its sheets, their values, the compositions they place, without views
-nor dimensions (a composition that held only those goes, with its instances), their images
+nor dimensions (a composition that held only those goes, with its occurrences), their images
 (`Document::template_of`) — in a file of its own: the `.skraft` container, `content: "template"`
 ([File format](../io/file-format.md)), `.skrafttpl`, refused as a model (`FileError::TemplateOnly`).
 The library's are in `<config>/Skraft/templates` (native). Skraft comes with one
@@ -627,8 +627,8 @@ application for PDFs opens it (`Act::Open`: `open`, `explorer`, `xdg-open`; desk
 
 - **A page per sheet** of the presentation, at its paper's size (points: 72 a
   25.4 mm), the sheet's millimetres (y up) turned into the page's (y down); its border, then what
-  it shows through its instances (`Drawing::placed`), each drawn in its container's axes under
-  its instances' transform; what is hidden left out.
+  it shows through its occurrences (`Drawing::placed`), each drawn in its container's axes under
+  its occurrences' transform; what is hidden left out.
 - **Views**: their picture (*Rendered*, *Hybrid*) drawn now by the 3D renderer at 200 dpi
   (`Viewport::picture_rgba`: a picture of the frame's size at that resolution, read back from
   the GPU), placed on the frame; their lines (*Lines*, *Hybrid*) computed now
@@ -650,7 +650,7 @@ In « Mise en plan », the entity info panel shows (`drawing::cards::info`):
   scales); a projected view its base and side, and its scale (its base's); its style;
 - **a free element picked**: its type; a text its words (a field of several lines, applied when
   left; « Insérer un champ ») and size (millimetres);
-- **a composition picked** (an instance): its name (edited), its **anchor** (« Libre » or a corner of
+- **a composition picked** (an occurrence): its name (edited), its **anchor** (« Libre » or a corner of
   the paper, only right on a sheet; changing it leaves it where it is, `Place::with_corner`), its
   **X** and **Y** (from that corner, else from the sheet's or composition's origin), its **rotation**,
   its values ([Fields](#fields));

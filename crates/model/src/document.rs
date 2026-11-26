@@ -933,13 +933,13 @@ impl Texture {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GuidePath {
     /// Occurrence ids from the root, outermost first; empty for a guide of the model.
-    pub instances: Vec<Id>,
+    pub occurrences: Vec<Id>,
     pub guide: Id,
 }
 
 impl GuidePath {
-    pub fn new(instances: Vec<Id>, guide: Id) -> Self {
-        GuidePath { instances, guide }
+    pub fn new(occurrences: Vec<Id>, guide: Id) -> Self {
+        GuidePath { occurrences, guide }
     }
 
     pub fn root(guide: Id) -> Self {
@@ -952,7 +952,7 @@ impl GuidePath {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EntityPath {
     /// Occurrence ids from the root, outermost first; empty for an occurrence of the root.
-    pub instances: Vec<Id>,
+    pub occurrences: Vec<Id>,
     pub entity: Id,
     /// In the part `entity` places, the group of bodies open (docs/model/bodies.md#body-groups): the
     /// bodies leading to it, the part's own first, each a group's. Empty: the part itself. Only
@@ -962,8 +962,8 @@ pub struct EntityPath {
 }
 
 impl EntityPath {
-    pub fn new(instances: Vec<Id>, entity: Id) -> Self {
-        EntityPath { instances, entity, group: Vec::new() }
+    pub fn new(occurrences: Vec<Id>, entity: Id) -> Self {
+        EntityPath { occurrences, entity, group: Vec::new() }
     }
 
     pub fn root(entity: Id) -> Self {
@@ -978,7 +978,7 @@ impl EntityPath {
 
     /// This path to the part itself, out of any group.
     pub fn part_path(&self) -> EntityPath {
-        EntityPath::new(self.instances.clone(), self.entity)
+        EntityPath::new(self.occurrences.clone(), self.entity)
     }
 
     /// The path `chain` (occurrences from the root, the last one included) names.
@@ -1344,23 +1344,23 @@ impl Document {
         out
     }
 
-    /// Does the occurrence path `instances` go through an assembly placed more than once — a
+    /// Does the occurrence path `occurrences` go through an assembly placed more than once — a
     /// change in the assembly it leads into then reaches other copies (outermost first: a copy
     /// of an assembly above makes those below it shared too)?
-    pub fn shared_along(&self, instances: &[Id]) -> bool {
-        (0..instances.len()).any(|k| {
-            self.context_of(&instances[..k])
+    pub fn shared_along(&self, occurrences: &[Id]) -> bool {
+        (0..occurrences.len()).any(|k| {
+            self.context_of(&occurrences[..k])
                 .ok()
                 .and_then(|c| self.assembly(c).ok())
-                .and_then(|a| a.occurrence(instances[k]))
+                .and_then(|a| a.occurrence(occurrences[k]))
                 .is_some_and(|o| self.occurrence_count(o.component) > 1)
         })
     }
 
     /// The assembly an occurrence path leads into (the root for an empty path).
-    pub fn context_of(&self, instances: &[Id]) -> Result<Id> {
+    pub fn context_of(&self, occurrences: &[Id]) -> Result<Id> {
         let mut at = self.root;
-        for &i in instances {
+        for &i in occurrences {
             let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?;
             self.assembly(o.component)?;
             at = o.component;
@@ -1368,25 +1368,25 @@ impl Document {
         Ok(at)
     }
 
-    /// The component `instances` leads into — an assembly, or the part its last occurrence
+    /// The component `occurrences` leads into — an assembly, or the part its last occurrence
     /// places — and its axes to the root's.
-    pub fn component_at(&self, instances: &[Id]) -> Result<(Id, DAffine3)> {
-        let Some((&last, parents)) = instances.split_last() else { return Ok((self.root, DAffine3::IDENTITY)) };
+    pub fn component_at(&self, occurrences: &[Id]) -> Result<(Id, DAffine3)> {
+        let Some((&last, parents)) = occurrences.split_last() else { return Ok((self.root, DAffine3::IDENTITY)) };
         let o = self.assembly(self.context_of(parents)?)?.occurrence(last).ok_or(Error::NotFound(last))?;
         Ok((o.component, self.transform_of(parents)? * o.transform))
     }
 
     /// The guide `path` names, in its component's axes.
     pub fn resolve_guide(&self, path: &GuidePath) -> Result<&Guide> {
-        let (c, _) = self.component_at(&path.instances)?;
+        let (c, _) = self.component_at(&path.occurrences)?;
         self.component(c)?.guide(path.guide).ok_or(Error::NotFound(path.guide))
     }
 
-    /// From the axes of the assembly `instances` leads into to the root's.
-    pub fn transform_of(&self, instances: &[Id]) -> Result<DAffine3> {
+    /// From the axes of the assembly `occurrences` leads into to the root's.
+    pub fn transform_of(&self, occurrences: &[Id]) -> Result<DAffine3> {
         let mut at = self.root;
         let mut t = DAffine3::IDENTITY;
-        for &i in instances {
+        for &i in occurrences {
             let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?;
             t *= o.transform;
             at = o.component;
@@ -1396,7 +1396,7 @@ impl Document {
 
     /// The occurrence a path names.
     pub fn resolve(&self, path: &EntityPath) -> Result<&Occurrence> {
-        let ctx = self.context_of(&path.instances)?;
+        let ctx = self.context_of(&path.occurrences)?;
         self.assembly(ctx)?.occurrence(path.entity).ok_or(Error::NotFound(path.entity))
     }
 
@@ -1404,7 +1404,7 @@ impl Document {
     pub fn resolve_part(&self, path: &EntityPath) -> Result<(Id, &Part, DAffine3)> {
         let o = self.resolve(path)?;
         let part = self.part(o.component)?;
-        Ok((o.component, part, self.transform_of(&path.instances)? * o.transform))
+        Ok((o.component, part, self.transform_of(&path.occurrences)? * o.transform))
     }
 
     /// What `path` leads into: the part it places — its id, the part, part to world — or,

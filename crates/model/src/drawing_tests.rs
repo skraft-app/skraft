@@ -1,4 +1,4 @@
-//! The drawing's tree: presentations, sheets, compositions and instances, views (docs/ui/drawing.md,
+//! The drawing's tree: presentations, sheets, compositions and occurrences, views (docs/ui/drawing.md,
 //! decision 0049).
 
 use std::sync::Arc;
@@ -57,8 +57,8 @@ fn text(at: DVec2) -> ElementKind {
     ElementKind::Text { at, text: "{client}".into(), size: 3.5 }
 }
 
-fn instance(composition: Id, place: Place) -> ElementKind {
-    ElementKind::Instance(Instance { composition, place, props: Props::default() })
+fn occurrence(composition: Id, place: Place) -> ElementKind {
+    ElementKind::Occurrence(drawing::Occurrence { composition, place, props: Props::default() })
 }
 
 fn add_to(h: &mut History, to: Container, element: ElementKind) -> Result<Id> {
@@ -73,11 +73,11 @@ fn compose(h: &mut History, elements: Vec<Id>, name: Option<&str>) -> Id {
     h.apply(Operation::MakeComposition { elements, name: name.map(str::to_owned) }).unwrap().element.unwrap()
 }
 
-fn composition_of(h: &History, instance: Id) -> Id {
-    h.document().drawing().element(instance).unwrap().kind.instance().unwrap().composition
+fn composition_of(h: &History, occurrence: Id) -> Id {
+    h.document().drawing().element(occurrence).unwrap().kind.occurrence().unwrap().composition
 }
 
-/// A named composition holding `element`, its one instance on `sheet`.
+/// A named composition holding `element`, its one occurrence on `sheet`.
 fn composition_with(h: &mut History, sheet: Id, element: ElementKind, name: &str) -> (Id, Id) {
     let e = add(h, sheet, element).unwrap();
     let i = compose(h, vec![e], Some(name));
@@ -218,8 +218,8 @@ fn an_anchored_composition_follows_the_corner_of_any_paper() {
     let a4 = sheet_of(&mut h, None, Paper::A4);
     let (composition, first) = composition_with(&mut h, a3, rect(), "Cartouche");
     let place = Place::anchored(Corner::BottomRight, DVec2::new(-10.0, 10.0));
-    h.apply(Operation::SetElement { element: first, kind: instance(composition, place) }).unwrap();
-    add(&mut h, a4, instance(composition, place)).unwrap();
+    h.apply(Operation::SetElement { element: first, kind: occurrence(composition, place) }).unwrap();
+    add(&mut h, a4, occurrence(composition, place)).unwrap();
     let at = |h: &History, s: Id| h.document().drawing().placed(s)[0].transform.translation;
     assert!(near(at(&h, a3), DVec2::new(410.0, 10.0)));
     assert!(near(at(&h, a4), DVec2::new(287.0, 10.0)), "at its own corner");
@@ -241,20 +241,20 @@ fn an_anchored_composition_follows_the_corner_of_any_paper() {
 }
 
 #[test]
-fn instances_nest_turn_and_pass_on_hidden_and_locked() {
+fn occurrences_nest_turn_and_pass_on_hidden_and_locked() {
     let mut h = History::new(Document::new());
     let s = sheet(&mut h);
     let (inner, inner_i) = composition_with(&mut h, s, line(), "Inner");
     let turned = Place { corner: None, at: DVec2::new(1.0, 0.0), rotation: std::f64::consts::FRAC_PI_2 };
-    h.apply(Operation::SetElement { element: inner_i, kind: instance(inner, turned) }).unwrap();
+    h.apply(Operation::SetElement { element: inner_i, kind: occurrence(inner, turned) }).unwrap();
     let outer_i = compose(&mut h, vec![inner_i], Some("Outer"));
     let outer = composition_of(&h, outer_i);
-    h.apply(Operation::SetElement { element: outer_i, kind: instance(outer, Place::free(DVec2::new(10.0, 20.0))) }).unwrap();
+    h.apply(Operation::SetElement { element: outer_i, kind: occurrence(outer, Place::free(DVec2::new(10.0, 20.0))) }).unwrap();
     let d = h.document().drawing();
     let p = &d.placed(s)[0];
-    assert_eq!(p.path, vec![outer_i, inner_i], "the instances down to it");
+    assert_eq!(p.path, vec![outer_i, inner_i], "the occurrences down to it");
     assert_eq!(p.top(), outer_i, "what a click on the sheet picks");
-    assert_eq!(p.under(&[outer_i]), Some(inner_i), "in the outer composition, the instance in it");
+    assert_eq!(p.under(&[outer_i]), Some(inner_i), "in the outer composition, the occurrence in it");
     assert_eq!(p.under(&[outer_i, inner_i]), Some(p.element.id), "in the inner one, the line");
     assert_eq!(p.under(&[inner_i]), None, "not in there");
     let (c, t) = d.opened(s, &[outer_i, inner_i]).unwrap();
@@ -267,7 +267,7 @@ fn instances_nest_turn_and_pass_on_hidden_and_locked() {
     h.apply(Operation::SetElementState { elements: vec![outer_i], hidden: Some(true), locked: Some(true) }).unwrap();
     let d = h.document().drawing();
     let p = &d.placed(s)[0];
-    assert!(p.hidden && p.locked && !p.element.hidden, "through the instance above it");
+    assert!(p.hidden && p.locked && !p.element.hidden, "through the occurrence above it");
     // The order of a container.
     let a = add(&mut h, s, rect()).unwrap();
     h.apply(Operation::MoveElement { element: a, index: 0 }).unwrap();
@@ -295,20 +295,20 @@ fn grouping_takes_a_views_family_and_copies_stay_linked() {
     assert!(near(d.resolve(right).unwrap().at, DVec2::new(180.0, 150.0)), "still where it was");
     assert_eq!(d.view_ids().collect::<Vec<_>>(), vec![f, right], "those in compositions too");
     // A copy shares it; made unique, it has its own, its projection on its own view.
-    let copy = add(&mut h, s, instance(b, Place::free(DVec2::new(20.0, 30.0)))).unwrap();
-    assert_eq!(h.document().drawing().instances_of(b).len(), 2);
+    let copy = add(&mut h, s, occurrence(b, Place::free(DVec2::new(20.0, 30.0)))).unwrap();
+    assert_eq!(h.document().drawing().occurrences_of(b).len(), 2);
     assert_eq!(h.document().drawing().composition_uses().get(&b), Some(&2));
-    let own = h.apply(Operation::MakeInstanceUnique { instance: copy }).unwrap().composition.unwrap();
+    let own = h.apply(Operation::MakeOccurrenceUnique { occurrence: copy }).unwrap().composition.unwrap();
     let d = h.document().drawing();
     assert_ne!(own, b);
-    assert_eq!(d.instances_of(b), vec![i]);
+    assert_eq!(d.occurrences_of(b), vec![i]);
     let elements = &d.composition(own).unwrap().elements;
     let own_base = elements.iter().find(|e| matches!(&e.kind, ElementKind::View(View { kind: ViewKind::Base { .. }, .. }))).unwrap().id;
     assert_ne!(own_base, f);
     assert!(elements.iter().any(|e| e.kind.hung_on() == Some(own_base)));
-    assert_eq!(h.apply(Operation::MakeInstanceUnique { instance: copy }).unwrap().composition, Some(own), "alone: nothing to do");
+    assert_eq!(h.apply(Operation::MakeOccurrenceUnique { occurrence: copy }).unwrap().composition, Some(own), "alone: nothing to do");
     // Exploded where it shows them; a group placed nowhere goes.
-    let out = h.apply(Operation::ExplodeInstance { instance: copy }).unwrap().elements;
+    let out = h.apply(Operation::ExplodeOccurrence { occurrence: copy }).unwrap().elements;
     assert_eq!(out.len(), 3);
     let d = h.document().drawing();
     assert!(d.composition(own).is_none(), "not named, placed nowhere");
@@ -329,29 +329,35 @@ fn compositions_refuse_to_hold_themselves() {
     let (a, _) = composition_with(&mut h, s, rect(), "A");
     let (b, _) = composition_with(&mut h, s, line(), "B");
     let free = Place::free(DVec2::ZERO);
-    assert!(matches!(add_to(&mut h, Container::Composition(a), instance(a, free)).unwrap_err(), Error::Invalid(Refusal::CompositionLoop)));
-    add_to(&mut h, Container::Composition(b), instance(a, free)).unwrap();
-    assert!(matches!(add_to(&mut h, Container::Composition(a), instance(b, free)).unwrap_err(), Error::Invalid(Refusal::CompositionLoop)));
+    assert!(matches!(
+        add_to(&mut h, Container::Composition(a), occurrence(a, free)).unwrap_err(),
+        Error::Invalid(Refusal::CompositionLoop)
+    ));
+    add_to(&mut h, Container::Composition(b), occurrence(a, free)).unwrap();
+    assert!(matches!(
+        add_to(&mut h, Container::Composition(a), occurrence(b, free)).unwrap_err(),
+        Error::Invalid(Refusal::CompositionLoop)
+    ));
     let corner = Place::anchored(Corner::TopLeft, DVec2::ZERO);
     assert!(
-        matches!(add_to(&mut h, Container::Composition(b), instance(a, corner)).unwrap_err(), Error::Invalid(Refusal::BadElement)),
+        matches!(add_to(&mut h, Container::Composition(b), occurrence(a, corner)).unwrap_err(), Error::Invalid(Refusal::BadElement)),
         "no paper in a composition"
     );
-    assert!(matches!(add(&mut h, s, instance(Id(9999), free)).unwrap_err(), Error::NotFound(Id(9999))));
+    assert!(matches!(add(&mut h, s, occurrence(Id(9999), free)).unwrap_err(), Error::NotFound(Id(9999))));
 }
 
 #[test]
-fn a_turned_instance_explodes_only_what_turns() {
+fn a_turned_occurrence_explodes_only_what_turns() {
     let mut h = History::new(Document::new());
     let s = sheet(&mut h);
     let turned = Place { corner: None, at: DVec2::new(10.0, 0.0), rotation: std::f64::consts::FRAC_PI_2 };
     let (a, ai) = composition_with(&mut h, s, rect(), "A");
-    h.apply(Operation::SetElement { element: ai, kind: instance(a, turned) }).unwrap();
-    let err = h.apply(Operation::ExplodeInstance { instance: ai }).unwrap_err();
-    assert!(matches!(err, Error::Invalid(Refusal::TurnedInstance)));
+    h.apply(Operation::SetElement { element: ai, kind: occurrence(a, turned) }).unwrap();
+    let err = h.apply(Operation::ExplodeOccurrence { occurrence: ai }).unwrap_err();
+    assert!(matches!(err, Error::Invalid(Refusal::TurnedOccurrence)));
     let (b, bi) = composition_with(&mut h, s, line(), "B");
-    h.apply(Operation::SetElement { element: bi, kind: instance(b, turned) }).unwrap();
-    let out = h.apply(Operation::ExplodeInstance { instance: bi }).unwrap().elements;
+    h.apply(Operation::SetElement { element: bi, kind: occurrence(b, turned) }).unwrap();
+    let out = h.apply(Operation::ExplodeOccurrence { occurrence: bi }).unwrap().elements;
     match &h.document().drawing().element(out[0]).unwrap().kind {
         ElementKind::Line { from, to } => assert!(near(*from, DVec2::new(10.0, 0.0)) && near(*to, DVec2::new(10.0, 1.0))),
         k => panic!("{k:?}"),
@@ -359,7 +365,7 @@ fn a_turned_instance_explodes_only_what_turns() {
     assert!(h.document().drawing().composition(b).is_some(), "named: it stays");
     h.apply(Operation::DeleteComposition { composition: a }).unwrap();
     let d = h.document().drawing();
-    assert!(d.composition(a).is_none() && d.element(ai).is_none(), "with its instances");
+    assert!(d.composition(a).is_none() && d.element(ai).is_none(), "with its occurrences");
     h.apply(Operation::RenameComposition { composition: b, name: "Logo".into() }).unwrap();
     assert_eq!(h.document().drawing().composition(b).unwrap().name, "Logo");
     assert!(h.apply(Operation::RenameComposition { composition: b, name: "  ".into() }).is_err());
@@ -386,7 +392,7 @@ fn presentations_number_their_sheets_and_project_their_way() {
     let right = add(&mut h, a1, projected(f, Side::Right)).unwrap();
     let i = compose(&mut h, vec![f], Some("Vues"));
     let b = composition_of(&h, i);
-    add(&mut h, c1, instance(b, Place::free(DVec2::ZERO))).unwrap();
+    add(&mut h, c1, occurrence(b, Place::free(DVec2::ZERO))).unwrap();
     let d = h.document().drawing();
     let of = |s: Id| d.placed(s).iter().find(|p| p.element.id == right).unwrap().projection;
     assert_eq!((of(a1), of(c1)), (Projection::FirstAngle, Projection::ThirdAngle));
@@ -409,7 +415,7 @@ fn presentations_number_their_sheets_and_project_their_way() {
 }
 
 #[test]
-fn fields_look_up_from_the_instance_to_the_document() {
+fn fields_look_up_from_the_occurrence_to_the_document() {
     let text = |s: &str| Value::Text(s.into());
     let mut doc = Document::new();
     let root = doc.root();
@@ -425,15 +431,15 @@ fn fields_look_up_from_the_instance_to_the_document() {
     assert_eq!(got(&h), Some(text("Présentation")));
     h.apply(set(FieldOn::Sheet(s), Some(text("Feuille")))).unwrap();
     assert_eq!(got(&h), Some(text("Feuille")));
-    h.apply(set(FieldOn::Instance(i), Some(text("Instance")))).unwrap();
-    assert_eq!(got(&h), Some(text("Instance")));
-    assert_eq!(h.document().field(s, &[], "user.client"), Some(&text("Feuille")), "not under the instance");
-    h.apply(set(FieldOn::Instance(i), None)).unwrap();
+    h.apply(set(FieldOn::Occurrence(i), Some(text("Occurrence")))).unwrap();
+    assert_eq!(got(&h), Some(text("Occurrence")));
+    assert_eq!(h.document().field(s, &[], "user.client"), Some(&text("Feuille")), "not under the occurrence");
+    h.apply(set(FieldOn::Occurrence(i), None)).unwrap();
     assert_eq!(got(&h), Some(text("Feuille")));
     assert_eq!(h.document().field(s, &[i], "other"), None);
     assert!(h.apply(Operation::SetField { on: FieldOn::Sheet(s), key: "nokey".into(), value: None }).is_err());
     let line_id = add(&mut h, s, line()).unwrap();
-    assert!(h.apply(set(FieldOn::Instance(line_id), Some(text("x")))).is_err());
+    assert!(h.apply(set(FieldOn::Occurrence(line_id), Some(text("x")))).is_err());
 }
 
 #[test]
@@ -447,13 +453,13 @@ fn a_template_saved_from_a_document_comes_back_without_doubling_its_compositions
     let p = h.document().drawing().presentations[0].id;
     let t = Arc::new(h.document().template_of(p).unwrap());
     assert_eq!(t.drawing().compositions.len(), 1, "the composition of views left out");
-    assert!(t.drawing().element(views).is_none(), "and its instance");
+    assert!(t.drawing().element(views).is_none(), "and its occurrence");
     // Back in the document it came from: its composition is there, not doubled.
     let again =
         h.apply(Operation::AddSheetFrom { template: t.clone(), sheet: None, presentation: None, name: None }).unwrap().sheet.unwrap();
     let d = h.document().drawing();
     assert_eq!(d.compositions.len(), 2, "no copy of it");
-    assert_eq!(d.sheet(again).unwrap().elements[0].kind.instance().unwrap().composition, composition);
+    assert_eq!(d.sheet(again).unwrap().elements[0].kind.occurrence().unwrap().composition, composition);
     // Changed since: what the template holds is another definition.
     add_to(&mut h, Container::Composition(composition), line()).unwrap();
     h.apply(Operation::AddSheetFrom { template: t.clone(), sheet: None, presentation: None, name: None }).unwrap();
@@ -479,13 +485,13 @@ fn pasting_in_its_document_keeps_families_and_links() {
     let out = h.apply(paste(Container::Sheet(s2), true)).unwrap().elements;
     assert_eq!(out.len(), 3);
     let d = h.document().drawing();
-    assert_eq!(d.composition_uses().get(&c), Some(&2), "an instance of the same composition");
+    assert_eq!(d.composition_uses().get(&c), Some(&2), "an occurrence of the same composition");
     let there = &d.sheet(s2).unwrap().elements;
     let view = there.iter().find(|e| matches!(&e.kind, ElementKind::View(View { kind: ViewKind::Base { .. }, .. }))).unwrap();
     assert_ne!(view.id, f);
     assert!(near(d.resolve(view.id).unwrap().at, DVec2::new(105.0, 145.0)), "moved");
     assert!(there.iter().any(|e| e.kind.hung_on() == Some(view.id)), "its projection on its own copy");
-    let inst = there.iter().find_map(|e| e.kind.instance()).unwrap();
+    let inst = there.iter().find_map(|e| e.kind.occurrence()).unwrap();
     assert_eq!((inst.place.corner, inst.place.at), (Some(Corner::BottomRight), DVec2::new(-5.0, 5.0)), "from its corner");
     // Into itself: refused.
     let err = h.apply(paste(Container::Composition(c), true)).unwrap_err();
@@ -513,7 +519,7 @@ fn purging_takes_what_no_sheet_shows_even_placed_in_another_unused() {
 }
 
 #[test]
-fn cutting_a_compositions_last_instance_then_pasting_brings_it_back_whole() {
+fn cutting_a_compositions_last_occurrence_then_pasting_brings_it_back_whole() {
     let mut h = History::new(Document::new());
     let s = sheet(&mut h);
     let f = add(&mut h, s, front()).unwrap();
@@ -522,7 +528,7 @@ fn cutting_a_compositions_last_instance_then_pasting_brings_it_back_whole() {
     let c = composition_of(&h, i);
     let fragment = Arc::new(h.document().elements_fragment(Container::Sheet(s), &[i]).unwrap());
     h.apply(Operation::DeleteElements { elements: vec![i] }).unwrap();
-    assert!(h.document().drawing().composition(c).is_none(), "gone with its last instance");
+    assert!(h.document().drawing().composition(c).is_none(), "gone with its last occurrence");
     let paste = || Operation::PasteElements { fragment: fragment.clone(), to: Container::Sheet(s), offset: DVec2::ZERO, linked: true };
     h.apply(paste()).unwrap();
     h.apply(paste()).unwrap();
@@ -549,7 +555,7 @@ fn pasting_into_another_document_leaves_the_model_behind() {
     let t = sheet(&mut other);
     let paste = |fragment| Operation::PasteElements { fragment, to: Container::Sheet(t), offset: DVec2::ZERO, linked: false };
     let out = other.apply(paste(both.clone())).unwrap().elements;
-    assert_eq!(out.len(), 2, "the text and the instance, no view");
+    assert_eq!(out.len(), 2, "the text and the occurrence, no view");
     assert_eq!(other.document().drawing().compositions.len(), 1);
     other.apply(paste(both)).unwrap();
     assert_eq!(other.document().drawing().compositions.len(), 1, "its composition brought once");
@@ -571,7 +577,7 @@ fn elements_move_between_sheets_with_what_hangs_on_them() {
     assert!(d.sheet(a3).unwrap().elements.is_empty());
     assert_eq!(d.container_of(right), Some(Container::Sheet(a4)));
     assert!(near(d.resolve(f).unwrap().at, DVec2::new(90.0, 150.0)), "by the offset");
-    let p = d.element(i).unwrap().kind.instance().unwrap().place;
+    let p = d.element(i).unwrap().kind.occurrence().unwrap().place;
     assert_eq!((p.corner, p.at), (Some(Corner::BottomRight), DVec2::new(-10.0, 10.0)), "keeps its corner");
     h.undo();
     assert_eq!(h.document().drawing().sheet(a3).unwrap().elements.len(), 3, "one step");
@@ -605,7 +611,7 @@ fn a_sheet_is_copied_with_what_hangs_on_its_views() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(s.elements[2].kind.instance().unwrap().composition, c, "the same composition");
+    assert_eq!(s.elements[2].kind.occurrence().unwrap().composition, c, "the same composition");
     h.undo();
     assert!(h.document().drawing().sheet(copy).is_none(), "one step");
     // A name of one's own, taken: numbered.
@@ -614,11 +620,11 @@ fn a_sheet_is_copied_with_what_hangs_on_its_views() {
     assert_eq!(h.document().drawing().sheet(copy).unwrap().name, "Plan#2");
 }
 
-/// A named composition holding a rectangle, its instance anchored 10 mm from the bottom right.
+/// A named composition holding a rectangle, its occurrence anchored 10 mm from the bottom right.
 fn anchored_composition(h: &mut History, s: Id) -> (Id, Id) {
     let (c, i) = composition_with(h, s, rect(), "Cartouche");
     let place = Place::anchored(Corner::BottomRight, DVec2::new(-10.0, 10.0));
-    h.apply(Operation::SetElement { element: i, kind: instance(c, place) }).unwrap();
+    h.apply(Operation::SetElement { element: i, kind: occurrence(c, place) }).unwrap();
     (c, i)
 }
 
@@ -634,14 +640,14 @@ fn a_place_keeps_where_it_is_when_its_corner_changes() {
 }
 
 #[test]
-fn field_names_are_read_from_the_texts_through_the_instances() {
+fn field_names_are_read_from_the_texts_through_the_occurrences() {
     assert_eq!(text_fields("a {client} b {sheet.number} {x").collect::<Vec<_>>(), vec!["client", "sheet.number"]);
     assert_eq!((field_key("client"), field_key("skp.ref")), ("user.client".to_owned(), "skp.ref".to_owned()));
     let mut h = History::new(Document::new());
     let s = sheet(&mut h);
     let (b, _) = composition_with(&mut h, s, text(DVec2::ZERO), "Cartouche");
     let (_, outer) = composition_with(&mut h, s, ElementKind::Text { at: DVec2::ONE, text: "{indice}".into(), size: 3.0 }, "Autre");
-    let inner = add(&mut h, s, instance(b, Place::free(DVec2::ZERO))).unwrap();
+    let inner = add(&mut h, s, occurrence(b, Place::free(DVec2::ZERO))).unwrap();
     let g = compose(&mut h, vec![outer, inner], None);
     let d = h.document().drawing();
     let names: Vec<String> = d.field_names(&d.sheet(s).unwrap().elements).into_iter().collect();
@@ -682,7 +688,7 @@ fn a_drawing_goes_through_the_file() {
     .unwrap();
     add(&mut h, s, projected(front, Side::Below)).unwrap();
     let (composition, _) = composition_with(&mut h, s, rect(), "Cartouche");
-    add(&mut h, s, instance(composition, Place::anchored(Corner::TopRight, DVec2::new(-5.0, -5.0)))).unwrap();
+    add(&mut h, s, occurrence(composition, Place::anchored(Corner::TopRight, DVec2::new(-5.0, -5.0)))).unwrap();
     let p = h.document().drawing().presentations[0].clone();
     h.apply(Operation::SetPresentation { presentation: p.id, name: "Atelier".into(), projection: Projection::ThirdAngle }).unwrap();
     let bytes = h.document().to_file().unwrap();
@@ -694,7 +700,7 @@ fn a_drawing_goes_through_the_file() {
     // A composition holding itself is refused.
     let mut bad = h.document().clone();
     let id = bad.fresh_id();
-    let looped = Element::new(id, instance(composition, Place::free(DVec2::ZERO)));
+    let looped = Element::new(id, occurrence(composition, Place::free(DVec2::ZERO)));
     Arc::make_mut(&mut bad.drawing).compositions.get_mut(&composition).unwrap().elements.push(looped);
     assert!(matches!(Document::from_file(&bad.to_file().unwrap()), Err(Error::File(FileError::BadDrawing(i))) if i == id));
 }

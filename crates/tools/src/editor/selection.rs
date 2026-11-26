@@ -57,11 +57,11 @@ impl Editor {
     /// to it reaches the other copies, unless made unique: the scope, docs/tools/selection.md)?
     pub fn deep_shared(&self) -> bool {
         let doc = self.document();
-        self.deep.iter().any(|p| doc.shared_along(&p.instances))
+        self.deep.iter().any(|p| doc.shared_along(&p.occurrences))
             || self
                 .deep_guides
                 .iter()
-                .any(|g| doc.component_at(&g.instances).is_ok_and(|(c, _)| doc.assembly(c).is_ok()) && doc.shared_along(&g.instances))
+                .any(|g| doc.component_at(&g.occurrences).is_ok_and(|(c, _)| doc.assembly(c).is_ok()) && doc.shared_along(&g.occurrences))
     }
 
     pub fn select(&mut self, ids: Vec<Id>) {
@@ -109,9 +109,9 @@ impl Editor {
         if self.document().resolve(path).is_err() {
             return;
         }
-        if self.context != path.instances || self.open_part.is_some() {
+        if self.context != path.occurrences || self.open_part.is_some() {
             self.tool.reset();
-            self.context = path.instances.clone();
+            self.context = path.occurrences.clone();
             self.open_part = None;
             self.open_group.clear();
             self.drop_empty_assemblies(false);
@@ -159,7 +159,7 @@ impl Editor {
     /// [`Editor::select_path`] does — added to the selection with `add` (Shift) when it lies in
     /// the active context.
     pub fn toggle_path(&mut self, path: &EntityPath, add: bool) {
-        let here = self.context == path.instances && self.open_part.is_none();
+        let here = self.context == path.occurrences && self.open_part.is_none();
         if here && self.selection.contains(&path.entity) {
             self.selection.retain(|id| *id != path.entity);
         } else if here && add && self.document().resolve(path).is_ok() {
@@ -327,18 +327,18 @@ impl Editor {
         if self.busy() {
             return;
         }
-        let Ok(context) = self.document().context_of(&path.instances) else { return };
+        let Ok(context) = self.document().context_of(&path.occurrences) else { return };
         let op = Operation::SetHidden { context, entities: vec![path.entity], hidden };
         if self.start(op, After::Nothing, false).is_err() || !hidden || self.document().settings().display.show_hidden {
             return;
         }
-        if self.context == path.instances {
+        if self.context == path.occurrences {
             self.selection.retain(|id| *id != path.entity);
         }
-        let gone: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+        let gone: Vec<Id> = path.occurrences.iter().copied().chain([path.entity]).collect();
         if !self.context.starts_with(&gone) {
-            self.deep.retain(|p| p != path && !p.instances.starts_with(&gone));
-            self.deep_guides.retain(|g| !g.instances.starts_with(&gone));
+            self.deep.retain(|p| p != path && !p.occurrences.starts_with(&gone));
+            self.deep_guides.retain(|g| !g.occurrences.starts_with(&gone));
         }
     }
 
@@ -462,22 +462,22 @@ impl Editor {
     fn explode_deep(&mut self) {
         let mut paths = self.deep_assemblies();
         let doc = self.document();
-        let unique = self.part_scope == Scope::This && paths.iter().any(|p| doc.shared_along(&p.instances));
+        let unique = self.part_scope == Scope::This && paths.iter().any(|p| doc.shared_along(&p.occurrences));
         // The deepest first: an assembly exploded takes those inside it out of their paths.
-        paths.sort_by_key(|p| std::cmp::Reverse(p.instances.len()));
+        paths.sort_by_key(|p| std::cmp::Reverse(p.occurrences.len()));
         // Reached through two copies of a parent changed for all: once.
         let mut seen = Vec::new();
         let ops: Vec<Operation> = paths
             .into_iter()
             .filter(|p| {
-                let key = (doc.context_of(&p.instances).ok(), p.entity);
+                let key = (doc.context_of(&p.occurrences).ok(), p.entity);
                 let first = unique || !seen.contains(&key);
                 seen.push(key);
                 first
             })
             .map(|p| {
                 let op = Operation::Explode { context: Id(0), occurrence: p.entity };
-                Operation::At { parent: p.instances, unique, op: Box::new(op) }
+                Operation::At { parent: p.occurrences, unique, op: Box::new(op) }
             })
             .collect();
         if !ops.is_empty() {
@@ -527,7 +527,7 @@ impl Editor {
         let Some((from, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else { return };
         let to = match self.open_group.split_last() {
             Some((_, up)) => skraft_model::BodiesTo::Level(up.to_vec()),
-            None => skraft_model::BodiesTo::NewPart(from.instances.clone()),
+            None => skraft_model::BodiesTo::NewPart(from.occurrences.clone()),
         };
         let op = Operation::MoveBodies { from, bodies, to, copy: false, scope: self.part_scope };
         let Ok(done) = self.start(op, After::Select, false) else { return };
@@ -569,7 +569,7 @@ impl Editor {
                 .iter()
                 .map(|p| {
                     let op = Operation::MakeUnique { context: Id(0), occurrence: p.entity };
-                    Operation::At { parent: p.instances.clone(), unique: true, op: Box::new(op) }
+                    Operation::At { parent: p.occurrences.clone(), unique: true, op: Box::new(op) }
                 })
                 .collect();
             self.queue.push_back((Operation::Batch(ops), After::Unique));
