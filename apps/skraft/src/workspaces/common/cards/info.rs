@@ -45,7 +45,6 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.materials",
         "panel.entity_info.dimensions",
         "panel.entity_info.position",
-        "panel.entity_info.in_model",
         "panel.entity_info.parts",
         "panel.entity_info.assemblies",
         "panel.entity_info.shape",
@@ -311,14 +310,12 @@ fn source_row(ui: &mut egui::Ui, c: &skraft_model::Component, width: f32, action
 }
 
 /// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
-/// (edited there), how many times it is in the model, a part's dimensions, the materials it and
-/// its faces carry.
+/// (edited there), its source, a part's dimensions, the materials it and its faces carry.
 fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(c) = doc.component(id) else { return };
     let units = &doc.settings().units;
     let field = info_field_width(ui);
-    let count = doc.counts_in_model().get(&id).copied().unwrap_or(0);
     // Its materials and colorations, the part's and its faces'; in the order of the document's.
     let mut used: FastSet<Id> = FastSet::default();
     if let ComponentKind::Part(p) = &c.kind {
@@ -333,9 +330,6 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
         if let Some(name) = text_field(ui, (c.id, 1), &c.name, field) {
             actions.push(Action::Apply(Operation::RenameComponent { component: c.id, name }));
         }
-        ui.end_row();
-        ui.label(t!("panel.entity_info.in_model"));
-        ui.label(count.to_string());
         ui.end_row();
         source_row(ui, c, field, actions);
         if let ComponentKind::Part(p) = &c.kind {
