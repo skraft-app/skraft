@@ -6,8 +6,8 @@ fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static>
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
 }
 
-/// The name of an instance — an occurrence, a body — in its navigator row, its colour `color`,
-/// on `back`, as [`crate::workspaces::common::instance_name`] writes it (own name, then the definition's — `def`:
+/// The name of an occurrence — of a component, of a body — in its navigator row, its colour `color`,
+/// on `back`, as [`crate::workspaces::common::occurrence_name`] writes it (own name, then the definition's — `def`:
 /// its component's, its body definition's — between brackets; automatic, `auto`, attenuated
 /// unless the row is selected). Its response, and where its own name ends and the
 /// definition's starts (halfway across the space between them) where it has one.
@@ -335,7 +335,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &NavigatorRow<'_>, errors
     let link_below = editor.link_status().holds(o.component) || editor.link_overlaps().holds(o.component);
     // A name edited in place, from a double-click, or F2 while it is the one occurrence
     // selected: the occurrence's own, shown first, where it has one and the double-click
-    // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
+    // is on it (F2: where it has one), else its component's (« Occurrence <Composant> »).
     let rename = ui.make_persistent_id(("navigator_rename", &row.path, o.id));
     let rename_occurrence = rename.with("occurrence");
     let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
@@ -1521,7 +1521,7 @@ fn flatten_button(ui: &mut egui::Ui) -> bool {
 }
 
 /// A navigator row's right-click menu: « Renommer » (the field a double-click opens, under the
-/// key `rename`; with an instance name, under `own`, one entry for each name), what `move_out`
+/// key `rename`; with an occurrence name, under `own`, one entry for each name), what `move_out`
 /// adds (with its own separator), then « Aplatir » (`flatten`), « Éclater » where the row can be
 /// (`explodable`), « Effacer ». Opening it changes nothing; the commands act on the selection
 /// when the row is in it, else on the row alone, `select` choosing it first (docs/ui/interface.md).

@@ -703,7 +703,7 @@ A body definition takes a name given by the user, as a part's.
   Esc keeps it). The entity info's « Nom » of a body or group is a field (emptied: cleared).
   A part's or an assembly's row the same: its component's name edited in place
   (`RenameComponent`; emptied, it is kept; one taken, refused and told) — or, where the
-  occurrence has a name of its own (« Instance <Composant> », the entity info's
+  occurrence has a name of its own (« Occurrence <Composant> », the entity info's
   « Occurrence »), that name when the double-click is on it, or on F2 (`RenameOccurrence`;
   emptied, cleared), alone in the field, the row's whole width.
 - **No naming at creation**: « Nommage des pièces » ([Quick tools after a creation, naming what was just made](../tools/quick-tools.md)) stays for parts; a body

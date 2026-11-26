@@ -152,7 +152,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   the status saying so (`status.group_one_assembly`). The command is enabled by a selection
   at any depth (`Editor::anything_selected`), as « Effacer ».
 - **« Rendre unique »**: each element selected gets a definition of its own, whatever the
-  « Portée »: the assemblies along its path are made unique first, so that only this instance
+  « Portée »: the assemblies along its path are made unique first, so that only this occurrence
   changes (`MakeUnique` taken by `At { unique: true }`, one step). The toast names the element
   selected, not the assemblies made unique on the way.
 - **« Éclater »**: the assemblies selected (the tree drop-up) put in their parent, the deepest

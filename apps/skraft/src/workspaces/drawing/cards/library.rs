@@ -1,6 +1,6 @@
 //! The library on a sheet, the compositions (docs/ui/drawing.md#the-compositions-card): the drawing's
 //! definitions, as the library shows the model's: tiles or rows, how many times each
-//! is on the sheets, the unused ones apart; a click picks its instances in the level open, a drag
+//! is on the sheets, the unused ones apart; a click picks its occurrences in the level open, a drag
 //! onto the sheet places one more at the pointer, its menu places, renames or deletes it.
 
 use std::collections::HashMap;
@@ -58,19 +58,19 @@ fn placeable(d: &Drawing, st: &SheetState, id: Id) -> bool {
     st.container(d).is_some_and(|c| !matches!(c, Container::Composition(x) if d.reaches(id, x)))
 }
 
-/// Its instances a click picks: those in the level open, neither hidden nor locked.
-fn instances_here(d: &Drawing, st: &SheetState, id: Id) -> Vec<Id> {
+/// Its occurrences a click picks: those in the level open, neither hidden nor locked.
+fn occurrences_here(d: &Drawing, st: &SheetState, id: Id) -> Vec<Id> {
     st.container(d)
         .and_then(|c| d.elements_in(c))
         .unwrap_or(&[])
         .iter()
-        .filter(|el| !el.hidden && !el.locked && el.kind.instance().is_some_and(|i| i.composition == id))
+        .filter(|el| !el.hidden && !el.locked && el.kind.occurrence().is_some_and(|i| i.composition == id))
         .map(|el| el.id)
         .collect()
 }
 
 fn ink_of(ui: &egui::Ui, d: &Drawing, st: &SheetState, id: Id) -> Ink {
-    let here = instances_here(d, st, id);
+    let here = occurrences_here(d, st, id);
     let selected = !here.is_empty() && st.selected.len() == here.len() && here.iter().all(|i| st.selected.contains(i));
     Ink::new(ui, selected, !placeable(d, st, id))
 }
@@ -182,7 +182,7 @@ fn item(
     };
     let response = ui.interact(response.rect, response.id, egui::Sense::click_and_drag());
     let response = if response.dragged() { response } else { response.tip(format!("{name}\n{tip}")) };
-    let here = instances_here(d, st, id);
+    let here = occurrences_here(d, st, id);
     let alone = !here.is_empty() && st.selected == here;
     let key = rename.key;
     if let Some(name) = rename.gesture(ui, &response, alone) {
@@ -220,7 +220,7 @@ fn item(
 #[cfg(test)]
 mod tests {
     use glam::DVec2;
-    use skraft_model::{Document, ElementKind, History, Instance, Paper, Place};
+    use skraft_model::{Document, ElementKind, History, Paper, Place, drawing::Occurrence};
 
     use super::*;
 
@@ -235,12 +235,12 @@ mod tests {
         let (a, b) = (line(&mut h), line(&mut h));
         let cartouche = h.apply(Operation::MakeComposition { elements: vec![a], name: Some("Cartouche".into()) }).unwrap().element.unwrap();
         let other = h.apply(Operation::MakeComposition { elements: vec![b], name: Some("Légende".into()) }).unwrap().element.unwrap();
-        let of = |h: &History, i: Id| h.document().drawing().element(i).unwrap().kind.instance().unwrap().composition;
+        let of = |h: &History, i: Id| h.document().drawing().element(i).unwrap().kind.occurrence().unwrap().composition;
         let (c, l) = (of(&h, cartouche), of(&h, other));
         let place = Place::free(DVec2::ONE);
         h.apply(Operation::AddElement {
             to,
-            element: ElementKind::Instance(Instance { composition: c, place, props: Default::default() }),
+            element: ElementKind::Occurrence(Occurrence { composition: c, place, props: Default::default() }),
         })
         .unwrap();
         h.apply(Operation::DeleteElements { elements: vec![other] }).unwrap();

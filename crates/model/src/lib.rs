@@ -8,7 +8,7 @@ mod boolean;
 mod clipboard;
 mod dimensions;
 mod document;
-mod drawing;
+pub mod drawing;
 pub mod expr;
 mod fast_hash;
 mod file;
@@ -50,9 +50,8 @@ pub use document::{
     Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell, Sign, StretchMask, Texture, name_base,
 };
 pub use drawing::{
-    Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Instance, Look, Paper,
-    Perspective, Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key,
-    text_fields,
+    Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Look, Paper, Perspective,
+    Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key, text_fields,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
@@ -178,8 +177,8 @@ pub enum Refusal {
     NothingToPaste,
     /// A view, its projections and its dimensions parted: they stay in one container.
     SplitView,
-    /// An instance turned, exploded over what has no rotation of its own.
-    TurnedInstance,
+    /// An occurrence turned, exploded over what has no rotation of its own.
+    TurnedOccurrence,
     /// A link needs a path to each of its parts
     /// (docs/decisions/0055-linked-bodies-through-imprints.md).
     BadLink,
@@ -327,7 +326,7 @@ impl std::fmt::Display for Refusal {
             Refusal::CompositionLoop => t!("error.model.composition_loop"),
             Refusal::NothingToPaste => t!("error.model.nothing_to_paste"),
             Refusal::SplitView => t!("error.model.split_view"),
-            Refusal::TurnedInstance => t!("error.model.turned_instance"),
+            Refusal::TurnedOccurrence => t!("error.model.turned_occurrence"),
         })
     }
 }

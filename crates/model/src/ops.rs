@@ -571,17 +571,17 @@ pub enum Operation {
     PasteElements { fragment: Arc<Document>, to: Container, offset: glam::DVec2, linked: bool },
     /// Elements of a sheet, with what hangs on them, moved (or copied) onto sheet `to`.
     MoveElements { elements: Vec<Id>, to: Id, offset: glam::DVec2, copy: bool },
-    /// An instance replaced by copies of what its composition holds.
-    ExplodeInstance { instance: Id },
-    /// An instance given a composition of its own, a copy of the one it shares.
-    MakeInstanceUnique { instance: Id },
+    /// An occurrence replaced by copies of what its composition holds.
+    ExplodeOccurrence { occurrence: Id },
+    /// An occurrence given a composition of its own, a copy of the one it shares.
+    MakeOccurrenceUnique { occurrence: Id },
     /// A composition named.
     RenameComposition { composition: Id, name: String },
-    /// A composition deleted, with its instances.
+    /// A composition deleted, with its occurrences.
     DeleteComposition { composition: Id },
     /// The compositions shown on no sheet deleted.
     PurgeCompositions,
-    /// A field's value set on a presentation, a sheet or an instance, or cleared.
+    /// A field's value set on a presentation, a sheet or an occurrence, or cleared.
     SetField { on: FieldOn, key: String, value: Option<crate::Value> },
     /// Several operations in one step, applied in order: their outcomes put together.
     Batch(Vec<Operation>),
@@ -646,8 +646,8 @@ impl Operation {
             Operation::DeletePresentation { .. } => t!("operation.delete_presentation"),
             Operation::SetElementState { .. } | Operation::MoveElement { .. } => t!("operation.set_element"),
             Operation::MakeComposition { .. } => t!("operation.make_composition"),
-            Operation::ExplodeInstance { .. } => t!("operation.explode_instance"),
-            Operation::MakeInstanceUnique { .. } => t!("operation.make_instance_unique"),
+            Operation::ExplodeOccurrence { .. } => t!("operation.explode_occurrence"),
+            Operation::MakeOccurrenceUnique { .. } => t!("operation.make_occurrence_unique"),
             Operation::RenameComposition { .. } => t!("operation.rename_composition"),
             Operation::DeleteComposition { .. } => t!("operation.delete_composition"),
             Operation::PurgeCompositions => t!("operation.purge_compositions"),
@@ -813,13 +813,13 @@ pub struct Outcome {
     pub relocated: Vec<(Vec<Id>, Vec<Id>)>,
     /// The sheet added (docs/ui/drawing.md).
     pub sheet: Option<Id>,
-    /// The element added to a sheet or a composition, or the instance a group became.
+    /// The element added to a sheet or a composition, or the occurrence a group became.
     pub element: Option<Id>,
     /// The presentation added.
     pub presentation: Option<Id>,
-    /// The composition an instance was given.
+    /// The composition an occurrence was given.
     pub composition: Option<Id>,
-    /// The elements an instance exploded into.
+    /// The elements an occurrence exploded into.
     pub elements: Vec<Id>,
     /// What the linked bodies did after it (docs/decisions/0055-linked-bodies-through-imprints.md).
     pub links: crate::Followed,
@@ -1080,12 +1080,12 @@ impl Document {
                 let elements = self.move_elements(elements, *to, *offset, *copy)?;
                 Ok(Outcome { elements, ..Outcome::default() })
             }
-            Operation::ExplodeInstance { instance } => {
-                let elements = self.explode_instance(*instance)?;
+            Operation::ExplodeOccurrence { occurrence } => {
+                let elements = self.explode_occurrence(*occurrence)?;
                 Ok(Outcome { elements, ..Outcome::default() })
             }
-            Operation::MakeInstanceUnique { instance } => {
-                let composition = self.make_instance_unique(*instance)?;
+            Operation::MakeOccurrenceUnique { occurrence } => {
+                let composition = self.make_occurrence_unique(*occurrence)?;
                 Ok(Outcome { composition: Some(composition), ..Outcome::default() })
             }
             Operation::RenameComposition { composition, name } => self.rename_composition(*composition, name).map(|_| Outcome::default()),

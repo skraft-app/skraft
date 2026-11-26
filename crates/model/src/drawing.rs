@@ -1,5 +1,5 @@
 //! The document's drawing (docs/ui/drawing.md, decisions 0048 and 0049): a tree of presentations
-//! holding sheets of paper holding elements — views of the model, free elements, instances of
+//! holding sheets of paper holding elements — views of the model, free elements, occurrences of
 //! the compositions, the definitions all presentations share. Changed by operations, as the rest of
 //! the document.
 
@@ -118,7 +118,7 @@ impl Paper {
     }
 }
 
-/// A composition: elements in axes of its own, placed by instances; made from a selection with an
+/// A composition: elements in axes of its own, placed by occurrences; made from a selection with an
 /// automatic name (decision 0049).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Composition {
@@ -186,12 +186,12 @@ pub enum ElementKind {
     /// A dimension measured through a view (docs/ui/drawing.md#dimensions).
     Dimension(crate::Dimension),
     /// A composition placed.
-    Instance(Instance),
+    Occurrence(Occurrence),
 }
 
 /// A composition placed in a sheet or another composition.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Instance {
+pub struct Occurrence {
     pub composition: Id,
     pub place: Place,
     /// The values its fields take here, before the sheet's.
@@ -199,7 +199,7 @@ pub struct Instance {
     pub props: Props,
 }
 
-/// Where an instance puts its composition's origin, and how it turns it: never a scale (a view at
+/// Where an occurrence puts its composition's origin, and how it turns it: never a scale (a view at
 /// 1:10 stays true).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Place {
@@ -296,31 +296,31 @@ pub enum Container {
     Composition(Id),
 }
 
-/// An element as a sheet shows it, through the instances leading to it.
+/// An element as a sheet shows it, through the occurrences leading to it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placed<'a> {
     pub element: &'a Element,
-    /// The instances from the sheet down to it, outermost first; empty on the sheet itself.
+    /// The occurrences from the sheet down to it, outermost first; empty on the sheet itself.
     pub path: Vec<Id>,
     /// From its container's axes to the sheet's.
     pub transform: DAffine2,
-    /// It or an instance above it is hidden.
+    /// It or an occurrence above it is hidden.
     pub hidden: bool,
-    /// It or an instance above it is locked.
+    /// It or an occurrence above it is locked.
     pub locked: bool,
     /// Its presentation's: how a projected view in a composition is drawn here.
     pub projection: Projection,
 }
 
 impl Placed<'_> {
-    /// What is right on the sheet for it: the outermost instance, else itself. What a click
+    /// What is right on the sheet for it: the outermost occurrence, else itself. What a click
     /// on the sheet picks.
     pub fn top(&self) -> Id {
         self.path.first().copied().unwrap_or(self.element.id)
     }
 
-    /// What a click picks for it with the instances `open` entered: the element right in the
-    /// last one, itself or the instance leading to it; none when it is not in there.
+    /// What a click picks for it with the occurrences `open` entered: the element right in the
+    /// last one, itself or the occurrence leading to it; none when it is not in there.
     pub fn under(&self, open: &[Id]) -> Option<Id> {
         let rest = self.path.strip_prefix(open)?;
         Some(rest.first().copied().unwrap_or(self.element.id))
@@ -514,16 +514,16 @@ impl Drawing {
         })
     }
 
-    /// The instances of composition `id`, wherever they are.
-    pub fn instances_of(&self, composition: Id) -> Vec<Id> {
+    /// The occurrences of composition `id`, wherever they are.
+    pub fn occurrences_of(&self, composition: Id) -> Vec<Id> {
         self.containers()
             .flat_map(|(_, list)| list)
-            .filter(|e| matches!(&e.kind, ElementKind::Instance(i) if i.composition == composition))
+            .filter(|e| matches!(&e.kind, ElementKind::Occurrence(i) if i.composition == composition))
             .map(|e| e.id)
             .collect()
     }
 
-    /// The names of the fields the texts of `list` hold, through its instances.
+    /// The names of the fields the texts of `list` hold, through its occurrences.
     pub fn field_names(&self, list: &[Element]) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         self.gather_fields(list, &mut Vec::new(), &mut out);
@@ -534,7 +534,7 @@ impl Drawing {
         for e in list {
             match &e.kind {
                 ElementKind::Text { text, .. } => out.extend(text_fields(text).map(str::to_owned)),
-                ElementKind::Instance(i) if !seen.contains(&i.composition) => {
+                ElementKind::Occurrence(i) if !seen.contains(&i.composition) => {
                     seen.push(i.composition);
                     if let Some(b) = self.composition(i.composition) {
                         self.gather_fields(&b.elements, seen, out);
@@ -558,11 +558,11 @@ impl Drawing {
         out
     }
 
-    /// How many instances each composition has, wherever they are (a composition without any: none).
+    /// How many occurrences each composition has, wherever they are (a composition without any: none).
     pub fn composition_uses(&self) -> BTreeMap<Id, usize> {
         let mut uses = BTreeMap::new();
         for e in self.containers().flat_map(|(_, list)| list) {
-            if let Some(i) = e.kind.instance() {
+            if let Some(i) = e.kind.occurrence() {
                 *uses.entry(i.composition).or_insert(0) += 1;
             }
         }
@@ -570,10 +570,10 @@ impl Drawing {
     }
 
     /// How many times each composition shows on the sheets, those inside another counted once
-    /// per instance of it. One that is not there is unused, even if an unused one places it.
+    /// per occurrence of it. One that is not there is unused, even if an unused one places it.
     pub fn counts_on_sheets(&self) -> BTreeMap<Id, usize> {
         fn walk(d: &Drawing, list: &[Element], out: &mut BTreeMap<Id, usize>) {
-            for i in list.iter().filter_map(|e| e.kind.instance()) {
+            for i in list.iter().filter_map(|e| e.kind.occurrence()) {
                 *out.entry(i.composition).or_insert(0) += 1;
                 if let Some(c) = d.composition(i.composition) {
                     walk(d, &c.elements, out);
@@ -600,18 +600,18 @@ impl Drawing {
             }
             seen.push(b);
             if let Some(composition) = self.composition(b) {
-                todo.extend(composition.elements.iter().filter_map(|e| e.kind.instance().map(|i| i.composition)));
+                todo.extend(composition.elements.iter().filter_map(|e| e.kind.occurrence().map(|i| i.composition)));
             }
         }
         false
     }
 
     fn reaches_element(&self, e: &Element, composition: Id) -> bool {
-        e.kind.instance().is_some_and(|i| self.reaches(i.composition, composition))
+        e.kind.occurrence().is_some_and(|i| self.reaches(i.composition, composition))
     }
 
-    /// What sheet `id` shows, bottom first, through its instances: every element but the
-    /// instances themselves, each with what takes it to the sheet.
+    /// What sheet `id` shows, bottom first, through its occurrences: every element but the
+    /// occurrences themselves, each with what takes it to the sheet.
     pub fn placed(&self, sheet: Id) -> Vec<Placed<'_>> {
         let mut out = Vec::new();
         let Some(s) = self.sheet(sheet) else { return out };
@@ -622,14 +622,14 @@ impl Drawing {
         out
     }
 
-    /// What the instances `path`, from sheet `sheet` down, open: the container the last one
+    /// What the occurrences `path`, from sheet `sheet` down, open: the container the last one
     /// places and what takes its axes to the sheet's; none when the path does not lead there.
     pub fn opened(&self, sheet: Id, path: &[Id]) -> Option<(Container, DAffine2)> {
         let s = self.sheet(sheet)?;
         let (mut list, mut container, mut t, mut paper) =
             (s.elements.as_slice(), Container::Sheet(sheet), DAffine2::IDENTITY, Some(s.paper));
         for id in path {
-            let i = list.iter().find(|e| e.id == *id)?.kind.instance()?;
+            let i = list.iter().find(|e| e.id == *id)?.kind.occurrence()?;
             let b = self.composition(i.composition)?;
             t *= i.place.transform(paper);
             (list, container, paper) = (b.elements.as_slice(), Container::Composition(b.id), None);
@@ -640,7 +640,7 @@ impl Drawing {
     fn walk<'a>(&'a self, list: &'a [Element], at: &Walk, out: &mut Vec<Placed<'a>>) {
         for e in list {
             let (hidden, locked) = (at.hidden || e.hidden, at.locked || e.locked);
-            let ElementKind::Instance(i) = &e.kind else {
+            let ElementKind::Occurrence(i) = &e.kind else {
                 out.push(Placed { element: e, path: at.path.clone(), transform: at.transform, hidden, locked, projection: at.projection });
                 continue;
             };
@@ -661,7 +661,7 @@ impl Drawing {
     }
 }
 
-/// How deep instances may nest in [`Drawing::placed`].
+/// How deep occurrences may nest in [`Drawing::placed`].
 const MAX_NESTING: usize = 64;
 
 /// Where [`Drawing::walk`] is.
@@ -670,7 +670,7 @@ struct Walk {
     transform: DAffine2,
     hidden: bool,
     locked: bool,
-    /// The sheet's, for an instance right on it.
+    /// The sheet's, for an occurrence right on it.
     paper: Option<Paper>,
     projection: Projection,
 }
@@ -685,16 +685,16 @@ impl ElementKind {
         }
     }
 
-    pub fn instance(&self) -> Option<&Instance> {
+    pub fn occurrence(&self) -> Option<&Occurrence> {
         match self {
-            ElementKind::Instance(i) => Some(i),
+            ElementKind::Occurrence(i) => Some(i),
             _ => None,
         }
     }
 
     /// Can it take a rotation? The others are drawn upright.
     fn turns(&self) -> bool {
-        matches!(self, ElementKind::Line { .. } | ElementKind::Circle { .. } | ElementKind::Instance(_))
+        matches!(self, ElementKind::Line { .. } | ElementKind::Circle { .. } | ElementKind::Occurrence(_))
     }
 
     /// As it is once its composition's axes are `t`'s: what hangs on a view moves with it.
@@ -707,7 +707,7 @@ impl ElementKind {
             ElementKind::Rect { min, max } | ElementKind::Image { min, max, .. } => {
                 (*min, *max) = (t.transform_point2(*min), t.transform_point2(*max));
             }
-            ElementKind::Instance(i) => {
+            ElementKind::Occurrence(i) => {
                 i.place.at = t.transform_point2(i.place.at);
                 i.place.rotation += rotation;
             }

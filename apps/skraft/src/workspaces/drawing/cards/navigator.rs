@@ -1,5 +1,5 @@
 //! The navigator on a drawing's sheet (docs/ui/drawing.md#navigator, decision 0049): the
-//! presentations, their sheets and what these hold, the topmost first, an instance unfolding on
+//! presentations, their sheets and what these hold, the topmost first, an occurrence unfolding on
 //! what its composition holds. Each element right on a sheet is picked, hidden, locked and put
 //! over or under the others here; the compositions themselves have their card (`drawing::cards::library`).
 
@@ -43,12 +43,12 @@ struct ElementRow<'d> {
     /// The sheet it shows on.
     sheet: Id,
     el: &'d Element,
-    /// The instances leading to it from the sheet, outermost first.
+    /// The occurrences leading to it from the sheet, outermost first.
     path: Vec<Id>,
     /// Its place in its container (bottom first), and how many it holds.
     index: usize,
     count: usize,
-    /// An instance above it is hidden.
+    /// An occurrence above it is hidden.
     hidden_above: bool,
     fold: Option<Fold>,
 }
@@ -57,9 +57,9 @@ fn key(kind: &str, id: Id) -> egui::Id {
     egui::Id::unique(("drawing_navigator", kind, id.0))
 }
 
-/// The fold of instance `id` under the instances `path`: one composition placed twice folds apart.
-fn instance_key(sheet: Id, path: &[Id], id: Id) -> egui::Id {
-    egui::Id::unique(("drawing_navigator", "instance", sheet.0, path, id.0))
+/// The fold of occurrence `id` under the occurrences `path`: one composition placed twice folds apart.
+fn occurrence_key(sheet: Id, path: &[Id], id: Id) -> egui::Id {
+    egui::Id::unique(("drawing_navigator", "occurrence", sheet.0, path, id.0))
 }
 
 fn fold_of(open: &FastSet<egui::Id>, key: egui::Id) -> Fold {
@@ -156,7 +156,7 @@ fn rows<'d>(d: &'d Drawing, open: &FastSet<egui::Id>) -> Vec<Row<'d>> {
     out
 }
 
-/// The rows of `list`, the topmost first, through the instances unfolded (`path`: those above).
+/// The rows of `list`, the topmost first, through the occurrences unfolded (`path`: those above).
 #[allow(clippy::too_many_arguments)]
 fn elements<'d>(
     d: &'d Drawing,
@@ -168,9 +168,9 @@ fn elements<'d>(
     out: &mut Vec<Row<'d>>,
 ) {
     for (index, el) in list.iter().enumerate().rev() {
-        let composition = el.kind.instance().and_then(|i| d.composition(i.composition)).filter(|b| !b.elements.is_empty());
-        // By the instances leading to it: one composition placed twice folds apart.
-        let fold = composition.map(|_| fold_of(open, instance_key(sheet, path, el.id)));
+        let composition = el.kind.occurrence().and_then(|i| d.composition(i.composition)).filter(|b| !b.elements.is_empty());
+        // By the occurrences leading to it: one composition placed twice folds apart.
+        let fold = composition.map(|_| fold_of(open, occurrence_key(sheet, path, el.id)));
         out.push(Row::Element(ElementRow { sheet, el, path: path.clone(), index, count: list.len(), hidden_above, fold }));
         if let (Some(b), Some(f)) = (composition, fold)
             && f.open
@@ -199,7 +199,7 @@ fn icon_of(el: &Element) -> ImageSource<'static> {
             DimKind::Radius { .. } => icons::DIM_DIAMETER,
             DimKind::Angle { .. } => icons::DIM_ANGLE,
         },
-        ElementKind::Instance(_) => icons::COMPOSITION,
+        ElementKind::Occurrence(_) => icons::COMPOSITION,
     }
 }
 
@@ -221,7 +221,7 @@ fn name_of(d: &Drawing, el: &Element) -> String {
             DimKind::Radius { .. } => t!("drawing.dim.diameter"),
             DimKind::Angle { .. } => t!("drawing.dim.angle"),
         },
-        ElementKind::Instance(i) => d.composition(i.composition).map_or_else(String::new, |b| b.name.clone()),
+        ElementKind::Occurrence(i) => d.composition(i.composition).map_or_else(String::new, |b| b.name.clone()),
     }
 }
 
@@ -299,10 +299,10 @@ pub fn show(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title: &str
             st.tree_open.insert(key("sheet", s));
         }
     }
-    // The instances entered unfolded, what is edited in view.
+    // The occurrences entered unfolded, what is edited in view.
     if let Some(s) = shown {
         for k in 0..st.open.len() {
-            let fold = instance_key(s, &st.open[..k], st.open[k]);
+            let fold = occurrence_key(s, &st.open[..k], st.open[k]);
             st.tree_open.insert(fold);
         }
     }
@@ -573,7 +573,7 @@ fn sheet_row(
     });
 }
 
-/// A click on the row of element `id` under the instances `path`: its sheet shown, the levels
+/// A click on the row of element `id` under the occurrences `path`: its sheet shown, the levels
 /// open kept as far as they lead to it, what stands for it in the last one picked (Shift adds or
 /// takes it off) unless it is hidden or locked.
 fn pick(st: &mut SheetState, d: &Drawing, sheet: Id, path: &[Id], id: Id, shift: bool) {
@@ -628,8 +628,8 @@ fn element_row(
         weak
     };
     let name = name_of(d, el);
-    // A view's name, or the name of what an instance places.
-    let renames = editable && matches!(el.kind, ElementKind::View(_) | ElementKind::Instance(_));
+    // A view's name, or the name of what an occurrence places.
+    let renames = editable && matches!(el.kind, ElementKind::View(_) | ElementKind::Occurrence(_));
     let rename = renames.then(|| ui.make_persistent_id(("drawing_navigator_rename", "element", el.id.0)));
     let l = Line {
         depth: 2 + row.path.len(),
@@ -693,7 +693,7 @@ fn element_row(
             ElementKind::View(v) => {
                 actions.push(Action::Apply(Operation::SetElement { element: el.id, kind: ElementKind::View(View { name, ..v.clone() }) }));
             }
-            ElementKind::Instance(i) => actions.push(Action::Apply(Operation::RenameComposition { composition: i.composition, name })),
+            ElementKind::Occurrence(i) => actions.push(Action::Apply(Operation::RenameComposition { composition: i.composition, name })),
             _ => {}
         }
     }
@@ -712,8 +712,8 @@ fn element_row(
             }
         }
     }
-    // An instance's menu acts on it alone.
-    if editable && el.kind.instance().is_some() && !el.locked && !el.hidden {
+    // An occurrence's menu acts on it alone.
+    if editable && el.kind.occurrence().is_some() && !el.locked && !el.hidden {
         response.context_menu(|ui| {
             for (label, command) in [
                 (t!("menu.drawing.edit_composition"), "drawing.edit_composition"),
@@ -729,12 +729,12 @@ fn element_row(
                     ui.close();
                 }
             }
-            // One more instance of its composition, a little aside.
+            // One more occurrence of its composition, a little aside.
             let copy = ui.button(t!("drawing.tree.copy"));
             crate::kit::handles::publish(|| "navigator:menu:copy".into(), copy.rect);
             if copy.clicked() {
                 st.show_sheet(row.sheet);
-                st.place_composition = el.kind.instance().map(|i| i.composition);
+                st.place_composition = el.kind.occurrence().map(|i| i.composition);
                 ui.close();
             }
         });
@@ -756,7 +756,7 @@ mod tests {
         ElementKind::Line { from: DVec2::ZERO, to: DVec2::X }
     }
 
-    /// One sheet: a rectangle under a named composition's instance (a line inside).
+    /// One sheet: a rectangle under a named composition's occurrence (a line inside).
     fn drawing() -> (History, Id, Id, Id, Id) {
         let mut h = History::new(Document::new());
         let s = h.apply(Operation::AddSheet { presentation: None, name: None, paper: Paper::A3 }).unwrap().sheet.unwrap();
@@ -789,7 +789,7 @@ mod tests {
         assert_eq!(rows(d, &open).len(), 4, "its sheet");
         open.insert(key("sheet", s));
         assert_eq!(ids(&rows(d, &open)), vec![r, i], "the last drawn first");
-        // The instance unfolded: what its composition holds under it, picking the instance.
+        // The occurrence unfolded: what its composition holds under it, picking the occurrence.
         let fold = rows(d, &open)
             .iter()
             .find_map(|x| match x {

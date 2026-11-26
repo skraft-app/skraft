@@ -1,5 +1,5 @@
 //! The drawing's operations (docs/ui/drawing.md, decision 0049): presentations, sheets, elements,
-//! compositions and their instances.
+//! compositions and their occurrences.
 
 use std::collections::HashMap;
 
@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 
 use super::{
-    Border, Composition, Container, Drawing, Element, ElementKind, Instance, Look, Paper, Place, Presentation, Projection, Sheet, Subject,
-    View, ViewKind,
+    Border, Composition, Container, Drawing, Element, ElementKind, Look, Occurrence, Paper, Place, Presentation, Projection, Sheet,
+    Subject, View, ViewKind,
 };
 use crate::document::{name_base, numbered_name};
 use crate::props::is_key;
@@ -21,7 +21,7 @@ use crate::{ComponentKind, Document, EntityPath, Error, Id, PlacedPart, Refusal,
 pub enum FieldOn {
     Presentation(Id),
     Sheet(Id),
-    Instance(Id),
+    Occurrence(Id),
 }
 
 impl Document {
@@ -174,7 +174,7 @@ impl Document {
     }
 
     /// A copy of sheet `sheet` at `index` of presentation `to`: its elements under fresh ids, what
-    /// hangs on a view following it, its instances placing the same compositions; its name, or if
+    /// hangs on a view following it, its occurrences placing the same compositions; its name, or if
     /// that presentation has it the next free « Feuille n » for a default name, else numbered.
     /// Gives it.
     pub(crate) fn copy_sheet(&mut self, sheet: Id, to: Id, index: usize) -> Result<Id> {
@@ -263,7 +263,7 @@ impl Document {
                     crate::DimKind::Angle { a, b, at } => anchor_ok(a) && anchor_ok(b) && finite(*at),
                 }
             }
-            ElementKind::Instance(i) => {
+            ElementKind::Occurrence(i) => {
                 self.drawing.composition(i.composition).ok_or(Error::NotFound(i.composition))?;
                 if let Container::Composition(b) = container {
                     if self.drawing.reaches(i.composition, b) {
@@ -300,7 +300,7 @@ impl Document {
         let container = self.drawing.container_of(id).ok_or(Error::NotFound(id))?;
         self.check_element(kind, container, Some(id))?;
         self.drawing_mut().element_mut(id).expect("found above").kind = kind.clone();
-        if matches!(kind, ElementKind::Instance(_)) {
+        if matches!(kind, ElementKind::Occurrence(_)) {
             self.prune_compositions();
         }
         self.prune_assets();
@@ -355,7 +355,7 @@ impl Document {
     pub(crate) fn prune_compositions(&mut self) {
         loop {
             let used: std::collections::BTreeSet<Id> =
-                self.drawing.containers().flat_map(|(_, l)| l).filter_map(|e| e.kind.instance().map(|i| i.composition)).collect();
+                self.drawing.containers().flat_map(|(_, l)| l).filter_map(|e| e.kind.occurrence().map(|i| i.composition)).collect();
             if !self.drawing.compositions.values().any(|b| !b.named && !used.contains(&b.id)) {
                 return;
             }
@@ -389,13 +389,13 @@ impl Document {
 
     /// The elements `ids` — one container's — gathered into a new composition placed where they
     /// are, with the views and dimensions tied to them. « Composition#n » unless named. Gives
-    /// the instance.
+    /// the occurrence.
     pub(crate) fn make_composition(&mut self, ids: &[Id], name: Option<&str>) -> Result<Id> {
         let first = *ids.first().ok_or(Error::Invalid(Refusal::BadElement))?;
         let container = self.drawing.container_of(first).ok_or(Error::NotFound(first))?;
         let members = self.families(container, ids)?;
         let paper = self.paper_of(container);
-        let (composition, instance) = (self.fresh_id(), self.fresh_id());
+        let (composition, occurrence) = (self.fresh_id(), self.fresh_id());
         let composition_name = match name {
             Some(n) => self.free_composition_name(n, None),
             None => {
@@ -413,13 +413,13 @@ impl Document {
         list.insert(
             at,
             Element::new(
-                instance,
-                ElementKind::Instance(Instance { composition, place: Place::free(DVec2::ZERO), props: Default::default() }),
+                occurrence,
+                ElementKind::Occurrence(Occurrence { composition, place: Place::free(DVec2::ZERO), props: Default::default() }),
             ),
         );
         // A composition has no paper: what was anchored on the sheet stays where it is.
         for e in &mut taken {
-            if let ElementKind::Instance(i) = &mut e.kind {
+            if let ElementKind::Occurrence(i) = &mut e.kind {
                 i.place = Place { corner: None, at: i.place.origin(paper), rotation: i.place.rotation };
             }
         }
@@ -427,7 +427,7 @@ impl Document {
             composition,
             Composition { id: composition, name: composition_name, named: name.is_some(), elements: taken, source: None },
         );
-        Ok(instance)
+        Ok(occurrence)
     }
 
     fn paper_of(&self, container: Container) -> Option<Paper> {
@@ -437,22 +437,22 @@ impl Document {
         }
     }
 
-    /// Instance `id` and its composition, with its container.
-    fn instance(&self, id: Id) -> Result<(Container, &Element, &Instance, &Composition)> {
+    /// Occurrence `id` and its composition, with its container.
+    fn occurrence(&self, id: Id) -> Result<(Container, &Element, &Occurrence, &Composition)> {
         let container = self.drawing.container_of(id).ok_or(Error::NotFound(id))?;
         let e = self.drawing.element(id).ok_or(Error::NotFound(id))?;
-        let i = e.kind.instance().ok_or(Error::Invalid(Refusal::BadElement))?;
+        let i = e.kind.occurrence().ok_or(Error::Invalid(Refusal::BadElement))?;
         let b = self.drawing.composition(i.composition).ok_or(Error::NotFound(i.composition))?;
         Ok((container, e, i, b))
     }
 
-    /// An instance replaced by copies of what its composition holds, where it shows them. Refused
+    /// An occurrence replaced by copies of what its composition holds, where it shows them. Refused
     /// when turned over what has no rotation of its own. Gives the copies.
-    pub(crate) fn explode_instance(&mut self, id: Id) -> Result<Vec<Id>> {
-        let (container, e, i, b) = self.instance(id)?;
+    pub(crate) fn explode_occurrence(&mut self, id: Id) -> Result<Vec<Id>> {
+        let (container, e, i, b) = self.occurrence(id)?;
         let (hidden, locked, rotation) = (e.hidden, e.locked, i.place.rotation);
         if rotation != 0.0 && b.elements.iter().any(|x| !x.kind.turns()) {
-            return Err(Error::Invalid(Refusal::TurnedInstance));
+            return Err(Error::Invalid(Refusal::TurnedOccurrence));
         }
         let t: DAffine2 = i.place.transform(self.paper_of(container));
         let elements = b.elements.clone();
@@ -471,12 +471,12 @@ impl Document {
         Ok(ids)
     }
 
-    /// Instance `id` given a composition of its own, a copy of the one it shares (nothing to do when
+    /// Occurrence `id` given a composition of its own, a copy of the one it shares (nothing to do when
     /// it is alone). Gives its composition.
-    pub(crate) fn make_instance_unique(&mut self, id: Id) -> Result<Id> {
-        let (_, _, i, b) = self.instance(id)?;
+    pub(crate) fn make_occurrence_unique(&mut self, id: Id) -> Result<Id> {
+        let (_, _, i, b) = self.occurrence(id)?;
         let composition = i.composition;
-        if self.drawing.instances_of(composition).len() < 2 {
+        if self.drawing.occurrences_of(composition).len() < 2 {
             return Ok(composition);
         }
         let (elements, named, name) = (b.elements.clone(), b.named, b.name.clone());
@@ -485,7 +485,7 @@ impl Document {
         let name = self.free_composition_name(&name, None);
         let d = self.drawing_mut();
         d.compositions.insert(new, Composition { id: new, name, named, elements: copies, source: None });
-        if let Some(ElementKind::Instance(i)) = d.element_mut(id).map(|e| &mut e.kind) {
+        if let Some(ElementKind::Occurrence(i)) = d.element_mut(id).map(|e| &mut e.kind) {
             i.composition = new;
         }
         Ok(new)
@@ -503,12 +503,12 @@ impl Document {
         Ok(())
     }
 
-    /// A composition deleted, with its instances.
+    /// A composition deleted, with its occurrences.
     pub(crate) fn delete_composition(&mut self, composition: Id) -> Result<()> {
         self.drawing.composition(composition).ok_or(Error::NotFound(composition))?;
-        let instances = self.drawing.instances_of(composition);
-        if !instances.is_empty() {
-            self.delete_elements(&instances)?;
+        let occurrences = self.drawing.occurrences_of(composition);
+        if !occurrences.is_empty() {
+            self.delete_elements(&occurrences)?;
         }
         self.drawing_mut().compositions.remove(&composition);
         self.prune_compositions();
@@ -537,10 +537,10 @@ impl Document {
         match on {
             FieldOn::Presentation(id) => self.presentation_mut(id)?.props.set(key, value),
             FieldOn::Sheet(id) => self.sheet_mut(id)?.props.set(key, value),
-            FieldOn::Instance(id) => {
+            FieldOn::Occurrence(id) => {
                 let e = self.drawing_mut().element_mut(id).ok_or(Error::NotFound(id))?;
                 match &mut e.kind {
-                    ElementKind::Instance(i) => i.props.set(key, value),
+                    ElementKind::Occurrence(i) => i.props.set(key, value),
                     _ => return Err(Error::Invalid(Refusal::BadElement)),
                 }
             }
@@ -548,15 +548,15 @@ impl Document {
         Ok(())
     }
 
-    /// The value of field `key` for an element of sheet `sheet` under the instances `path`
-    /// (outermost first): the innermost instance's, the sheet's, its presentation's, else the
+    /// The value of field `key` for an element of sheet `sheet` under the occurrences `path`
+    /// (outermost first): the innermost occurrence's, the sheet's, its presentation's, else the
     /// document's. A key without a namespace is the user's (`client`: `user.client`).
     pub fn field(&self, sheet: Id, path: &[Id], key: &str) -> Option<&Value> {
         let key = &super::field_key(key);
         let d = &self.drawing;
         path.iter()
             .rev()
-            .find_map(|id| d.element(*id)?.kind.instance()?.props.get(key))
+            .find_map(|id| d.element(*id)?.kind.occurrence()?.props.get(key))
             .or_else(|| d.sheet(sheet)?.props.get(key))
             .or_else(|| d.presentation_of(sheet)?.props.get(key))
             .or_else(|| self.components.get(&self.root)?.props.get(key))

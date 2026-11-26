@@ -22,7 +22,7 @@ pub fn custom_fields(names: impl IntoIterator<Item = String>) -> Vec<String> {
 pub const FIELDS: &[&str] = &["document", "date", "sheet", "sheet.number", "sheet.count", "scale"];
 
 impl Fields<'_> {
-    /// `text` with its `{…}` fields filled, for an element under the instances `path` (one
+    /// `text` with its `{…}` fields filled, for an element under the occurrences `path` (one
     /// without a value left as it is).
     pub fn fill(&self, text: &str, path: &[Id]) -> String {
         let mut out = String::with_capacity(text.len());
@@ -85,7 +85,7 @@ pub(super) fn fields_of<'a>(
         sheet: &s.name,
         number: d.sheet_number(id).map_or(0, |(n, _)| n),
         count: d.sheet_number(id).map_or(0, |(_, c)| c),
-        // The first base view it shows, through its instances.
+        // The first base view it shows, through its occurrences.
         scale: placed.iter().find_map(|p| match &p.element.kind {
             ElementKind::View(View { kind: ViewKind::Base { scale, look, .. }, .. }) if look.frame().1.is_none() => Some(*scale),
             _ => None,

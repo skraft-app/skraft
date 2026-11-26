@@ -24,7 +24,7 @@ navigator. A desktop publishing application shows all its pages on one pasteboar
   paste act on it, as they acted on the sheet shown.
 - **A click on another sheet makes it active**, the camera still, nothing picked; a second click
   picks. **A double click on it also frames it**, and never enters a composition under the
-  pointer. On the active sheet a double click keeps its role: it enters an instance, or frames
+  pointer. On the active sheet a double click keeps its role: it enters an occurrence, or frames
   the sheet from its void. In the board's void it frames the whole board.
 - **The camera targets a sheet, never an element.** A sheet's row in the navigator makes it active
   and frames it, a presentation's does so with its first sheet. An element's row on another sheet
@@ -56,7 +56,7 @@ navigator. A desktop publishing application shows all its pages on one pasteboar
 
 ## Consequences
 
-- A sheet's drawing takes its place on the board (`Paperview`), composed with what its instances
+- A sheet's drawing takes its place on the board (`Paperview`), composed with what its occurrences
   add. The camera is in board millimetres; when the layout changes it follows the active sheet,
   which stays where it is on screen.
 - **Pictures and lines are kept per view and, for a projected view, per projection**: two
