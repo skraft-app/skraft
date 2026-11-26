@@ -206,12 +206,14 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                 ui.label(t!("panel.entity_info.occurrences"));
                 ui.label(doc.occurrence_count(c.id).to_string());
                 ui.end_row();
-                field_label(ui, t!("panel.entity_info.material"));
-                if let Some(m) = material_choice(ui, doc, ("occurrence_material", o.id), o.material, field) {
-                    actions.push(Action::Apply(Operation::PaintOccurrences { context, entities: vec![o.id], material: m }));
-                }
-                ui.end_row();
                 if let ComponentKind::Part(p) = &c.kind {
+                    // The part's material: every copy of it shows it (docs/render/look.md).
+                    field_label(ui, t!("panel.entity_info.material"));
+                    if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field) {
+                        let targets = vec![EntityPath::new(editor.context().to_vec(), o.id)];
+                        actions.push(Action::Apply(Operation::PaintParts { targets, material: m, scope: Scope::All }));
+                    }
+                    ui.end_row();
                     // In the part's own axes: length, width, thickness as the part lies; the
                     // final shape's exact box, once the kernel has given it (docs/model/bodies.md). None for a
                     // part in several pieces, or empty: an error to correct.
@@ -280,21 +282,18 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
 }
 
 /// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
-/// (edited there), how many times it is in the model, a part's dimensions, the materials its
-/// occurrences and faces carry.
+/// (edited there), how many times it is in the model, a part's dimensions, the materials it and
+/// its faces carry.
 fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(c) = doc.component(id) else { return };
     let units = &doc.settings().units;
     let field = info_field_width(ui);
     let count = doc.counts_in_model().get(&id).copied().unwrap_or(0);
-    // Its materials: its occurrences' own, its faces'; in the order of the document's.
+    // Its materials: the part's own, its faces'; in the order of the document's.
     let mut used: FastSet<Id> = FastSet::default();
-    for a in doc.components().filter_map(|c| c.as_assembly()).chain(std::iter::once(doc.root_assembly())) {
-        used.extend(a.occurrences().iter().filter(|o| o.component == id).filter_map(|o| o.material));
-    }
     if let ComponentKind::Part(p) = &c.kind {
-        used.extend(p.faces.values().copied());
+        used.extend(p.faces.values().copied().chain(p.material));
     }
     let materials: Vec<&str> = doc.materials().filter(|(m, _)| used.contains(m)).map(|(_, m)| m.name.as_str()).collect();
     info_grid(ui).show(ui, |ui| {

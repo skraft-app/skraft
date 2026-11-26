@@ -502,6 +502,7 @@ impl Document {
                     if p.failed.iter().any(|id| p.body(*id).is_none()) {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
+                    material(&p.material)?;
                     for m in p.faces.values() {
                         material(&Some(*m))?;
                     }
@@ -512,7 +513,6 @@ impl Document {
                 ComponentKind::Assembly(a) => {
                     for o in a.occurrences() {
                         below(o.id)?;
-                        material(&o.material)?;
                         if !here.insert(o.id) {
                             return Err(Error::File(FileError::DuplicateOccurrence { occurrence: o.id, assembly: c.id }));
                         }

@@ -31,12 +31,9 @@ fn a_step_file_becomes_parts_and_assemblies() {
     let board = frag.components().find(|c| c.name == "Planche é").unwrap();
     assert!(board.is_part() && board.named);
     assert_eq!(frag.occurrence_count(board.id), 2);
-    // The body's colour on both occurrences.
-    let cabinet = frag.components().find(|c| c.name == "Caisson").unwrap().as_assembly().unwrap();
-    for o in cabinet.occurrences() {
-        let m = frag.material(o.material.unwrap()).unwrap();
-        assert_eq!(m.color, [204, 153, 102]);
-    }
+    // The body's colour on its part, which both occurrences show.
+    let m = frag.material(board.as_part().unwrap().material.unwrap()).unwrap();
+    assert_eq!(m.color, [204, 153, 102]);
     assert_eq!(frag.materials().count(), 1);
     assert_eq!(frag.root_assembly().occurrences().len(), 1);
 }

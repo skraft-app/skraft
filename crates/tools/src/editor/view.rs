@@ -961,27 +961,42 @@ impl Editor {
     }
 
     /// The highlights of what the paint tool would paint, in the colour it would take
-    /// (docs/render/look.md): the parts under the occurrences painted, each in the material it would
-    /// then take (what is painted below them keeps its own, a painted face its paint); a face
-    /// alone, on every occurrence of its part shown.
+    /// (docs/render/look.md): the parts under the targets, in the material (a painted face its
+    /// paint) — every copy of them shown under « all occurrences »; a face alone, on every
+    /// occurrence of its part shown.
     fn paint_marks(&self, paint: &tools::PaintPreview, out: &mut Vec<ViewHighlight>) {
         let doc = self.document();
         let xray = self.xray();
-        let mut mark = |index: Option<ContextIndex<'_>>, id: Id| {
-            for u in index.map(|i| i.solids_under_painted(id, paint.material)).into_iter().flatten() {
-                let (definition, solid, transform, material) = (u.part, u.part, u.transform, u.material);
-                out.push(ViewHighlight { definition, solid, transform, mark: Mark::Painted, material, ghost: xray, face: None });
-            }
+        let mut mark = |part: Id, transform: DAffine3| {
+            out.push(ViewHighlight {
+                definition: part,
+                solid: part,
+                transform,
+                mark: Mark::Painted,
+                material: paint.material,
+                ghost: xray,
+                face: None,
+            });
         };
         match &paint.target {
-            tools::PaintTarget::Occurrences(ids) => {
-                for id in ids {
-                    mark(ContextIndex::new(doc, &self.context), *id);
-                }
-            }
-            tools::PaintTarget::Paths(paths) => {
+            tools::PaintTarget::Parts { paths, scope } => {
+                let mut parts = std::collections::HashSet::new();
                 for p in paths {
-                    mark(ContextIndex::new(doc, &p.instances), p.entity);
+                    for u in
+                        ContextIndex::new(doc, &p.instances).map(|i| i.solids_under_painted(p.entity, paint.material)).into_iter().flatten()
+                    {
+                        match scope {
+                            skraft_model::Scope::All => {
+                                parts.insert(u.part);
+                            }
+                            skraft_model::Scope::This => mark(u.part, u.transform),
+                        }
+                    }
+                }
+                for (part, places) in self.scene.placements().filter(|(p, _)| parts.contains(p)) {
+                    for p in places.iter().filter(|p| self.scene.is_shown(p)) {
+                        mark(part, p.transform);
+                    }
                 }
             }
             tools::PaintTarget::Face { path, face } => {
@@ -993,7 +1008,7 @@ impl Editor {
                         solid: part,
                         transform: p.transform,
                         mark: Mark::Painted,
-                        // Unpainted, it takes its occurrence's again.
+                        // Unpainted, it takes its part's again.
                         material: paint.material.or(p.material),
                         ghost: xray,
                         face: Some(*face),

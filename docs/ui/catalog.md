@@ -32,8 +32,8 @@ colours, picture, interaction, section headers.
   material chosen.
 - **The entity info edits it**: name, colour, texture (image, width, height, rotation), its
   [properties](../model/properties.md).
-- **The count** `×n` is how many placed parts of the model show the material, on a face or
-  through their occurrence, each placement once (`Document::material_counts`).
+- **The count** `×n` is how many placed parts of the model show the material, on a face or as
+  the part's own, each placement once (`Document::material_counts`).
 - **Unused** means nothing refers to it. A material only on unused components stays in
   « Utilisées » with ×0, so that `Operation::PurgeMaterials` never takes paint from a component
   that may be placed again.

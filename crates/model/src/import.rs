@@ -125,6 +125,8 @@ impl Document {
         // Nodes come children first (the kernel numbers a node after those it places): one
         // pass bottom-up. A node is its part alone when it has no children, else an assembly.
         let mut component_of: Vec<Option<Id>> = vec![None; skp.nodes.len()];
+        // The instances painted, by (assembly, occurrence), settled on their parts at the end.
+        let mut painted: crate::FastMap<(Id, Id), Id> = crate::FastMap::default();
         for n in 0..skp.nodes.len() {
             if n == skp.root {
                 continue;
@@ -149,14 +151,18 @@ impl Document {
                 None
             } else {
                 let mut list = Vec::with_capacity(occurrences.len());
+                let mut paints = Vec::new();
                 for (component, transform, name, material) in occurrences {
                     let id = doc.fresh_id();
-                    let material = material.and_then(|m| materials.get(m).copied());
-                    list.push(Occurrence { id, name, component, transform, material, hidden: false, props: Default::default() });
+                    if let Some(m) = material.and_then(|m| materials.get(m).copied()) {
+                        paints.push((id, m));
+                    }
+                    list.push(Occurrence { id, name, component, transform, hidden: false, props: Default::default() });
                 }
                 let assembly = Assembly::new(list);
                 report.assemblies += 1;
                 let id = doc.insert_component(&name_of(node.definition), named_def(node.definition), ComponentKind::Assembly(assembly));
+                painted.extend(paints.into_iter().map(|(o, m)| ((id, o), m)));
                 doc.component_mut(id)?.behavior = behavior(node.definition);
                 Some(id)
             };
@@ -164,13 +170,13 @@ impl Document {
         // The model's own entities go straight into the root.
         let root_node = &skp.nodes[skp.root];
         let mut top = Vec::new();
+        let mut top_paints = Vec::new();
         if let Some(p) = root_node.part.and_then(|p| part_ids[p]) {
             top.push(Occurrence {
                 id: Id(0),
                 name: String::new(),
                 component: p,
                 transform: DAffine3::IDENTITY,
-                material: None,
                 hidden: false,
                 props: Default::default(),
             });
@@ -178,13 +184,12 @@ impl Document {
         for c in &root_node.children {
             match component_of[c.node] {
                 Some(component) => {
-                    let material = c.material.and_then(|m| materials.get(m).copied());
+                    top_paints.push(c.material.and_then(|m| materials.get(m).copied()));
                     top.push(Occurrence {
                         id: Id(0),
                         name: c.name.clone(),
                         component,
                         transform: c.transform,
-                        material,
                         hidden: false,
                         props: Default::default(),
                     });
@@ -195,7 +200,21 @@ impl Document {
         for o in &mut top {
             o.id = doc.fresh_id();
         }
+        // The root's own part, first when it has one, is not painted.
+        let painted_top = top.iter().skip(top.len() - top_paints.len()).zip(&top_paints);
+        painted.extend(painted_top.filter_map(|(o, m)| m.map(|m| ((root_id, o.id), m))));
         *doc.assembly_mut(root_id)?.occurrences_mut() = top;
+        // Instances' materials onto their parts (docs/io/sketchup-import.md): the copies it
+        // makes are counted.
+        let before: std::collections::HashSet<Id> = doc.components.keys().copied().collect();
+        doc.settle_occurrence_paints(&painted)?;
+        for c in doc.components.values().filter(|c| !before.contains(&c.id)) {
+            if c.is_part() {
+                report.parts += 1;
+            } else {
+                report.assemblies += 1;
+            }
+        }
         // Parts nothing places any more (only under excluded assemblies) are dropped.
         let used: std::collections::HashSet<Id> =
             doc.components.values().filter_map(|c| c.as_assembly()).flat_map(|a| a.occurrences().iter().map(|o| o.component)).collect();

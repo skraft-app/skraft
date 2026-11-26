@@ -222,8 +222,12 @@ pub struct Part {
     /// computed (docs/model/data-model.md). Part of the same cache.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) failed: BTreeSet<Id>,
+    /// What the part is made of (docs/render/look.md): every occurrence shows it, its faces
+    /// without one of their own take it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<Id>,
     /// The material of single faces of the shape, by their index in its record (docs/render/look.md):
-    /// over the occurrence's. A boolean renumbers faces: an index may then name another
+    /// over the part's. A boolean renumbers faces: an index may then name another
     /// face, or none (ignored).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub faces: BTreeMap<u32, Id>,
@@ -238,7 +242,7 @@ impl Part {
 
     /// A part of the single positive body `body`, of `def`; computed when it is placed.
     pub(crate) fn of_body(def: BodyDef, body: Body) -> Self {
-        Part { defs: vec![def], bodies: vec![body], shape: None, failed: BTreeSet::new(), faces: BTreeMap::new() }
+        Part { defs: vec![def], bodies: vec![body], shape: None, failed: BTreeSet::new(), material: None, faces: BTreeMap::new() }
     }
 
     /// Settles the automatic names of its body definitions (docs/model/bodies.md#body-names): each its
@@ -345,7 +349,14 @@ impl Part {
     /// result as the shape, every definition of the part.
     pub(crate) fn group_as_part(&self, def: &BodyDef) -> Part {
         let g = def.group.clone().unwrap_or_default();
-        let mut p = Part { defs: self.defs.clone(), bodies: g.children, shape: None, failed: g.failed, faces: BTreeMap::new() };
+        let mut p = Part {
+            defs: self.defs.clone(),
+            bodies: g.children,
+            shape: None,
+            failed: g.failed,
+            material: self.material,
+            faces: BTreeMap::new(),
+        };
         // Only a plain part reads its shape from its body: an emptied group has none to read.
         if !p.is_plain() {
             p.shape = Some(def.solid.clone());
@@ -861,9 +872,6 @@ pub struct Occurrence {
     /// From the component's axes to its assembly's: a move, a rotation, maybe a mirror; never
     /// a scale.
     pub transform: DAffine3,
-    /// The copy's material (its faces without one of their own take it).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub material: Option<Id>,
     /// Hidden by the user (docs/tools/interaction.md): neither drawn, picked, inferred on nor framed, nor is
     /// anything under it — but while it is being edited, or with the hidden shown.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -997,8 +1005,7 @@ pub struct PlacedPart {
     /// Part to world.
     pub transform: DAffine3,
     pub shape: Arc<Solid>,
-    /// The material its faces take: the occurrence's own, else the nearest assembly
-    /// occurrence's above it that has one (an assembly painted paints its parts).
+    /// The part's material ([`Part::material`]): its faces without one of their own take it.
     pub material: Option<Id>,
     /// The deepest hidden occurrence of its path, by its index in the path (the occurrence
     /// itself last): none when nothing along it is hidden.
@@ -1282,9 +1289,9 @@ impl Document {
     }
 
     /// How many placed parts of the model show each material (docs/render/look.md): on one of
-    /// their faces, or through their occurrence, its own material or the nearest assembly's. A
-    /// part counts once per placement, whatever the number of its faces painted; hidden ones
-    /// count, as in [`Document::counts_in_model`]. Only the materials shown are in the map.
+    /// their faces, or as the part's own. A part counts once per placement, whatever the
+    /// number of its faces painted; hidden ones count, as in [`Document::counts_in_model`].
+    /// Only the materials shown are in the map.
     pub fn material_counts(&self) -> FastMap<Id, u64> {
         fn walk(doc: &Document, c: Id, seen: &mut FastSet<Id>, order: &mut Vec<Id>) {
             if !seen.insert(c) {
@@ -1299,36 +1306,25 @@ impl Document {
         }
         let (mut seen, mut order) = (FastSet::default(), Vec::new());
         walk(self, self.root, &mut seen, &mut order);
-        // Each component, after all that hold it: how many times it is reached, by the material
-        // it inherits there.
-        let mut reached: FastMap<Id, BTreeMap<Option<Id>, u64>> = FastMap::default();
-        reached.entry(self.root).or_default().insert(None, 1);
+        // Each component, after all that hold it: how many times it is reached.
+        let mut reached: FastMap<Id, u64> = FastMap::default();
+        reached.insert(self.root, 1);
         let mut counts: FastMap<Id, u64> = FastMap::default();
         for &c in order.iter().rev() {
-            let Some(inherited) = reached.remove(&c) else { continue };
+            let Some(n) = reached.remove(&c) else { continue };
             let Ok(component) = self.component(c) else { continue };
             match &component.kind {
                 ComponentKind::Assembly(a) => {
                     for o in a.occurrences() {
-                        let below = reached.entry(o.component).or_default();
-                        for (&m, &n) in &inherited {
-                            let k = below.entry(o.material.or(m)).or_insert(0);
-                            *k = k.saturating_add(n);
-                        }
+                        let k = reached.entry(o.component).or_insert(0);
+                        *k = k.saturating_add(n);
                     }
                 }
                 ComponentKind::Part(p) => {
-                    let faces: FastSet<Id> = p.faces.values().copied().collect();
-                    let all = inherited.values().fold(0u64, |t, &n| t.saturating_add(n));
-                    for &m in &faces {
+                    let shown: FastSet<Id> = p.faces.values().copied().chain(p.material).collect();
+                    for m in shown {
                         let k = counts.entry(m).or_insert(0);
-                        *k = k.saturating_add(all);
-                    }
-                    for (&m, &n) in &inherited {
-                        if let Some(m) = m.filter(|m| !faces.contains(m)) {
-                            let k = counts.entry(m).or_insert(0);
-                            *k = k.saturating_add(n);
-                        }
+                        *k = k.saturating_add(n);
                     }
                 }
             }
@@ -1336,14 +1332,13 @@ impl Document {
         counts
     }
 
-    /// The materials something refers to: an occurrence or a face of any component, placed in
-    /// the model or not.
+    /// The materials something refers to: a part or a face of any part, placed in the model or
+    /// not.
     pub fn materials_referenced(&self) -> FastSet<Id> {
         let mut out = FastSet::default();
         for c in self.components.values() {
-            match &c.kind {
-                ComponentKind::Part(p) => out.extend(p.faces.values().copied()),
-                ComponentKind::Assembly(a) => out.extend(a.occurrences().iter().filter_map(|o| o.material)),
+            if let ComponentKind::Part(p) = &c.kind {
+                out.extend(p.faces.values().copied().chain(p.material));
             }
         }
         out
@@ -1435,7 +1430,7 @@ impl Document {
     /// three times.
     pub fn placed_parts(&self) -> Vec<PlacedPart> {
         let mut out = Vec::new();
-        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, (None, None), &mut out, 0);
+        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
         out
     }
 
@@ -1448,7 +1443,7 @@ impl Document {
     pub fn placed_changes(&self, before: &Document, touched: &[Id]) -> Vec<(PlacedPart, Id, DAffine3)> {
         let mut walk = ChangesWalk { before, touched, dirty: FastMap::default(), out: Vec::new() };
         let t = DAffine3::IDENTITY;
-        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), (None, None), 0);
+        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), None, 0);
         walk.out
     }
 
@@ -1476,7 +1471,7 @@ impl Document {
         (assembly, was): (Id, Id),
         path: &mut Vec<Id>,
         (t, tb): (DAffine3, DAffine3),
-        (material, hidden_at): (Option<Id>, Option<u32>),
+        hidden_at: Option<u32>,
         depth: usize,
     ) {
         let before = walk.before;
@@ -1524,7 +1519,7 @@ impl Document {
                         part: c.id,
                         transform: t,
                         shape: p.shape().clone(),
-                        material: o.material.or(material),
+                        material: p.material,
                         hidden_at,
                     },
                     cb.id,
@@ -1532,7 +1527,7 @@ impl Document {
                 )),
                 (ComponentKind::Assembly(_), ComponentKind::Assembly(_)) => {
                     path.push(o.id);
-                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), (o.material.or(material), hidden_at), depth + 1);
+                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), hidden_at, depth + 1);
                     path.pop();
                 }
                 _ => {}
@@ -1540,14 +1535,14 @@ impl Document {
         }
     }
 
-    /// `above`: the material and the deepest hidden occurrence ([`PlacedPart::hidden_at`])
-    /// coming from the occurrences above.
+    /// `hidden_at`: the deepest hidden occurrence ([`PlacedPart::hidden_at`]) coming from the
+    /// occurrences above.
     pub(crate) fn walk(
         &self,
         assembly: Id,
         path: &mut Vec<Id>,
         t: DAffine3,
-        above: (Option<Id>, Option<u32>),
+        hidden_at: Option<u32>,
         out: &mut Vec<PlacedPart>,
         depth: usize,
     ) {
@@ -1555,7 +1550,6 @@ impl Document {
         if depth > MAX_DEPTH {
             return;
         }
-        let (material, hidden_at) = above;
         for o in &a.occurrences {
             let Ok(c) = self.component(o.component) else { continue };
             let t = t * o.transform;
@@ -1566,12 +1560,12 @@ impl Document {
                     part: c.id,
                     transform: t,
                     shape: p.shape().clone(),
-                    material: o.material.or(material),
+                    material: p.material,
                     hidden_at,
                 }),
                 ComponentKind::Assembly(_) => {
                     path.push(o.id);
-                    self.walk(c.id, path, t, (o.material.or(material), hidden_at), out, depth + 1);
+                    self.walk(c.id, path, t, hidden_at, out, depth + 1);
                     path.pop();
                 }
             }
@@ -1801,14 +1795,12 @@ impl Document {
             list.iter()
                 .map(|o| {
                     let component = *components.get(&o.component).ok_or(Error::NotFound(o.component))?;
-                    let material = o.material.and_then(|m| materials.get(&m).copied());
                     Ok(Occurrence {
                         id: doc.fresh_id(),
                         name: o.name.clone(),
                         props: o.props.clone(),
                         component,
                         transform: o.transform,
-                        material,
                         hidden: o.hidden,
                     })
                 })
@@ -1847,6 +1839,7 @@ impl Document {
                         }
                         g.failed = g.failed.iter().filter_map(|id| own.get(id).copied()).collect();
                     }
+                    p.material = p.material.and_then(|m| materials.get(&m).copied());
                     p.faces = p.faces.iter().filter_map(|(f, m)| materials.get(m).map(|m| (*f, *m))).collect();
                     ComponentKind::Part(p)
                 }

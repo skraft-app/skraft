@@ -108,49 +108,58 @@ symbols the code writes, and of Greek.
 
 - **Model**: `Document.materials: Id → Material { name, color, texture, props }` (sRGB; a
   texture: [Textures](#textures); properties: [Properties](../model/properties.md));
-  `Occurrence.material: Option<Id>` (the copy's material, as in OpenCutList; an assembly's
-  occurrence paints the parts below it that have none); `Part.faces: BTreeMap<u32, Id>`, the
-  material of single **faces** of the part's final B-rep (so of all its occurrences).
-  Priority: face > occurrence > the theme's default; back faces keep the back colour.
+  `Part.material: Option<Id>`, what the part is made of, on its definition: every occurrence
+  shows it, an assembly has none
+  ([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md));
+  `Part.faces: BTreeMap<u32, Id>`, the material of single **faces** of the part's final B-rep
+  (so of all its occurrences). Priority: face > part > the theme's default; back faces keep the
+  back colour.
   **Accepted limit**: a face is named by its index in the record, which a boolean renumbers;
   an index past the solid's faces is ignored.
 - **Operations**: `AddMaterial`, `EditMaterial` (name, colour; dragging a colour merges into one
-  step), `DeleteMaterial` (unpaints what used it), `PaintOccurrences`, `PaintFaces`,
+  step), `DeleteMaterial` (unpaints what used it), `PaintParts`, `PaintFaces`,
   `SetTexture`, `ImportMaterials`. None calls the kernel. A file painting with an unknown
   material is refused.
 - **Rendering**: a **palette** (a storage buffer of linear RGBA); each instance carries a
-  palette index, each vertex the index of its painted face (or none). Changing a material's
-  colour rewrites only the palette; painting an occurrence only the instances (rewritten each
-  frame); painting a face re-uploads that one part's mesh. The app gives each material a
+  palette index (its part's material), each vertex the index of its painted face (or none).
+  Changing a material's colour rewrites only the palette; painting a part only the instances
+  (rewritten each frame); painting a face re-uploads that one part's mesh. The app gives each material a
   palette slot for the session, never reused, so baked face indices stay valid. A highlight
   may stand for a single face (`Highlight::face`): only that face's triangles (each part keeps
   its faces' runs of triangles in the index buffer, `PartRange::faces`), without edges, its
   colour forced over the face's own paint (the instance's palette entry flagged `FORCED`).
 - **Paint tool** (`tool.paint`, B, as SketchUp's paint bucket and OpenCutList's Smart Paint): a
   click paints with the current material (none: the paint is removed). Its option « Peindre »
-  (Tab turns it over): « L'exemplaire » — the occurrence clicked, or the whole selection when
-  it is in it — or « La face » — the face clicked, on every occurrence of its part. Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
+  (Tab turns it over): « La pièce » — the part clicked, every part below an assembly clicked,
+  or the whole selection when it is in it — or « La face » — the face clicked, on every
+  occurrence of its part. Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
   the cursor at any depth, in its assembly (the parts selected when it is one of them), and
-  the level chosen in the tree drop-up. Painting occurrences, a drag draws a rectangle: what it
+  the level chosen in the tree drop-up. Painting parts, a drag draws a rectangle: what it
   encloses (left to right) or touches (right to left) is painted when it is released (one
-  step); Esc drops it.
+  step); Esc drops it. `Operation::PaintParts { targets, material, scope }`, the targets by
+  their paths from the root.
+  - **Scope** (« Portée », painting parts; hidden for a part placed once, as the other tools'):
+    « Tous les exemplaires ×n » paints the parts' definitions, so every copy; « Celui-ci »
+    paints only the placements aimed at: a part some of whose placements are not painted gets
+    a copy for those that are (`Document::paint_parts`) — an occurrence all of whose placements
+    are painted is pointed at it where it stands, the assemblies on the way made their own only
+    when their copies differ.
   - **Preview** (OCL's `_preview_instances`): what a click (or the rectangle) would paint is
     drawn in the colour it would take (`Preview::paint`, `Mark::Painted`: no tint, hovered
-    edges): each part under the occurrences painted in the material it would then inherit — a
-    part painted below them keeps its own, a painted face its paint —, the default colour when
-    the paint is removed; a face alone, on every occurrence of its part, in the material (none:
-    its occurrence's). Not in an open part.
+    edges): each part under the targets in the material — every copy of it shown under « Tous
+    les exemplaires » —, the default colour when the paint is removed; a face alone, on every
+    occurrence of its part, in the material (none: its part's). Not in an open part.
   - The other modifier held (Command on macOS, Alt elsewhere) holds « Prélever » over it
     ([tool stack](../tools/interaction.md#tool-stack)).
 - **« Prélever »** (`tool.sample`, SketchUp's Sample Paint, OCL's `ACTION_PICK`; ribbon
   « Apparence », no key): a click takes the material shown under the cursor — the face's own,
-  else its occurrence's (its own or its assemblies'), else none — as the paint tool's; its
+  else its part's, else none — as the paint tool's; its
   tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
   the paint tool with it; held over the paint tool, each click takes, until the key is released
   (or Esc).
 - **Interface**: the **Matières** card ([Catalog cards](../ui/catalog.md#the-materials-card)):
   the materials as tiles or rows; one chosen is what the paint tool paints with and is edited
-  in the entity info. The occurrence's material in the entity info.
+  in the entity info. A part's material in the entity info (« Matière », every copy).
   The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
   it would hide what the tool paints with); it stays so when the tool ends.
 

@@ -47,7 +47,7 @@ pub struct DefinitionMesh {
     /// Changes with the mesh and with the faces' materials.
     pub revision: u64,
     pub parts: Vec<PartMesh>,
-    /// The materials of single faces (by face index), over the occurrences' (docs/render/look.md).
+    /// The materials of single faces (by face index), over the part's (docs/render/look.md).
     pub faces: BTreeMap<u32, Id>,
 }
 
@@ -58,7 +58,7 @@ pub struct Placement {
     pub path: Vec<Id>,
     /// Part to world.
     pub transform: DAffine3,
-    /// The material its faces take (its occurrence's, else an assembly's above it).
+    /// The material its faces without one of their own take: the part's.
     pub material: Option<Id>,
     /// Hidden by the user: it, or an occurrence above it, out of the active path (what is
     /// being edited shows).
@@ -991,19 +991,16 @@ pub struct Under {
     pub part: Id,
     /// Part to world.
     pub transform: DAffine3,
-    /// The material its faces take there.
+    /// The material its faces without one of their own take.
     pub material: Option<Id>,
 }
 
-/// The occurrences of the assembly a context path leads into, indexed by id, with what
-/// they inherit from above: built once, it answers many occurrences (a selection of tens of
+/// The occurrences of the assembly a context path leads into, indexed by id: built once, it answers many occurrences (a selection of tens of
 /// thousands) without searching the assembly for each.
 pub struct ContextIndex<'d> {
     doc: &'d Document,
     /// Context to world.
     transform: DAffine3,
-    /// The material the assemblies above the context give.
-    inherited: Option<Id>,
     /// Searched by id through its own index (`Assembly::occurrence`).
     assembly: &'d Assembly,
     /// The occurrences hidden by the user are shown.
@@ -1014,15 +1011,8 @@ impl<'d> ContextIndex<'d> {
     pub fn new(doc: &'d Document, context_path: &[Id]) -> Option<Self> {
         let ctx = doc.context_of(context_path).ok()?;
         let transform = doc.transform_of(context_path).ok()?;
-        let mut inherited = None;
-        let mut at = doc.root();
-        for &i in context_path {
-            let Some(occ) = doc.assembly(at).ok().and_then(|a| a.occurrence(i)) else { break };
-            inherited = occ.material.or(inherited);
-            at = occ.component;
-        }
         let assembly = doc.assembly(ctx).ok()?;
-        Some(ContextIndex { doc, transform, inherited, assembly, show_hidden: doc.settings().display.show_hidden })
+        Some(ContextIndex { doc, transform, assembly, show_hidden: doc.settings().display.show_hidden })
     }
 
     /// Context to world.
@@ -1044,7 +1034,7 @@ impl<'d> ContextIndex<'d> {
     }
 
     /// [`ContextIndex::solids_under`] as they would be drawn with `entity` painted with
-    /// `material` (none: unpainted): what is painted below it keeps its own.
+    /// `material` (none: unpainted): every part below it takes it (docs/render/look.md).
     pub fn solids_under_painted(&self, entity: Id, material: Option<Id>) -> Vec<Under> {
         let mut out = Vec::new();
         self.walk_under(entity, Some(material), &mut out);
@@ -1056,25 +1046,32 @@ impl<'d> ContextIndex<'d> {
         self.walk_under(entity, None, out);
     }
 
-    /// The parts under `entity`, its own material replaced by `painted` when given.
+    /// The parts under `entity`, each in its own material, or in `painted` when given.
     fn walk_under(&self, entity: Id, painted: Option<Option<Id>>, out: &mut Vec<Under>) {
-        fn walk(doc: &Document, show_hidden: bool, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
+        fn walk(
+            doc: &Document,
+            show_hidden: bool,
+            component: Id,
+            t: DAffine3,
+            painted: Option<Option<Id>>,
+            out: &mut Vec<Under>,
+            depth: usize,
+        ) {
             if depth > MAX_DEPTH {
                 return;
             }
             match doc.component(component).map(|c| &c.kind) {
-                Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
+                Ok(ComponentKind::Part(p)) => out.push(Under { part: component, transform: t, material: painted.unwrap_or(p.material) }),
                 Ok(ComponentKind::Assembly(a)) => {
                     for o in a.occurrences().iter().filter(|o| show_hidden || !o.hidden) {
-                        walk(doc, show_hidden, o.component, t * o.transform, o.material.or(material), out, depth + 1);
+                        walk(doc, show_hidden, o.component, t * o.transform, painted, out, depth + 1);
                     }
                 }
                 Err(_) => {}
             }
         }
         if let Some(o) = self.occurrence(entity) {
-            let own = painted.unwrap_or(o.material);
-            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, own.or(self.inherited), out, 0);
+            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, painted, out, 0);
         }
     }
 }

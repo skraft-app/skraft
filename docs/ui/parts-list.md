@@ -11,14 +11,14 @@ placed, in which material, of which size, how many.
 
 ## Rows
 
-- **One row per part placed in the model and material**: a part's occurrences, at any depth,
-  grouped by the material they take (`PlacedPart::material`: the occurrence's own, else an
-  assembly's above it). A part placed in one material is one row; placed in two, two rows.
+- **One row per part placed in the model**: a part's occurrences, at any depth, in its
+  material (`PlacedPart::material`, the part's own: two copies in two materials are two parts,
+  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)).
   Hidden occurrences count: they are in the model. Parts not placed are not listed.
 - **Columns**: name (the part's), material (« Aucune » when none), length, width, thickness —
   the box of the part's final B-rep along its red, green and blue axes (the scene's
   exact bounds, else the shape's vertices; « — » while the kernel computes it) —, quantity (its
-  occurrences in that material). Lengths in the document's units; their
+  occurrences). Lengths in the document's units; their
   symbol, when the document shows it, is in the column's header (« Longueur (mm) »), not in each
   cell. The columns are as wide as a number at the document's decimals.
 - **Sorted** by a column's header: a click sorts by it (names and materials ascending, numbers

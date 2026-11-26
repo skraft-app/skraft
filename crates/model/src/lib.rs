@@ -20,6 +20,7 @@ mod links;
 pub mod measure;
 mod moves;
 mod ops;
+mod paint;
 mod profile;
 pub mod props;
 mod settings;

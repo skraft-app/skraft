@@ -1442,10 +1442,17 @@ tool:
     option:
       target: "$t(common.paint)"
       target_tip: "Ce qu'un clic peint (Tab pour changer)"
-      occurrence: "L'exemplaire"
-      occurrence_tip: "L'exemplaire cliqué, ou toute la sélection s'il en fait partie"
+      part: "La pièce"
+      part_tip: "La pièce cliquée, toutes les pièces d'un assemblage, ou toute la sélection si elle en fait partie"
       face: "La face"
       face_tip: "La face cliquée, sur tous les exemplaires de sa pièce"
+      scope: "Portée"
+      scope_tip: "Les exemplaires que la matière change"
+      all: "Tous les exemplaires"
+      all_count: "Tous les exemplaires ×%{count}"
+      all_tip: "La pièce elle-même : tous ses exemplaires prennent la matière"
+      this: "Celui-ci"
+      this_tip: "Seulement les exemplaires peints : ils deviennent une pièce à part (et leur assemblage, s'il est copié)"
   # Takes the material shown under the cursor as the one the paint tool paints with (a
   # pipette).
   sample:

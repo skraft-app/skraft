@@ -47,8 +47,8 @@ impl Document {
             })
         };
         // Products come children first (the kernel numbers a product after what it places):
-        // each one's component, and the material its occurrences take (a single body's).
-        let mut component_of: Vec<Option<(Id, Option<Id>)>> = vec![None; step.products.len()];
+        // each one's component. A body's colour is its part's material.
+        let mut component_of: Vec<Option<Id>> = vec![None; step.products.len()];
         for (k, p) in step.products.iter().enumerate() {
             let product_name = if p.name.is_empty() { None } else { Some(p.name.clone()) };
             let mut occurrences: Vec<Occurrence> = Vec::new();
@@ -56,47 +56,46 @@ impl Document {
                 && let [body] = p.bodies.as_slice()
             {
                 let base = product_name.clone().or_else(|| Some(body.name.clone()).filter(|n| !n.is_empty()));
-                let part = doc.plain_part(Arc::new(body.solid.clone()));
+                let mut part = doc.plain_part(Arc::new(body.solid.clone()));
+                part.material = material(&mut doc, body.color);
                 let id = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
                     base.is_some(),
                     ComponentKind::Part(part),
                 );
                 report.parts += 1;
-                component_of[k] = Some((id, material(&mut doc, body.color)));
+                component_of[k] = Some(id);
                 continue;
             }
             for (b, body) in p.bodies.iter().enumerate() {
                 let base =
                     Some(body.name.clone()).filter(|n| !n.is_empty()).or_else(|| product_name.as_ref().map(|n| format!("{n} {}", b + 1)));
-                let part = doc.plain_part(Arc::new(body.solid.clone()));
+                let mut part = doc.plain_part(Arc::new(body.solid.clone()));
+                part.material = material(&mut doc, body.color);
                 let part = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
                     base.is_some(),
                     ComponentKind::Part(part),
                 );
                 report.parts += 1;
-                let material = material(&mut doc, body.color);
                 let id = doc.fresh_id();
                 occurrences.push(Occurrence {
                     id,
                     name: String::new(),
                     component: part,
                     transform: DAffine3::IDENTITY,
-                    material,
                     hidden: false,
                     props: Default::default(),
                 });
             }
             for c in &p.children {
-                if let Some(Some((component, material))) = component_of.get(c.product) {
+                if let Some(Some(component)) = component_of.get(c.product) {
                     let id = doc.fresh_id();
                     occurrences.push(Occurrence {
                         id,
                         name: c.name.clone(),
                         component: *component,
                         transform: c.transform,
-                        material: *material,
                         hidden: false,
                         props: Default::default(),
                     });
@@ -111,18 +110,17 @@ impl Document {
                 ComponentKind::Assembly(Assembly::new(occurrences)),
             );
             report.assemblies += 1;
-            component_of[k] = Some((id, None));
+            component_of[k] = Some(id);
         }
         let mut top = Vec::new();
         for r in &step.roots {
-            if let Some(Some((component, material))) = component_of.get(r.product) {
+            if let Some(Some(component)) = component_of.get(r.product) {
                 let id = doc.fresh_id();
                 top.push(Occurrence {
                     id,
                     name: r.name.clone(),
                     component: *component,
                     transform: r.transform,
-                    material: *material,
                     hidden: false,
                     props: Default::default(),
                 });

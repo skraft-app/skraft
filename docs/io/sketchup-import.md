@@ -73,7 +73,12 @@ A material used by an instance or a face becomes a document material: its name, 
 texture's average colour), and its **texture**, the image (PNG or JPEG, as the file holds it)
 among the document's assets laid at the real size SketchUp gives it
 ([Textures](../render/look.md#textures): a box projection in the part's axes, not SketchUp's
-per-face placement). An instance's material goes on its occurrence. A **face's** goes on its
+per-face placement). An instance's material goes on its **part** (a material is a part's,
+[decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)): a part takes
+the material of the nearest instance above it that has one (`Document::settle_occurrence_paints`);
+a definition reached in several materials stays one part for the material most of its
+placements take, and gets a copy for each other — the instance pointed at its copy where it
+stands, the assemblies on the way made their own only when their copies differ. A **face's** goes on its
 part (`Part::faces`, by the face's index in the solid's record): the material of its side facing
 out — a face SketchUp holds reversed shows its back —, none when only its inner side is
 painted (unseen in SketchUp too). The kernel finds each face again in the built solid by its

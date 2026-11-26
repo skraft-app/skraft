@@ -735,7 +735,7 @@ fn only_this_one_makes_the_way_to_it_unique() {
 }
 
 #[test]
-fn materials_paint_occurrences_assemblies_and_faces() {
+fn materials_paint_parts_assemblies_and_faces() {
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
@@ -743,18 +743,20 @@ fn materials_paint_occurrences_assemblies_and_faces() {
     let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
     let walnut = h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap().material.unwrap();
     assert_eq!(h.document().materials().count(), 2);
+    let paint = |targets: Vec<EntityPath>, material, scope| Operation::PaintParts { targets, material, scope };
 
-    // An occurrence painted: its placed part takes the material, the other does not.
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    // A part painted: on its definition, the other part not.
+    h.apply(paint(vec![EntityPath::root(a)], Some(oak), Scope::All)).unwrap();
     let placed = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().material;
     assert_eq!(placed(&h, a), Some(oak));
     assert_eq!(placed(&h, b), None);
+    let part_a = h.document().root_assembly().occurrence(a).unwrap().component;
+    assert_eq!(h.document().part(part_a).unwrap().material, Some(oak));
 
-    // An assembly painted paints the parts in it that have no material of their own.
+    // An assembly painted paints every part below it, one painted too; it has none itself.
     let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![asm], material: Some(walnut) }).unwrap();
-    assert_eq!(placed(&h, a), Some(oak));
-    assert_eq!(placed(&h, b), Some(walnut));
+    h.apply(paint(vec![EntityPath::root(asm)], Some(walnut), Scope::All)).unwrap();
+    assert_eq!((placed(&h, a), placed(&h, b)), (Some(walnut), Some(walnut)));
 
     // A face of a part: kept by the part (every occurrence), refused past the last face.
     let part = h.document().placed_parts().into_iter().find(|p| p.path.entity == b).unwrap().part;
@@ -774,11 +776,51 @@ fn materials_paint_occurrences_assemblies_and_faces() {
     assert!(h.undo());
     assert_eq!(h.document(), &before, "both recolourings undo together");
 
-    // Deleting a material unpaints what used it.
+    // Deleting a material unpaints what used it, parts and faces.
+    h.apply(paint(vec![EntityPath::new(vec![asm], a)], Some(oak), Scope::All)).unwrap();
     h.apply(Operation::DeleteMaterial { material: oak }).unwrap();
-    assert_eq!(placed(&h, a), Some(walnut), "the assembly's material shows through");
+    assert_eq!((placed(&h, a), placed(&h, b)), (None, Some(walnut)));
     assert!(h.document().part(part).unwrap().faces.is_empty());
-    assert!(h.apply(Operation::PaintOccurrences { context: root, entities: vec![asm], material: Some(oak) }).is_err());
+    assert!(h.apply(paint(vec![EntityPath::root(asm)], Some(oak), Scope::All)).is_err());
+}
+
+#[test]
+fn painting_only_these_copies_makes_their_parts_unique() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    let t = DAffine3::from_translation(DVec3::Y * 50.0);
+    let copy = h.apply(Operation::Duplicate { context: root, entities: vec![asm], transform: t }).unwrap().created[0];
+    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    let parts = |h: &History| h.document().components().filter(|c| c.is_part()).count();
+    let material = |h: &History, p: EntityPath| h.document().resolve_part(&p).unwrap().1.material;
+    assert_eq!(parts(&h), 2);
+
+    // « Only this one » on one copy of the assembly: it and its parts made its own.
+    let paint = |targets, scope| Operation::PaintParts { targets, material: Some(oak), scope };
+    h.apply(paint(vec![EntityPath::root(copy)], Scope::This)).unwrap();
+    assert_eq!(parts(&h), 4);
+    assert_eq!((material(&h, EntityPath::new(vec![copy], a)), material(&h, EntityPath::new(vec![copy], b))), (Some(oak), Some(oak)));
+    assert_eq!(material(&h, EntityPath::new(vec![asm], a)), None, "the other copy left as it was");
+    assert!(h.undo());
+
+    // Every placement of a part painted: the part itself, no copy.
+    h.apply(paint(vec![EntityPath::new(vec![asm], a), EntityPath::new(vec![copy], a)], Scope::This)).unwrap();
+    assert_eq!(parts(&h), 2);
+    assert_eq!(material(&h, EntityPath::new(vec![asm], a)), Some(oak));
+    assert!(h.undo());
+
+    // One part of one copy: that copy of the assembly made its own, a copy of the part alone.
+    h.apply(paint(vec![EntityPath::new(vec![copy], a)], Scope::This)).unwrap();
+    assert_eq!(parts(&h), 3);
+    assert_eq!(material(&h, EntityPath::new(vec![copy], b)), None);
+    let doc = h.document();
+    let shared = |o: Id| {
+        (doc.resolve(&EntityPath::new(vec![asm], o)).unwrap().component, doc.resolve(&EntityPath::new(vec![copy], o)).unwrap().component)
+    };
+    assert_eq!(shared(b).0, shared(b).1, "b still one part");
 }
 
 #[test]
@@ -831,10 +873,9 @@ fn asm_def(h: &History, o: Id) -> Id {
 #[test]
 fn a_file_with_an_unknown_material_is_refused() {
     let mut h = History::new(Document::new());
-    let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let m = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(m) }).unwrap();
+    h.apply(Operation::PaintParts { targets: vec![EntityPath::root(a)], material: Some(m), scope: Scope::All }).unwrap();
     let json = h.document().to_json().unwrap();
     let broken = json.replace(&format!("\"material\":{}", m.0), "\"material\":999");
     assert_ne!(broken, json);
@@ -1074,9 +1115,6 @@ fn guides_are_erased_moved_copied_and_grouped_like_occurrences() {
     assert_eq!(out.created.len(), 2);
     assert_eq!(guides(&h).len(), 3);
     assert_eq!(guides(&h)[2].shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 60.0), dir: DVec3::X });
-    // Painting a selection holding a guide paints only the occurrences.
-    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a, g], material: Some(oak) }).unwrap();
     // Erased.
     h.apply(Operation::Delete { context: root, entities: vec![out.created[0]] }).unwrap();
     assert_eq!(guides(&h).len(), 2);
@@ -1820,15 +1858,7 @@ fn placed_changes_skip_only_what_is_shared() {
 
 /// An occurrence of `component`, for the assembly's own tests.
 fn bare_occurrence(id: u64, component: Id) -> Occurrence {
-    Occurrence {
-        id: Id(id),
-        name: String::new(),
-        component,
-        transform: DAffine3::IDENTITY,
-        material: None,
-        hidden: false,
-        props: Props::default(),
-    }
+    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, hidden: false, props: Props::default() }
 }
 
 #[test]
@@ -2099,7 +2129,7 @@ fn pasting_in_another_document_grafts_and_keeps_occurrences_loose() {
     let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
     let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
     h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    h.apply(Operation::PaintParts { targets: vec![EntityPath::root(a)], material: Some(oak), scope: Scope::All }).unwrap();
     // Two occurrences of one part: still one part once pasted.
     h.apply(Operation::Duplicate { context: root, entities: vec![b], transform: DAffine3::from_translation(DVec3::X * 20.0) }).unwrap();
     let all: Vec<Id> = h.document().root_assembly().occurrences().iter().map(|o| o.id).collect();
@@ -2117,7 +2147,7 @@ fn pasting_in_another_document_grafts_and_keeps_occurrences_loose() {
     assert_eq!(doc.root_assembly().occurrences().len(), 4, "loose, not gathered in an assembly");
     assert_eq!(doc.components().count(), parts + 2);
     assert_eq!(doc.materials().count(), 1, "the same oak");
-    assert_eq!(occ(doc, &EntityPath::root(out.created[0])).material, Some(oak2));
+    assert_eq!(doc.part(occ(doc, &EntityPath::root(out.created[0])).component).unwrap().material, Some(oak2));
     let (p1, p2) = (occ(doc, &EntityPath::root(out.created[1])).component, occ(doc, &EntityPath::root(out.created[2])).component);
     assert_eq!(p1, p2);
     assert_ne!(occ(doc, &EntityPath::root(out.created[0])).component, occ(doc, &EntityPath::root(c)).component);
@@ -3854,11 +3884,9 @@ fn deleting_a_component_takes_all_its_occurrences() {
 }
 
 #[test]
-fn replacing_occurrences_keeps_their_placement_name_material_and_visibility() {
+fn replacing_occurrences_keeps_their_placement_name_and_visibility() {
     let (mut h, a3, groups, asm, pa, pb) = library();
     let root = h.document().root();
-    let m = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a3], material: Some(m) }).unwrap();
     h.apply(Operation::RenameOccurrence { context: root, occurrence: a3, name: "Gauche".into() }).unwrap();
     h.apply(Operation::SetHidden { context: root, entities: vec![a3], hidden: true }).unwrap();
     let before = occ(h.document(), &EntityPath::root(a3));
@@ -4109,7 +4137,6 @@ fn textures_are_stored_once_and_saved() {
 #[test]
 fn materials_files_export_and_import() {
     let mut src = History::new(Document::new());
-    let root = src.document().root();
     let oak = src.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
     src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
     let image = png(7);
@@ -4117,7 +4144,7 @@ fn materials_files_export_and_import() {
     src.apply(Operation::SetPropDef { key: "user.densite".into(), def: Some(PropDef::new(ValueKind::Real)) }).unwrap();
     src.apply(set_props(PropTarget::Material(oak), &[("user.densite", Some(Value::Real(0.7)))])).unwrap();
     let a = add(&mut src, cube(DVec3::ZERO, 10.0));
-    src.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    src.apply(Operation::PaintParts { targets: vec![EntityPath::root(a)], material: Some(oak), scope: Scope::All }).unwrap();
 
     // Oak alone: a document without geometry, its image and the definitions with it.
     let file = src.document().materials_file(&[oak]).unwrap();

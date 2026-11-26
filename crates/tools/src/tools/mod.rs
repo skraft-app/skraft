@@ -290,10 +290,9 @@ pub struct PaintPreview {
 /// What a click of the paint tool paints.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaintTarget {
-    /// Occurrences of the active context.
-    Occurrences(Vec<Id>),
-    /// Parts or assemblies at any depth under it, each in its own assembly (« Parts »).
-    Paths(Vec<EntityPath>),
+    /// Parts or assemblies (every part below them), by their paths from the root, and whether
+    /// the parts' other copies take the material too.
+    Parts { paths: Vec<EntityPath>, scope: skraft_model::Scope },
     /// One face of a part, by the path of the occurrence it is seen on: every occurrence of the
     /// part shows it.
     Face { path: EntityPath, face: u32 },
@@ -928,31 +927,23 @@ impl Cx<'_> {
         (parent != self.context && self.doc.context_of(parent).is_ok()).then_some(parent)
     }
 
-    /// The material « Pipette » gives a part made, from the part `picked`: its occurrence's own,
-    /// else the one it inherits from its assemblies (as the view paints it).
+    /// The material « Pipette » gives a part made, from the part `picked`: that part's.
     pub fn picked_material(&self, picked: Option<&EntityPath>) -> Option<Id> {
         let p = picked.filter(|_| self.open_part.is_none() && self.toggle(PICK_MATERIAL))?;
-        self.occurrence_material(p)
+        self.part_material(p)
     }
 
-    /// The material the occurrence `path` (from the root) paints its parts with: its own, else
-    /// the one it inherits from its assemblies.
-    pub fn occurrence_material(&self, path: &EntityPath) -> Option<Id> {
-        let mut at = self.doc.root();
-        let mut material = None;
-        for &i in path.instances.iter().chain([&path.entity]) {
-            let o = self.doc.assembly(at).ok()?.occurrence(i)?;
-            material = o.material.or(material);
-            at = o.component;
-        }
-        material.filter(|m| self.doc.material(*m).is_ok())
+    /// The material of the part `path` (from the root) leads to, if it is a known one.
+    pub fn part_material(&self, path: &EntityPath) -> Option<Id> {
+        let (_, part, _) = self.doc.resolve_part(path).ok()?;
+        part.material.filter(|m| self.doc.material(*m).is_ok())
     }
 
-    /// The material shown on `face` of the part `path` leads to (the paint tool's pipette):
-    /// the face's own, else its occurrence's (docs/render/look.md).
+    /// The material shown on `face` of the part `path` leads to (« Prélever »): the face's own,
+    /// else the part's (docs/render/look.md).
     pub fn material_shown(&self, path: &EntityPath, face: u32) -> Option<Id> {
         let own = self.doc.resolve_part(path).ok().and_then(|(_, part, _)| part.faces.get(&face).copied());
-        own.filter(|m| self.doc.material(*m).is_ok()).or_else(|| self.occurrence_material(&path.part_path()))
+        own.filter(|m| self.doc.material(*m).is_ok()).or_else(|| self.part_material(&path.part_path()))
     }
 
     /// The operation a part creation tool applies (as [`Cx::add_primitive`]), « Dessiner dans »

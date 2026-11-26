@@ -236,7 +236,7 @@ impl Document {
 
     /// Makes the assemblies on `path`'s way its own, as [`Document::separate`], then points its
     /// occurrence at `part`.
-    fn separate_onto(&mut self, path: &EntityPath, part: Id) -> Result<()> {
+    pub(crate) fn separate_onto(&mut self, path: &EntityPath, part: Id) -> Result<()> {
         if !path.instances.is_empty() {
             self.separate(&EntityPath::new(path.instances[..path.instances.len() - 1].to_vec(), path.instances[path.instances.len() - 1]))?;
         }

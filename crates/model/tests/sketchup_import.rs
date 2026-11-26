@@ -29,8 +29,9 @@ fn import(bytes: &[u8]) -> (Document, ImportReport) {
 fn definitions_become_shared_parts_and_assemblies() {
     for bytes in [CABINET, CABINET_2017] {
         let (doc, report) = import(bytes);
-        // Planche, Planche at ×2, Socle's faces, Pied, the model's cube; Caisson, Socle.
-        assert_eq!((report.parts, report.assemblies), (5, 2), "{:?}", report.excluded);
+        // Planche (twice: « Haut » in oak, « Bas » in none), Planche at ×2, Socle's faces,
+        // Pied, the model's cube; Caisson, Socle.
+        assert_eq!((report.parts, report.assemblies), (6, 2), "{:?}", report.excluded);
         assert_eq!(report.excluded.len(), 1, "{:?}", report.excluded);
         assert_eq!(report.excluded[0].0, "Groupe2");
         assert_eq!(report.dropped_instances, 1, "the open group's instance");
@@ -42,17 +43,20 @@ fn definitions_become_shared_parts_and_assemblies() {
         let board = doc.components().find(|c| c.name == "Planche").unwrap();
         assert!(board.named);
         assert_eq!(board.behavior.no_stretch.0, 4);
-        assert_eq!(doc.occurrence_count(board.id), 2, "the two boards of the cabinet share one part");
+        assert_eq!(doc.occurrence_count(board.id), 1, "« Haut » painted, « Bas » not: two parts");
         let (lo, hi) = board.as_part().unwrap().shape().bounds().unwrap();
         assert!(((hi - lo) - DVec3::new(600.0, 300.0, 18.0)).length() < 1e-9);
 
-        // The mirror stays in T, the occurrence keeps its material.
+        // The mirror stays in T; the instance's material is its part's.
         let cab = doc.components().find(|c| c.name == "Caisson").unwrap().as_assembly().unwrap();
         let high = cab.occurrences().iter().find(|o| o.name == "Haut").unwrap();
         assert!(high.transform.matrix3.determinant() < 0.0);
         assert!((high.transform.translation - DVec3::new(0.0, 0.0, 500.0)).length() < 1e-9);
-        let oak = doc.material(high.material.unwrap()).unwrap();
+        let oak = doc.material(doc.part(high.component).unwrap().material.unwrap()).unwrap();
         assert_eq!((oak.name.as_str(), oak.color), ("Chêne", [180, 140, 90]));
+        let low = cab.occurrences().iter().find(|o| o.name == "Bas").unwrap();
+        assert_ne!(low.component, high.component);
+        assert_eq!(doc.part(low.component).unwrap().material, None);
 
         // The scale is in the geometry: a part 1200 long, placed by a translation only.
         let top = doc.root_assembly().occurrences().iter().find(|o| o.name == "Longue").unwrap();
@@ -118,9 +122,8 @@ fn faces_take_the_material_of_their_side_facing_out_and_textures_come_along() {
     let (_, point, normal) = on("Bleu");
     assert!((normal - DVec3::X).length() < 1e-9 && (point.x - 100.0).abs() < 1e-9, "the face at X 100");
 
-    // The instance's material, its texture with its image.
-    let occurrence = doc.root_assembly().occurrences().iter().find(|o| o.component == cube.id).unwrap();
-    let wood = doc.material(occurrence.material.unwrap()).unwrap();
+    // The instance's material, on its part, its texture with its image.
+    let wood = doc.material(cube.as_part().unwrap().material.unwrap()).unwrap();
     assert!(wood.name.starts_with("Bois"), "{}", wood.name);
     let texture = wood.texture.as_ref().unwrap();
     assert_eq!(texture.size, [100.0, 50.0]);

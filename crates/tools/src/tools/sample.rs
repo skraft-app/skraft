@@ -1,6 +1,6 @@
 //! « Prélever » (SketchUp's Sample Paint, OpenCutList's Smart Paint `ACTION_PICK`,
 //! docs/render/look.md): a click takes the material shown under the cursor — the face's own,
-//! else its occurrence's (its own or its assemblies'), else none — as the one the paint tool
+//! else its part's, else none — as the one the paint tool
 //! paints with; its tooltip names it. Started on its own, the paint tool then starts with it.
 //! Held over the paint tool by the other modifier (the tool stack,
 //! docs/tools/interaction.md#tool-stack), each click takes, until the key is released.
@@ -72,9 +72,9 @@ impl Tool for SampleTool {
         DragClicks::Release
     }
 
-    /// The level chosen in the tree drop-up: its material taken.
+    /// The level chosen in the tree drop-up: a part's material taken (an assembly has none).
     fn tree_pick(&self, path: &EntityPath, cx: &Cx<'_>) -> Option<Vec<Command>> {
-        Some(Self::take(cx.occurrence_material(path), cx))
+        Some(Self::take(cx.part_material(path), cx))
     }
 
     fn leave(&mut self) {

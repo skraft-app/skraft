@@ -80,7 +80,7 @@ pub enum Operation {
     /// A new part built from a primitive, and its first occurrence in `context`: its positive
     /// body in the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
     /// wall, docs/tools/inferences.md; identity for an axis-aligned one) and where the primitive stood. The
-    /// occurrence painted with `material` (« Pipette », docs/tools/draw-options.md).
+    /// part painted with `material` (« Pipette », docs/tools/draw-options.md).
     AddPrimitive {
         context: Id,
         primitive: Primitive,
@@ -163,7 +163,7 @@ pub enum Operation {
     /// Places one more occurrence of a component in `context`.
     PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
     /// Makes the occurrences `entities` of `context` occurrences of `component`, each one
-    /// keeping its placement, its name, its material and its visibility (« Remplacer la
+    /// keeping its placement, its name and its visibility (« Remplacer la
     /// sélection », docs/ui/components-library.md#managing). The guides among them are left.
     ReplaceOccurrences { context: Id, entities: Vec<Id>, component: Id },
     /// Removes a part or an assembly and every occurrence of it, at any depth
@@ -457,15 +457,18 @@ pub enum Operation {
     /// Defines the property `key` — the kind of its values, its label, choices, default and
     /// where it applies —, or removes its definition (`None`: its values are kept).
     SetPropDef { key: String, def: Option<PropDef> },
-    /// Paints occurrences of `context` (`None`: their material is removed).
-    PaintOccurrences { context: Id, entities: Vec<Id>, material: Option<Id> },
+    /// Paints the parts `targets` lead to from the root — an assembly's every part below it —
+    /// with `material` (`None`: removed). A material is a part's, on its definition: under
+    /// « only this one » (`scope`), the parts some of whose placements are not among the
+    /// targets are made unique first (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    PaintParts { targets: Vec<EntityPath>, material: Option<Id>, scope: Scope },
     /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
     /// is hidden in every occurrence of the assembly.
     SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
     /// Shows every occurrence hidden, in every assembly.
     ShowAll,
     /// Paints faces of a part's shape, by their index in its record (every occurrence of the
-    /// part shows it; `None`: they take the occurrence's material again).
+    /// part shows it; `None`: they take the part's material again).
     PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
     /// A construction guide added to `component` (a part or an assembly), in its axes
     /// (docs/tools/tape-measure.md). Every occurrence shows it; no scope.
@@ -516,7 +519,7 @@ pub enum Operation {
     /// copy reached by `parent` changes. Takes the operations on occurrences of a context
     /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
     /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
-    /// [`Operation::PaintOccurrences`], [`Operation::ReplaceOccurrences`]), and the one making a part there
+    /// [`Operation::ReplaceOccurrences`]), and the one making a part there
     /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
     /// A presentation added last (docs/ui/drawing.md), « Présentation n » when `name` is none,
@@ -662,7 +665,7 @@ impl Operation {
             Operation::SetTexture { .. } => t!("operation.set_texture"),
             Operation::ImportMaterials { .. } => t!("operation.import_materials"),
             Operation::SetPropDef { .. } => t!("operation.set_prop_def"),
-            Operation::PaintOccurrences { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
+            Operation::PaintParts { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
             Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
             Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
             Operation::ShowAll => t!("operation.show_all"),
@@ -718,7 +721,6 @@ impl Operation {
             | Operation::Copies { context, .. }
             | Operation::Delete { context, .. }
             | Operation::SetHidden { context, .. }
-            | Operation::PaintOccurrences { context, .. }
             | Operation::MakeAssembly { context, .. }
             | Operation::Explode { context, .. }
             | Operation::MakeUnique { context, .. }
@@ -1142,44 +1144,28 @@ impl Document {
             }
             Operation::DeleteMaterial { material } => {
                 self.materials.remove(material).ok_or(Error::NotFound(*material))?;
-                // Unpaint what used it, copying only the components that did.
+                // Unpaint what used it, copying only the parts that did.
                 let users: Vec<Id> = self
                     .components
                     .values()
-                    .filter(|c| match &c.kind {
-                        ComponentKind::Part(p) => p.faces.values().any(|m| m == material),
-                        ComponentKind::Assembly(a) => a.occurrences().iter().any(|o| o.material == Some(*material)),
-                    })
+                    .filter(|c| c.as_part().is_some_and(|p| p.material == Some(*material) || p.faces.values().any(|m| m == material)))
                     .map(|c| c.id)
                     .collect();
                 for id in users {
-                    match &mut self.component_mut(id)?.kind {
-                        ComponentKind::Part(p) => p.faces.retain(|_, m| m != material),
-                        ComponentKind::Assembly(a) => {
-                            for o in a.occurrences_mut() {
-                                if o.material == Some(*material) {
-                                    o.material = None;
-                                }
-                            }
-                        }
+                    let p = self.part_mut(id)?;
+                    p.faces.retain(|_, m| m != material);
+                    if p.material == Some(*material) {
+                        p.material = None;
                     }
                 }
                 self.prune_assets();
                 Ok(Outcome::default())
             }
-            Operation::PaintOccurrences { context, entities, material } => {
+            Operation::PaintParts { targets, material, scope } => {
                 if let Some(m) = material {
                     self.material(*m)?;
                 }
-                // Guides take no paint.
-                let (_, entities) = &self.split_guides(*context, entities)?;
-                self.occurrences_of(*context, entities)?;
-                let entities = id_set(entities);
-                for o in self.assembly_mut(*context)?.occurrences_mut() {
-                    if entities.contains(&o.id) {
-                        o.material = *material;
-                    }
-                }
+                self.paint_parts(targets, *material, *scope)?;
                 Ok(Outcome::default())
             }
             Operation::SetHidden { context, entities, hidden } => {
@@ -1249,7 +1235,6 @@ impl Document {
                             name: String::new(),
                             component: assembly,
                             transform: *transform,
-                            material: None,
                             hidden: false,
                             props: Props::default(),
                         }
@@ -1317,7 +1302,7 @@ impl Document {
                     [b] => std::mem::take(&mut b.name),
                     _ => String::new(),
                 };
-                let part = Part { defs, bodies, shape: None, failed: Default::default(), faces: Default::default() };
+                let part = Part { defs, bodies, shape: None, failed: Default::default(), material: None, faces: Default::default() };
                 let part = self.insert_component(&base, false, ComponentKind::Part(part));
                 self.component_mut(part)?.guides = fragment.guides.iter().map(|g| Guide { id: self.fresh_id(), ..g.clone() }).collect();
                 self.recompute(part, None, solver)?;
@@ -1327,7 +1312,6 @@ impl Document {
                     name: occurrence_name,
                     component: part,
                     transform: *transform * fragment.world,
-                    material: None,
                     hidden: false,
                     props: Props::default(),
                 });
@@ -1355,7 +1339,8 @@ impl Document {
                 // The shapes drawn keep their profile (docs/tools/prism.md, step 3).
                 let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
                 let body = Body::new(self.fresh_id(), def.id, Sign::Positive, DAffine3::IDENTITY);
-                let part = Part::of_body(def, body);
+                let mut part = Part::of_body(def, body);
+                part.material = *material;
                 let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
@@ -1364,7 +1349,6 @@ impl Document {
                     name: String::new(),
                     component: part,
                     transform,
-                    material: *material,
                     hidden: false,
                     props: Props::default(),
                 });
@@ -1530,7 +1514,6 @@ impl Document {
                         name: String::new(),
                         component: assembly,
                         transform: DAffine3::from_translation(corner),
-                        material: None,
                         hidden: false,
                         props: Props::default(),
                     },
@@ -1621,7 +1604,6 @@ impl Document {
                     name: String::new(),
                     component: *component,
                     transform: *transform,
-                    material: None,
                     hidden: false,
                     props: Props::default(),
                 });

@@ -125,18 +125,15 @@ impl Document {
     fn fragment(&self, occurrences: Vec<crate::Occurrence>, guides: Vec<Guide>, next_id: u64) -> Result<Document> {
         // The components the occurrences use, at any depth, and their materials.
         let mut components = BTreeSet::new();
-        let mut materials: BTreeSet<Id> = occurrences.iter().filter_map(|o| o.material).collect();
+        let mut materials: BTreeSet<Id> = BTreeSet::new();
         let mut stack: Vec<Id> = occurrences.iter().map(|o| o.component).collect();
         while let Some(id) = stack.pop() {
             if !components.insert(id) {
                 continue;
             }
             match &self.component(id)?.kind {
-                ComponentKind::Assembly(a) => {
-                    materials.extend(a.occurrences().iter().filter_map(|o| o.material));
-                    stack.extend(a.occurrences().iter().map(|o| o.component));
-                }
-                ComponentKind::Part(p) => materials.extend(p.faces.values().copied()),
+                ComponentKind::Assembly(a) => stack.extend(a.occurrences().iter().map(|o| o.component)),
+                ComponentKind::Part(p) => materials.extend(p.faces.values().copied().chain(p.material)),
             }
         }
 
