@@ -7,6 +7,27 @@ What changes in Skraft from one release to the next, for its users. The format f
 An entry is written when a version is tagged (`/changelog` in Claude Code, from
 `scripts/changelog.sh`); the release workflow publishes it as the GitHub Release's text.
 
+## [0.0.6] - 2026-11-26
+
+### Added
+- Materials come in three families, each a tab of the **Materials** panel: **Materials** say what a part is made of (Generic, Solid Wood, Sheet, Profile), **Coverings** what a face is covered with (Generic, Veneer, Edge Banding), and **Colorations** colour a part or a face over them. A coloration is a **Coat**, covering or tinting at an intensity, or a **Scheme** that lays several coats in order.
+- A component says whether it is **Made**, **Bought** or **Existing** (**Source** in the entity info): a bought one is a single row of the parts list (a drawer slide), an existing one has no row (a wall, a fridge).
+- SketchUp import lays an instance's paint on its part as a material and a face's paint as a coloration, in the family and type given by OpenCutList when the material has one. STEP import reads the products marked as bought and their material designation.
+- A colour box of its own: a hex code field, favourite colours kept from one session to the next, and copy and paste of a colour with a right click or ⌘C / ⌘V over it.
+- A texture is turned by quarter turns with a ↻ button on its image, and shows turned as on the parts.
+- The material of a library part can be changed in the entity info, even when the part is not placed in the model.
+- A window too small for the app shows a message instead, asking to turn the device on a touch screen.
+- The web version says on its loading screen why it cannot run when the browser has no WebGPU.
+
+### Changed
+- A part's material belongs to the part, not to one of its copies: painting an assembly paints every part under it, and painting only one copy makes it a part of its own.
+- A material has a colour or a texture, not both: picking an image gives it the image's mean colour, editable again once the image is removed. Colorations have a colour only.
+- The **Shortcuts** tab of the preferences is redesigned: a search line, the commands under their menu, a click on a row to type its new shortcut, ↺ to put the default back, and a warning on shortcuts used twice.
+- The entity info lists a part's or assembly's rows first, then those of the selected occurrence; it no longer shows how many times a part or a material is used.
+- The preferences and other app windows grow to fit their content.
+- In Safari on iPhone and iPad, the browser's bars take the app's colours with less height lost; other browsers lose none.
+- Files made with an earlier version no longer open when faces are painted, when a drawing places a composition, or when a view shows chosen occurrences. Materials painted on occurrences and textures of colorations are dropped from older files.
+
 ## [0.0.5] - 2026-11-25
 
 ### Added
