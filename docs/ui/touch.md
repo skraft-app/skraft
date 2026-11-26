@@ -172,26 +172,29 @@ drawn under the status bar, `black-translucent` or `black`, the title bar blurre
 
 **The bars' colours.** Safari 26 — its own bars, and a home-screen app's status bar — takes
 neither `theme-color` nor a gradient: it takes the colour of a fixed element it sees touching the
-window's top or bottom edge, read as that element appears. The page has two such strips,
-`#edge-top` in the title bar's colour and `#edge-bottom` in the panels', in lines the app's canvas
-leaves free above it and below it (the body's padding, `--edge`: 11 px, the least Safari takes —
-tried on an iPhone, 1, 3, 6, 9 and 10 px were not, nor strips under the canvas). The strips are
-taken out and put back (the page's `skraftEdges`) once the loading screen is gone — Safari read
-it first, and kept its colours — and when the app's theme changes: the app gives the page those
+window's top or bottom edge, read as that element appears. The page has two such elements,
+halves of the screen under the app's canvas: `#edge-top` in the title bar's colour and
+`#edge-bottom` in the panels', of which the canvas leaves a line free above it and below it (the
+body's padding, `--edge`: 5 px, the least Safari takes — tried on an iPhone, 4 px was not; thin
+strips needed 11 px). Without its line, the bottom half is not seen: the bar then keeps the
+body's colour, and no longer follows a change of theme. Beside the canvas, the halves stop at
+the safe areas: the panels' colour shows there, whole. The loading screen hides them — the bars
+then take its ground, one colour — and they are taken out and put back (the page's
+`skraftEdges`) once it is gone, and when the app's theme changes: the app gives the page those
 two colours (`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`),
 then calls it. The grounds are solid, the root's the title bar's colour, the body's the
 panels'. The colours are kept, with the text's, in the browser's storage
 (`skraft.page_colors`): a script at the page's head takes them before it shows, so the loading
 screen — its ground, its name, its bar — and the bars Safari reads from it are the last theme's
 from the start (the first launch keeps the light ones). `theme-color` stays,
-for the browsers that take it. The strips' lines are only in Safari on iOS and iPadOS, a
+for the browsers that take it. The halves and their lines are only in Safari on iOS and iPadOS, a
 home-screen app too: WebKit there (`@supports (-webkit-touch-callout: none)`, which only it
 knows), less the other browsers built on it — Chrome, Firefox, Edge… name themselves in the user
 agent (`CriOS`, `FxiOS`, `EdgiOS`…), a script at the page's head then marks the root `no-edges`.
-Elsewhere `--edge` is nought and the canvas takes the whole height.
+Elsewhere there are none, `--edge` is nought and the canvas takes the whole height.
 
 **Within the safe areas.** The page asks for the whole screen (`viewport-fit=cover`) and keeps the
-canvas within the safe areas (`env(safe-area-inset-*)` with the strips' lines as the body's
+canvas within the safe areas (`env(safe-area-inset-*)` with the edges' lines as the body's
 padding): the panels' colour shows beside it (a notch held sideways) and under it (the home
 indicator). The body is fixed: iOS counts the status bar in `100vh`, and a page that could scroll
 was left shifted up by it after a rotation. A home-screen app is still left scrolled by that
