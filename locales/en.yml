@@ -334,6 +334,14 @@ keypad:
   enter: "Enter"
 
 # Shown instead of the app in a window too small for it (docs/ui/interface.md#too-small).
+# A colour box and its panel (docs/ui/interface.md#colours).
+color:
+  copy: "Copy color"
+  paste: "Paste color"
+  hex_tip: "A color: C49862, 196 152 98 or rgb(196, 152, 98)"
+  favorites: "Favorites"
+  favorite_add_tip: "Add the color to the favorites"
+  favorite_remove: "Remove from the favorites"
 too_small:
   # A touch screen on its side.
   rotate: "Turn the device"

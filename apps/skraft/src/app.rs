@@ -517,6 +517,7 @@ impl eframe::App for SkraftApp {
         self.set_origin(&origin);
         self.apply_theme(&ctx);
         self.apply_zoom(&ctx);
+        crate::kit::widgets::color::sync_favorites(&ctx, &mut self.prefs.favorite_colors);
         self.poll_documents();
         self.take_notices(&ctx);
         self.end_cancelled_loads();

@@ -59,8 +59,11 @@ impl SkraftApp {
     fn key_event(&mut self, ctx: &egui::Context, ev: egui::Event) -> Option<&'static str> {
         // The clipboard's keys come as these (desktop and web alike), not as shortcuts; done
         // only when they can be, without a word otherwise. ⌘V pastes only while the system
-        // clipboard still holds the app's token (docs/tools/copy-paste.md).
+        // clipboard still holds the app's token (docs/tools/copy-paste.md). Over a colour, they
+        // are the colour's (docs/ui/interface.md#colours).
+        let over_color = crate::kit::widgets::color::takes_clipboard_keys(ctx);
         let clipboard = match &ev {
+            egui::Event::Cut | egui::Event::Copy | egui::Event::Paste(_) if over_color => return None,
             egui::Event::Cut => Some("edit.cut"),
             egui::Event::Copy => Some("edit.copy"),
             egui::Event::Paste(text) if self.clipboard.as_ref().is_some_and(|c| c.is_on_system_clipboard(text)) => Some("edit.paste"),

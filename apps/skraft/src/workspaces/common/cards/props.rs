@@ -206,14 +206,15 @@ fn value_editor(
             choice_field(ui, id, current, choices, width).map(Value::Choice)
         }
         ValueKind::Color => {
-            let mut c = match value {
+            let c = match value {
                 Some(Value::Color(c)) => *c,
                 _ => [128, 128, 128],
             };
             ui.vertical(|ui| {
                 ui.allocate_ui_with_layout(egui::vec2(width, OPTION_HEIGHT), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.set_min_width(width);
-                    ui.color_edit_button_srgb(&mut c).changed().then_some(Value::Color(c))
+                    let size = egui::vec2(2.0 * OPTION_HEIGHT, OPTION_HEIGHT);
+                    crate::kit::widgets::color::color_box(ui, (id, "color"), c, size, true).1.map(Value::Color)
                 })
                 .inner
             })

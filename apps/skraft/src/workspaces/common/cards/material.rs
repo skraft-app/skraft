@@ -238,18 +238,18 @@ fn caption(ui: &mut egui::Ui, text: String) {
     ui.label(egui::RichText::new(text).small().color(ui.visuals().weak_text_color()));
 }
 
-/// An editable colour box of `size`: the colour picked, when changed.
-fn color_box(ui: &mut egui::Ui, _id: Id, color: [u8; 3], size: egui::Vec2) -> Option<[u8; 3]> {
-    let mut c = color;
-    ui.spacing_mut().interact_size = size;
-    ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed().then_some(c)
+/// An editable colour box of `size` (docs/ui/interface.md#colours): the colour picked, when
+/// changed.
+fn color_box(ui: &mut egui::Ui, id: Id, color: [u8; 3], size: egui::Vec2) -> Option<[u8; 3]> {
+    let (r, picked) = crate::kit::widgets::color::color_box(ui, ("material_color", id), color, size, true);
+    r.tip(t!("panel.materials.color_tip"));
+    picked
 }
 
-/// A textured material's colour, its image's mean: shown, locked, not edited.
-fn locked_color_box(ui: &mut egui::Ui, _id: Id, color: [u8; 3], size: egui::Vec2) {
-    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
-    ui.painter().rect(rect, LOOK_RADIUS, rgb(color), stroke, egui::StrokeKind::Inside);
+/// A textured material's colour, its image's mean: shown, locked, copied only.
+fn locked_color_box(ui: &mut egui::Ui, id: Id, color: [u8; 3], size: egui::Vec2) {
+    let (r, _) = crate::kit::widgets::color::color_box(ui, ("material_color", id), color, size, false);
+    let rect = r.rect;
     let badge = badge_rect(rect, egui::Align2::RIGHT_BOTTOM);
     badge_disc(ui, badge);
     let ink = ui.visuals().text_color();

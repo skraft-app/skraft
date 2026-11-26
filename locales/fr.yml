@@ -378,6 +378,14 @@ keypad:
   enter: "Valider"
 
 # Shown instead of the app in a window too small for it (docs/ui/interface.md#too-small).
+# A colour box and its panel (docs/ui/interface.md#colours).
+color:
+  copy: "Copier la couleur"
+  paste: "Coller la couleur"
+  hex_tip: "Une couleur : C49862, 196 152 98 ou rgb(196, 152, 98)"
+  favorites: "Favorites"
+  favorite_add_tip: "Ajouter la couleur aux favorites"
+  favorite_remove: "Retirer des favorites"
 too_small:
   # A touch screen on its side.
   rotate: "Tournez l'appareil"

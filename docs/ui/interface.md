@@ -232,6 +232,7 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`tick`**, the check box: egui's, the Preferences' look, with a third state (`Covered`,
   through a row above it: egui's indeterminate mark).
 - **`warning`**, the ⚠ before an error to correct.
+- **`color::color_box`**, the one colour box ([Colours](#colours)).
 - **`keycaps`**, a shortcut drawn as the keys to press, each a key cap, lit while one is being
   typed (the Preferences' *Shortcuts* tab).
 - **`keypad`**, the numeric keypad the measurements box opens under a finger
@@ -266,6 +267,30 @@ Elsewhere:
 
 *Why:* each screen had grown its own copy, and the copies drifted apart (the code cleanliness
 review of 2026-11-23 found five icon buttons, three menu rows, two selection rectangles).
+
+## Colours
+
+A colour is shown and edited in **one colour box** (`kit::widgets::color`), wherever it is: a
+material's, a property's.
+
+- **A click opens its panel**: a saturation (across) and value (up) square at the hue picked,
+  a hue bar, red at the top; the colour, its hex field (the entity info's `framed_field`:
+  `#C49862`, and `196 152 98` or `rgb(196, 152, 98)` too, applied by Enter or a click away); then
+  the **favourites**,
+  the user's colours kept in the preferences (`favorite_colors`): a click picks one, its right
+  click removes it, « + » adds the colour shown, « − » in its place takes it out when it is one
+  already. A grey keeps the hue picked, so that moving
+  out of it does not jump to red.
+- **Copy and paste**: its right click (« Copier la couleur », « Coller la couleur ») and ⌘C / ⌘V
+  while the pointer is over the box or its panel — then the model's own copy and paste are
+  left alone. A colour is copied as `#RRGGBB` text, which other apps take; egui reads the
+  system clipboard only on ⌘V, so the menu pastes the colour last copied in the app, ⌘V any
+  colour the system clipboard holds as text (or pasted in the hex field).
+- **A colour that follows something else** (a texture's mean) is shown and copied, not edited:
+  no panel, no paste.
+
+*Why:* egui's colour button could neither copy nor paste nor keep colours to use again.
+Favourites only, no recent colours nor the model's (the user's choice, 2026-11-26).
 
 ## Too small
 

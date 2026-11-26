@@ -4,6 +4,7 @@
 use crate::kit::icons;
 
 mod button;
+pub(crate) mod color;
 mod field;
 mod form;
 mod keypad;

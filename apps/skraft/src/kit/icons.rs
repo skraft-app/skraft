@@ -94,6 +94,7 @@ icon!(SECTION_CLEAR, "section_clear");
 icon!(GUIDES_DELETE, "guides_delete");
 icon!(CLOSE, "close");
 icon!(ADD, "add");
+icon!(MINUS, "minus");
 icon!(TEXTURE, "texture");
 icon!(IMAGE, "image");
 icon!(EXPORT, "export");
