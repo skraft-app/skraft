@@ -1,6 +1,6 @@
 //! The window's frame around the stage (docs/ui/interface.md): the title bar and the native
 //! menus, the file tabs, the ribbon, the toasts, the interface's zoom, the docked columns, and the start page shown
-//! when no document is; the form they take.
+//! when no document is, or what the window shows when too small; the form they take.
 
 pub(crate) mod dock;
 pub(crate) mod form;
@@ -11,4 +11,5 @@ pub(crate) mod start;
 pub(crate) mod tabs;
 pub(crate) mod titlebar;
 pub(crate) mod toasts;
+pub(crate) mod too_small;
 pub(crate) mod zoom_label;

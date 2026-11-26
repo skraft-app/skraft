@@ -327,6 +327,12 @@ compact:
 keypad:
   enter: "Enter"
 
+# Shown instead of the app in a window too small for it (docs/ui/interface.md#too-small).
+too_small:
+  # A touch screen on its side.
+  rotate: "Turn the device"
+  room: "Not enough room for Skraft"
+
 start:
   title: "Skraft"
   tagline: "Shape something solid"

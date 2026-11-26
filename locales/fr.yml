@@ -370,6 +370,12 @@ compact:
 keypad:
   enter: "Valider"
 
+# Shown instead of the app in a window too small for it (docs/ui/interface.md#too-small).
+too_small:
+  # A touch screen on its side.
+  rotate: "Tournez l'appareil"
+  room: "Pas assez de place pour Skraft"
+
 start:
   title: "Skraft"
   # Under the name: what the app is.
