@@ -482,6 +482,10 @@ pub enum Operation {
     /// « only this one » (`scope`), the parts some of whose placements are not among the
     /// targets are made unique first (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
     PaintParts { targets: Vec<EntityPath>, layer: Family, material: Option<Id>, scope: Scope },
+    /// Paints the part `part` itself, on `layer`, with `material` (`None`: removed): its
+    /// definition, every occurrence of it showing it — placed or not (the entity info of a
+    /// part chosen in the library, docs/ui/components-library.md#managing).
+    PaintPart { part: Id, layer: Family, material: Option<Id> },
     /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
     /// is hidden in every occurrence of the assembly.
     SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
@@ -694,7 +698,7 @@ impl Operation {
             Operation::SetTexture { .. } => t!("operation.set_texture"),
             Operation::ImportMaterials { .. } => t!("operation.import_materials"),
             Operation::SetPropDef { .. } => t!("operation.set_prop_def"),
-            Operation::PaintParts { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
+            Operation::PaintParts { .. } | Operation::PaintPart { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
             Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
             Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
             Operation::ShowAll => t!("operation.show_all"),
@@ -1242,6 +1246,11 @@ impl Document {
             Operation::PaintParts { targets, layer, material, scope } => {
                 self.check_layer(*material, *layer, Family::Covering)?;
                 self.paint_parts(targets, *layer, *material, *scope)?;
+                Ok(Outcome::default())
+            }
+            Operation::PaintPart { part, layer, material } => {
+                self.check_layer(*material, *layer, Family::Covering)?;
+                self.paint_part(*part, *layer, *material)?;
                 Ok(Outcome::default())
             }
             Operation::SetHidden { context, entities, hidden } => {

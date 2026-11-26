@@ -790,6 +790,37 @@ fn materials_paint_parts_assemblies_and_faces() {
 }
 
 #[test]
+fn a_part_is_painted_on_its_definition_placed_or_not() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::splat(20.0), 5.0));
+    let (pa, pb) = (occ(h.document(), &EntityPath::root(a)).component, occ(h.document(), &EntityPath::root(b)).component);
+    let item = |h: &mut History, name: &str, kind| {
+        h.apply(Operation::AddMaterial { name: name.into(), color: [1, 2, 3], kind }).unwrap().material.unwrap()
+    };
+    let oak = item(&mut h, "Chêne massif", Some(MaterialKind::Solid));
+    let paint = item(&mut h, "Peinture", None);
+    // B placed nowhere: still painted, as the library's entity info does.
+    h.apply(Operation::Delete { context: root, entities: vec![b] }).unwrap();
+    let part = |h: &History, id| h.document().part(id).unwrap().clone();
+    let count = h.document().components().count();
+    h.apply(Operation::PaintPart { part: pb, layer: Family::Material, material: Some(oak) }).unwrap();
+    assert_eq!(part(&h, pb).material, Some(oak));
+    // Placed: every occurrence shows it, no copy made.
+    h.apply(Operation::PlaceOccurrence { context: root, component: pa, transform: DAffine3::from_translation(DVec3::X * 50.0) }).unwrap();
+    h.apply(Operation::PaintPart { part: pa, layer: Family::Material, material: Some(oak) }).unwrap();
+    assert_eq!((part(&h, pa).material, h.document().components().count()), (Some(oak), count));
+    h.apply(Operation::PaintPart { part: pa, layer: Family::Material, material: None }).unwrap();
+    assert_eq!(part(&h, pa).material, None);
+    // Each family to its layer; only a part.
+    let refused = |r: Result<Outcome>| matches!(r, Err(Error::Invalid(Refusal::MaterialLayer)));
+    assert!(refused(h.apply(Operation::PaintPart { part: pa, layer: Family::Material, material: Some(paint) })));
+    assert!(refused(h.apply(Operation::PaintPart { part: pa, layer: Family::Covering, material: None })));
+    assert!(h.apply(Operation::PaintPart { part: root, layer: Family::Material, material: None }).is_err());
+}
+
+#[test]
 fn each_family_goes_to_its_layer_colorations_over_the_others() {
     let mut h = History::new(Document::new());
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));

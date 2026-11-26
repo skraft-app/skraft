@@ -65,6 +65,12 @@ impl Document {
         Ok(())
     }
 
+    /// Paints the part `part` itself on `layer`: its definition, whatever its occurrences.
+    pub(crate) fn paint_part(&mut self, part: Id, layer: Family, material: Option<Id>) -> Result<()> {
+        self.part(part)?;
+        self.paint_groups(part, Some(layer), &[(material, Vec::new())], Some(0))
+    }
+
     /// Gives the parts of a document whose occurrences carried items of the catalog (a SketchUp
     /// file's instances, docs/io/sketchup-import.md) those items, each where its family goes
     /// (a material, a coloration): `painted` by (assembly, occurrence), a part taking the
