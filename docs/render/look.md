@@ -239,10 +239,10 @@ A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when 
   under the pointer, a ✕ in its top corner removes it, its mean colour staying, a ↻ in its
   bottom corner turns it a quarter turn anticlockwise — the grain the other way, the only turns
   offered: a texture is turned to lay its grain, not to an angle; the « Matières » tiles show it
-  turned too, `materials::paint_texture`); the colour box shows that mean, locked
+  turned too); the colour box shows that mean, locked
   (« Couleur moyenne », a padlock): the texture wins, and nothing is lost by a misplaced click —
   only the ✕ removes the image. Then the texture's width and height, typed as lengths (the
-  image's own, which a turn does not swap). A coloration has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, made once per image, decoded
+  image's own, which a turn does not swap). A coloration has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, decoded once per image and turned by moving their pixels, a texture per quarter turn shown (`materials::thumbnail`: then drawn as any image, its corners rounded), decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why

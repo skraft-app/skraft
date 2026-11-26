@@ -232,19 +232,19 @@ fn locked_color_box(ui: &mut egui::Ui, id: Id, color: [u8; 3], size: egui::Vec2)
 
 /// A texture's image of `size`, its middle filling it, the whole image under the pointer: its
 /// rect, and whether it was clicked (to change it).
-fn texture_box(ui: &mut egui::Ui, tex: &egui::TextureHandle, quarter: u8, size: egui::Vec2) -> (egui::Rect, bool) {
+fn texture_box(ui: &mut egui::Ui, tex: &egui::TextureHandle, size: egui::Vec2) -> (egui::Rect, bool) {
     let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
-    materials::paint_texture(ui, tex, quarter, rect, true, BOX_RADIUS);
+    materials::paint_texture(ui, tex, rect, true, BOX_RADIUS);
     let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
     crate::kit::handles::publish(|| "info:texture".to_owned(), rect);
     let clicked = r
         .tip_ui(|ui| {
             ui.label(t!("panel.materials.texture_change_tip"));
             // The whole image, turned as on the parts.
-            let [w, h] = materials::turned_size(tex, quarter);
+            let [w, h] = tex.size().map(|v| v.max(1) as f32);
             let scale = (THUMB_PREVIEW / w.max(h)).min(1.0);
             let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h) * scale, egui::Sense::hover());
-            materials::paint_texture(ui, tex, quarter, rect, false, 4.0);
+            materials::paint_texture(ui, tex, rect, false, 4.0);
         })
         .clicked();
     (rect, clicked)
@@ -368,12 +368,10 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                         }
                     });
                     look_half(ui, half.x, |ui| {
-                        let thumb = m
-                            .texture
-                            .as_ref()
-                            .and_then(|t| crate::workspaces::common::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
+                        let thumb =
+                            m.texture.as_ref().and_then(|t| materials::thumbnail(ui.ctx(), doc, &t.image, materials::quarters(t.rotation)));
                         let (rect, change) = match (&m.texture, &thumb) {
-                            (Some(t), Some(tex)) => texture_box(ui, tex, materials::quarters(t.rotation), half),
+                            (Some(_), Some(tex)) => texture_box(ui, tex, half),
                             // Its image not decoded yet: its colour meanwhile, as the 3D view.
                             (Some(_), None) => {
                                 let (rect, r) = ui.allocate_exact_size(half, egui::Sense::click());
