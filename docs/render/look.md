@@ -111,7 +111,7 @@ symbols the code writes, and of Greek.
   texture: [Textures](#textures); properties: [Properties](../model/properties.md); ids unique
   across the tables) — [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md):
   - **materials**, what a part is made of, counted and cut; their type (`kind`): « Générique »
-    (`Generic`, a new one's: listed, not cut from a stock), « Massif » (`Solid`),
+    (`Generic`, a new one's: listed, not cut from a stock), « Bois massif » (`Solid`),
     « Panneau » (`Sheet`), « Profilé » (`Profile`);
   - **coverings**, what covers a face; their type: « Générique » (`GenericCovering`, a new
     one's), « Placage » (`Veneer`), « Chant » (`Edge`);

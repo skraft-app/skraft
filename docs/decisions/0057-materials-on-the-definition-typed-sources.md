@@ -39,7 +39,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   - **materials** (« Matériaux »): what a part is made of, counted and cut; a **type**:
     « Générique » (the default: glass, steel, a plastic, a foam, a cast or printed part —
     listed by the piece, without a stock to cut it from nor a cutting diagram, OpenCutList's
-    « Indéfini »), « Massif », « Panneau », « Profilé » (dimensional timber, a tube, a
+    « Indéfini »), « Bois massif », « Panneau », « Profilé » (dimensional timber, a tube, a
     bar);
   - **coverings** (« Revêtements »): what covers a face, counted (later, with stable face
     names); a type: « Générique » (the default: a laminate, a fabric, a leather), « Placage »,

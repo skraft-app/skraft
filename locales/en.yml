@@ -970,7 +970,7 @@ panel:
       scheme: "Scheme"
       generic: "Generic"
       generic_covering: "Generic"
-      solid: "Solid"
+      solid: "Solid Wood"
       sheet: "Sheet"
       profile: "Profile"
       veneer: "Veneer"

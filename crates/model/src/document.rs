@@ -1000,7 +1000,7 @@ pub enum MaterialKind {
     /// Whatever is listed without being cut from a stock (« Générique »): glass, steel, a
     /// plastic, a foam, a cast or printed part; a new material's type.
     Generic,
-    /// Solid wood (« Massif »).
+    /// Solid wood (« Bois massif »).
     Solid,
     /// A sheet good (« Panneau »).
     Sheet,
