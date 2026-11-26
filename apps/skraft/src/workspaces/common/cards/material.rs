@@ -255,9 +255,15 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
         }
     }
     info_grid(ui).show(ui, |ui| {
-        // Its family; a material's or a covering's type, among its family's: how it is counted.
+        // Its family, its name; a material's or a covering's type, among its family's: how it is
+        // counted.
         ui.label(t!("panel.entity_info.type"));
         ui.label(family_label(m.family()));
+        ui.end_row();
+        field_label(ui, t!("panel.entity_info.name"));
+        if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
+            actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
+        }
         ui.end_row();
         if let Some(kind) = m.kind {
             field_label(ui, t!("panel.materials.kind_label"));
@@ -271,11 +277,6 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             }
             ui.end_row();
         }
-        field_label(ui, t!("panel.entity_info.name"));
-        if let Some(name) = text_field(ui, (id, 2), &m.name, width) {
-            actions.push(Action::Apply(Operation::EditMaterial { material: id, name, color: m.color }));
-        }
-        ui.end_row();
         if m.is_scheme() {
             scheme_rows(ui, doc, id, m, width, actions);
         } else {
