@@ -199,9 +199,9 @@ impl Shelf for Materials<'_> {
         let [r, g, b] = m.color;
         ui.painter().rect_filled(rect, 4.0, egui::Color32::from_rgb(r, g, b));
         if let Some(t) = &m.texture
-            && let Some(tex) = thumbnail(ui.ctx(), self.doc, &t.image)
+            && let Some(tex) = thumbnail(ui.ctx(), self.doc, &t.image, quarters(t.rotation))
         {
-            paint_texture(ui, &tex, quarters(t.rotation), rect, true, 4.0);
+            paint_texture(ui, &tex, rect, true, 4.0);
         }
     }
 
@@ -325,43 +325,18 @@ pub(crate) fn quarters(rotation: f64) -> u8 {
     (rotation / std::f64::consts::FRAC_PI_2).round().rem_euclid(4.0) as u8
 }
 
-/// A texture's image size (texels) once turned by `quarter` quarter turns.
-pub(crate) fn turned_size(tex: &egui::TextureHandle, quarter: u8) -> [f32; 2] {
+/// A texture's thumbnail `tex` in `rect`, its corners rounded by `radius`; `cover`: its middle
+/// filling `rect`, its proportions kept (else all of it, stretched to `rect`).
+pub(crate) fn paint_texture(ui: &egui::Ui, tex: &egui::TextureHandle, rect: egui::Rect, cover: bool, radius: f32) {
     let [w, h] = tex.size().map(|v| v.max(1) as f32);
-    if quarter % 2 == 1 { [h, w] } else { [w, h] }
-}
-
-/// A texture's thumbnail `tex` in `rect`, turned anticlockwise by `quarter` quarter turns as the
-/// texture's rotation turns it on the parts; `cover`: its middle filling `rect`, its proportions
-/// kept (else all of it, stretched to `rect`). Its corners rounded by `radius` when not turned
-/// (egui rounds only a rectangle of the image).
-pub(crate) fn paint_texture(ui: &egui::Ui, tex: &egui::TextureHandle, quarter: u8, rect: egui::Rect, cover: bool, radius: f32) {
-    let [w, h] = turned_size(tex, quarter);
     let (du, dv) = if cover {
         let (image, room) = (w / h, rect.width() / rect.height().max(1.0));
         if image > room { ((1.0 - room / image) / 2.0, 0.0) } else { (0.0, (1.0 - image / room) / 2.0) }
     } else {
         (0.0, 0.0)
     };
-    if quarter % 4 == 0 {
-        let uv = egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv));
-        ui.painter().add(egui::epaint::RectShape::filled(rect, radius, egui::Color32::WHITE).with_texture(tex.id(), uv));
-        return;
-    }
-    // A point of the turned image (0 to 1, from its top left) taken from the image itself.
-    let source = |x: f32, y: f32| match quarter % 4 {
-        1 => egui::pos2(1.0 - y, x),
-        2 => egui::pos2(1.0 - x, 1.0 - y),
-        _ => egui::pos2(y, 1.0 - x),
-    };
-    let mut mesh = egui::Mesh::with_texture(tex.id());
-    let corners = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
-    for (corner, (x, y)) in corners.into_iter().zip([(du, dv), (1.0 - du, dv), (1.0 - du, 1.0 - dv), (du, 1.0 - dv)]) {
-        mesh.vertices.push(egui::epaint::Vertex { pos: corner, uv: source(x, y), color: egui::Color32::WHITE });
-    }
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(0, 2, 3);
-    ui.painter().add(mesh);
+    let uv = egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv));
+    ui.painter().add(egui::epaint::RectShape::filled(rect, radius, egui::Color32::WHITE).with_texture(tex.id(), uv));
 }
 
 // ---- the textures' thumbnails ------------------------------------------------------------------
@@ -369,11 +344,13 @@ pub(crate) fn paint_texture(ui: &egui::Ui, tex: &egui::TextureHandle, quarter: u
 /// A thumbnail's side (texels).
 const THUMB_SIZE: u32 = 256;
 
-/// The thumbnails made, by image id (the same image, the same thumbnail in every document), and
-/// those on their way. Only the interface's thread asks for them.
+/// The thumbnails made, by image id (the same image, the same thumbnail in every document) and
+/// quarter turns, from the images decoded (none: it does not read), and those on their way. Only
+/// the interface's thread asks for them.
 #[derive(Default)]
 struct Thumbs {
-    made: HashMap<String, Option<egui::TextureHandle>>,
+    decoded: HashMap<String, Option<egui::ColorImage>>,
+    made: HashMap<(String, u8), egui::TextureHandle>,
     asked: HashSet<String>,
     decoder: Decoder,
 }
@@ -382,21 +359,27 @@ thread_local! {
     static THUMBS: RefCell<Thumbs> = RefCell::new(Thumbs::default());
 }
 
-/// The thumbnail of the image `id` of `doc`, none while it is decoded (off the interface's
-/// thread: a large JPEG takes ~100 ms) or when it does not read.
-pub(crate) fn thumbnail(ctx: &egui::Context, doc: &Document, id: &str) -> Option<egui::TextureHandle> {
+/// The thumbnail of the image `id` of `doc` turned anticlockwise by `quarter` quarter turns, as
+/// the texture's rotation turns it on the parts: its pixels turned, not its picture, so that it
+/// shows as any image (rounded corners). None while it is decoded (off the interface's thread: a
+/// large JPEG takes ~100 ms) or when it does not read.
+pub(crate) fn thumbnail(ctx: &egui::Context, doc: &Document, id: &str, quarter: u8) -> Option<egui::TextureHandle> {
+    let quarter = quarter % 4;
     THUMBS.with_borrow_mut(|thumbs| {
         for (key, image) in thumbs.decoder.take(ctx) {
-            let made = image.map(|i| {
-                let size = [i.size[0] as usize, i.size[1] as usize];
-                let image = egui::ColorImage::from_rgba_unmultiplied(size, &i.rgba);
-                ctx.load_texture(format!("thumbnail {key}"), image, egui::TextureOptions::LINEAR)
-            });
+            let image = image.map(|i| egui::ColorImage::from_rgba_unmultiplied([i.size[0] as usize, i.size[1] as usize], &i.rgba));
             thumbs.asked.remove(&key);
-            thumbs.made.insert(key, made);
+            thumbs.decoded.insert(key, image);
         }
-        if let Some(made) = thumbs.made.get(id) {
-            return made.clone();
+        let key = (id.to_owned(), quarter);
+        if let Some(made) = thumbs.made.get(&key) {
+            return Some(made.clone());
+        }
+        if let Some(decoded) = thumbs.decoded.get(id) {
+            let image = turn(decoded.as_ref()?, quarter);
+            let made = ctx.load_texture(format!("thumbnail {id} {quarter}"), image, egui::TextureOptions::LINEAR);
+            thumbs.made.insert(key, made.clone());
+            return Some(made);
         }
         if !thumbs.asked.contains(id)
             && let Some(asset) = doc.asset(id)
@@ -406,6 +389,26 @@ pub(crate) fn thumbnail(ctx: &egui::Context, doc: &Document, id: &str) -> Option
         }
         None
     })
+}
+
+/// `image` turned anticlockwise by `quarter` quarter turns (0 to 3): its pixels moved, none lost.
+fn turn(image: &egui::ColorImage, quarter: u8) -> egui::ColorImage {
+    let [w, h] = image.size;
+    let size = if quarter % 2 == 1 { [h, w] } else { [w, h] };
+    let mut pixels = Vec::with_capacity(w * h);
+    for y in 0..size[1] {
+        for x in 0..size[0] {
+            // The pixel of the image shown at (x, y) once turned.
+            let (sx, sy) = match quarter {
+                0 => (x, y),
+                1 => (w - 1 - y, x),
+                2 => (w - 1 - x, h - 1 - y),
+                _ => (y, h - 1 - x),
+            };
+            pixels.push(image.pixels[sy * w + sx]);
+        }
+    }
+    egui::ColorImage { size, pixels, ..image.clone() }
 }
 
 #[cfg(test)]
@@ -426,15 +429,31 @@ mod tests {
         let texture = Texture { image: image.clone(), size: [600.0, 400.0], rotation: 0.0 };
         h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(asset), color: None }).unwrap();
         let ctx = egui::Context::default();
-        assert!(thumbnail(&ctx, h.document(), &image).is_none(), "asked: not there yet");
+        assert!(thumbnail(&ctx, h.document(), &image, 0).is_none(), "asked: not there yet");
         let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let made = loop {
-            if let Some(made) = thumbnail(&ctx, h.document(), &image) {
+            if let Some(made) = thumbnail(&ctx, h.document(), &image, 0) {
                 break made;
             }
             assert!(std::time::Instant::now() < end, "never decoded");
             std::thread::yield_now();
         };
         assert_eq!(made.size()[0], 256);
+        // A quarter turn: the same pixels, made at once, its sides swapped.
+        let turned = thumbnail(&ctx, h.document(), &image, 1).expect("decoded already");
+        assert_eq!(turned.size(), [made.size()[1], made.size()[0]]);
+    }
+
+    #[test]
+    fn a_quarter_turn_moves_the_pixels_anticlockwise() {
+        // 2 × 1: red then green, left to right.
+        let (red, green) = (egui::Color32::RED, egui::Color32::GREEN);
+        let image = egui::ColorImage::new([2, 1], vec![red, green]);
+        // Anticlockwise: the right end goes up.
+        assert_eq!(turn(&image, 1).size, [1, 2]);
+        assert_eq!(turn(&image, 1).pixels, vec![green, red]);
+        assert_eq!(turn(&image, 2).pixels, vec![green, red]);
+        assert_eq!(turn(&image, 3).pixels, vec![red, green]);
+        assert_eq!(turn(&image, 0).pixels, image.pixels);
     }
 }
