@@ -1090,7 +1090,7 @@ mod tests {
             let image = skraft_model::Asset::new([&b"\x89PNG\r\n\x1a\n"[..], &[byte]].concat()).unwrap();
             let texture = skraft_model::Texture { image: image.id(), size: [100.0, 100.0], rotation: 0.0 };
             let id = texture.image.clone();
-            h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(image) }).unwrap();
+            h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(image), color: None }).unwrap();
             (material, id)
         };
         let (shown, image) = textured(&mut h, 1);

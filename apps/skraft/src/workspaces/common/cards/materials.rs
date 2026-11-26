@@ -384,7 +384,7 @@ mod tests {
         h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [1, 2, 3], kind: Default::default() }).unwrap();
         let material = h.document().materials().next().unwrap().0;
         let texture = Texture { image: image.clone(), size: [600.0, 400.0], rotation: 0.0 };
-        h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(asset) }).unwrap();
+        h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(asset), color: None }).unwrap();
         let ctx = egui::Context::default();
         assert!(thumbnail(&ctx, h.document(), &image).is_none(), "asked: not there yet");
         let end = std::time::Instant::now() + std::time::Duration::from_secs(10);

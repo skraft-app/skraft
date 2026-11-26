@@ -462,6 +462,10 @@ pub enum Operation {
         texture: Option<Texture>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<Asset>,
+        /// The image's mean colour, the material's from then on (docs/render/look.md#textures):
+        /// given with a new image.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<[u8; 3]>,
     },
     /// Adds the materials of another document — a `.skraftmat` ([`Document::materials_fragment`])
     /// —, their images and properties' definitions: one equal to a material here is that one.
@@ -1140,14 +1144,19 @@ impl Document {
             }
             Operation::EditMaterial { material, name, color } => {
                 let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
-                (m.name, m.color) = (name.clone(), *color);
+                m.name = name.clone();
+                // A colour or a texture: a textured one's colour is its image's mean, not edited
+                // (docs/render/look.md#textures).
+                if m.texture.is_none() {
+                    m.color = *color;
+                }
                 Ok(Outcome::default())
             }
             Operation::SetProps { target, props } => {
                 self.set_props(target, props)?;
                 Ok(Outcome::default())
             }
-            Operation::SetTexture { material, texture, image } => {
+            Operation::SetTexture { material, texture, image, color } => {
                 self.material(*material)?;
                 if let Some(a) = image {
                     self.assets.insert(a.id(), a.clone());
@@ -1157,7 +1166,11 @@ impl Document {
                 {
                     return Err(Error::Invalid(Refusal::BadTexture));
                 }
-                self.materials.get_mut(material).ok_or(Error::NotFound(*material))?.texture = texture.clone();
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                m.texture = texture.clone();
+                if let (Some(_), Some(c)) = (texture, color) {
+                    m.color = *c;
+                }
                 self.prune_assets();
                 Ok(Outcome::default())
             }

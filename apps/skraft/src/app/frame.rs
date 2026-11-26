@@ -166,7 +166,10 @@ impl SkraftApp {
         };
         let rotation = d.editor.document().material(material).ok().and_then(|m| m.texture.as_ref()).map_or(0.0, |t| t.rotation);
         let texture = skraft_model::Texture { image: image.id(), size, rotation };
-        let op = skraft_model::Operation::SetTexture { material, texture: Some(texture), image: Some(image) };
+        // Its colour the image's mean: a material has a colour or a texture
+        // (docs/render/look.md#textures).
+        let color = mean_color(&image.bytes);
+        let op = skraft_model::Operation::SetTexture { material, texture: Some(texture), image: Some(image), color };
         let _ = d.editor.apply(op);
     }
 

@@ -202,8 +202,14 @@ A material may have a **texture**: an image laid on the faces at its real size.
   once), `size` its real width (along the grain) and height in mm, `rotation` in its plane.
   `SetTexture { material, texture, image }` sets it, the image added first when given; the
   images no material uses are dropped (`Document::prune_assets`). Pastes and imports bring the
-  images of their materials. The colour stays: it shows until the image is loaded, and in the
-  panel's swatch.
+  images of their materials. **A colour or a texture, not both**: an image picked gives the
+  material its mean colour (averaged in linear light on a 64 × 64 copy, `SetTexture`'s
+  `color`), which shows until the image is loaded and wherever no image is drawn; it is not
+  edited while the texture is there (`EditMaterial` keeps it, the entity info hides the colour
+  row). The texture removed, that colour stays and is edited again. Colour and image together
+  are made with a coloration over the material
+  ([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)). A size
+  or a rotation changed keeps the colour.
 - **Mapping**: nothing per face nor per vertex — a **box projection in the part's axes**, in
   the shader (`textured`), an open part's bodies included (`Placement::texture`: they keep the
   texture the part shows): a face takes the image on the plane of the two axes it least faces,
@@ -225,7 +231,7 @@ A material may have a **texture**: an image laid on the faces at its real size.
   PNG or JPEG: 600 mm wide, its height as the image's, or the size it had), showing the
   texture's thumbnail once it has one — its middle, square; the whole image under the pointer;
   a textured material shows its width, height (typed as lengths), rotation in degrees and a
-  button to remove it (its colour stays). Thumbnails: 128 texels, made once per image, decoded
+  button to remove it (its mean colour stays); no colour row while it has one. Thumbnails: 128 texels, made once per image, decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why

@@ -4252,6 +4252,30 @@ fn texture(image: &Asset) -> Texture {
 }
 
 #[test]
+fn a_textured_material_takes_its_image_mean_colour_and_keeps_it() {
+    let mut h = History::new(Document::new());
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    let image = png(1);
+    let set =
+        Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: Some([10, 20, 30]) };
+    h.apply(set).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [10, 20, 30], "the image's mean");
+    // Renamed: its colour not edited while it has a texture.
+    h.apply(Operation::EditMaterial { material: oak, name: "Chêne clair".into(), color: [255, 0, 0] }).unwrap();
+    let m = h.document().material(oak).unwrap();
+    assert_eq!((m.name.as_str(), m.color), ("Chêne clair", [10, 20, 30]));
+    // Its texture taken off: the mean stays, edited again.
+    h.apply(Operation::SetTexture { material: oak, texture: None, image: None, color: Some([1, 1, 1]) }).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [10, 20, 30]);
+    h.apply(Operation::EditMaterial { material: oak, name: "Chêne clair".into(), color: [255, 0, 0] }).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [255, 0, 0]);
+}
+
+#[test]
 fn textures_are_stored_once_and_saved() {
     let mut h = History::new(Document::new());
     let oak = h
@@ -4262,9 +4286,9 @@ fn textures_are_stored_once_and_saved() {
     let walnut =
         h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap().material.unwrap();
     let image = png(1);
-    h.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()) }).unwrap();
+    h.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: None }).unwrap();
     // The same image for another: no bytes again.
-    h.apply(Operation::SetTexture { material: walnut, texture: Some(texture(&image)), image: None }).unwrap();
+    h.apply(Operation::SetTexture { material: walnut, texture: Some(texture(&image)), image: None, color: None }).unwrap();
     assert_eq!(h.document().asset(&image.id()), Some(&image));
 
     let doc = h.document();
@@ -4286,14 +4310,14 @@ fn textures_are_stored_once_and_saved() {
     // Refused: an image the document does not have, a size not positive.
     let other = png(2);
     let refused = |op| matches!(h.document().prepare(&op), Err(Error::Invalid(Refusal::BadTexture)));
-    assert!(refused(Operation::SetTexture { material: oak, texture: Some(texture(&other)), image: None }));
+    assert!(refused(Operation::SetTexture { material: oak, texture: Some(texture(&other)), image: None, color: None }));
     let flat = Texture { size: [0.0, 300.0], ..texture(&image) };
-    assert!(refused(Operation::SetTexture { material: oak, texture: Some(flat), image: None }));
+    assert!(refused(Operation::SetTexture { material: oak, texture: Some(flat), image: None, color: None }));
     assert!(Asset::new(b"GIF89a....".to_vec()).is_none());
     assert_eq!(Asset::new(b"\xFF\xD8\xFF\xE0rest".to_vec()).unwrap().kind, ImageKind::Jpeg);
 
     // Used by none, the image goes.
-    h.apply(Operation::SetTexture { material: oak, texture: None, image: None }).unwrap();
+    h.apply(Operation::SetTexture { material: oak, texture: None, image: None, color: None }).unwrap();
     assert!(h.document().asset(&image.id()).is_some());
     h.apply(Operation::DeleteMaterial { material: walnut }).unwrap();
     assert!(h.document().asset(&image.id()).is_none());
@@ -4310,7 +4334,7 @@ fn materials_files_export_and_import() {
         .unwrap();
     src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap();
     let image = png(7);
-    src.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()) }).unwrap();
+    src.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: None }).unwrap();
     src.apply(Operation::SetPropDef { key: "user.densite".into(), def: Some(PropDef::new(ValueKind::Real)) }).unwrap();
     src.apply(set_props(PropTarget::Material(oak), &[("user.densite", Some(Value::Real(0.7)))])).unwrap();
     let a = add(&mut src, cube(DVec3::ZERO, 10.0));

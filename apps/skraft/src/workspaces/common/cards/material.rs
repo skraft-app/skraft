@@ -257,12 +257,16 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             if m.kind == Some(MaterialKind::Coat) {
                 coat_rows(ui, id, m, width, actions);
             }
-            field_label(ui, t!("panel.materials.color"));
-            let mut c = m.color;
-            if ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed() {
-                actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
+            // A colour or a texture: a textured one's colour is its image's mean, not edited
+            // (docs/render/look.md#textures).
+            if m.texture.is_none() {
+                field_label(ui, t!("panel.materials.color"));
+                let mut c = m.color;
+                if ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed() {
+                    actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
+                }
+                ui.end_row();
             }
-            ui.end_row();
             field_label(ui, t!("panel.materials.texture"));
             ui.horizontal(|ui| {
                 let h = OPTION_HEIGHT;
@@ -297,13 +301,15 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                     let close = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ink);
                     if ui.add(egui::Button::image(close).min_size(egui::vec2(h, h))).tip(t!("panel.materials.texture_remove_tip")).clicked()
                     {
-                        actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None }));
+                        actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None, color: None }));
                     }
                 }
             });
             ui.end_row();
             if let Some(texture) = &m.texture {
-                let set = |t: skraft_model::Texture| Action::Apply(Operation::SetTexture { material: id, texture: Some(t), image: None });
+                let set = |t: skraft_model::Texture| {
+                    Action::Apply(Operation::SetTexture { material: id, texture: Some(t), image: None, color: None })
+                };
                 let sizes = [
                     (t!("panel.materials.texture_width"), t!("panel.materials.texture_width_tip")),
                     (t!("panel.materials.texture_height"), t!("panel.materials.texture_height_tip")),
