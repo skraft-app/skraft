@@ -230,13 +230,16 @@ A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when 
   size of a pixel on the face — its distance and slant, as the hatches' pitch — sampled with
   `textureSampleLevel`: no derivatives, which would need a uniform control flow after the
   section's `discard`.
-- **Interface**: in the entity info of the material chosen, a texture button (an image picked,
-  PNG or JPEG: 600 mm wide, its height as the image's, or the size it had), showing the
-  texture's thumbnail once it has one — as wide as the field, the remove button beside it (the coats'
-  small ✕), 64 points high whatever the panel's width (the rows below stay put), the image's
-  middle filling it — a material without texture shows its colour in a box of that size; the whole image under the pointer;
-  a textured material shows its width, height (typed as lengths), rotation in degrees and a
-  button to remove it (its mean colour stays); no colour row while it has one. Thumbnails: 256 texels, made once per image, decoded
+- **Interface**: in the entity info of the material chosen, an « Aspect » row of two boxes side
+  by side, each half the field, 64 points high whatever the panel's width (the rows below stay
+  put), captioned under: its colour, then its texture. Without a texture, the colour box edits
+  the colour and the texture box is a dashed frame, « Ajouter », picking an image (PNG or JPEG:
+  600 mm wide, its height as the image's, or the size it had). With one, the texture box shows
+  the image's middle filling it (a click changes it, the whole image under the pointer, a ✕ in
+  its corner removes it, its mean colour staying); the colour box shows that mean, locked
+  (« Couleur moyenne », a padlock): the texture wins, and nothing is lost by a misplaced click —
+  only the ✕ removes the image. Then the texture's width, height (typed as lengths) and rotation
+  in degrees. A coloration has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, made once per image, decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why
