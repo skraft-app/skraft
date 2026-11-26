@@ -22,9 +22,10 @@ Document
 ├─ materials  : Catalog — materials, coverings, colorations: Id → Material { name, kind, color, texture, props }
 └─ prop_defs  : key → PropDef — the properties' definitions (Properties)
 
-Component { id, name, named, kind, guides, behavior, props }
+Component { id, name, named, kind, guides, behavior, props, source }
   guides   : construction lines and circles in the component's axes (Tape measure and guides)
   behavior : how it is stretched — its cutters and locked axes (Stretch)
+  source   = Made | Bought | Existing — what the parts list counts of it (Parts list)
   kind     = Part     { defs, bodies, shape, failed, material, coloration, coverings, faces }
                                                                     — a part (Bodies)
            | Assembly { occurrences: Vec<Occurrence>, links: Vec<Link> } — an assembly
@@ -80,9 +81,15 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
 - A part's **material** — what it is made of — and its **coloration** are on its definition,
   its faces' **coverings** (veneers, edges) and colorations too: every occurrence of it shows them; an assembly has none
   ([Palette and materials](../render/look.md#palette-and-materials),
-  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)). Not yet:
-  the component's **source** (made, bought, existing), which decides how the parts list
-  counts it.
+  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)).
+- A component's **source** — « Fabriqué » (`Made`, the default), « Acheté » (`Bought`),
+  « Existant » (`Existing`) — is a field of the model, as its name, not a property: it cannot be
+  removed or renamed. It decides what the parts list counts of it
+  ([Parts list](../ui/parts-list.md#rows)): a hardware slide, an assembly of parts in several
+  materials, is one article; the room's walls, drawn to work around them, nothing. Chosen in
+  the entity info (`Operation::SetSource`; never the model's), kept by the copies of the
+  component. The paint tool and the materials are not concerned: what is inside an article or
+  an existing component is painted and seen as anywhere else.
 
 ## Occurrences and transformation
 

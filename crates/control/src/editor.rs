@@ -190,6 +190,7 @@ fn components(e: &Editor) -> Answer {
                 "name": c.name,
                 "kind": if c.is_part() { "part" } else { "assembly" },
                 "named": c.named,
+                "source": c.source,
                 "count": count.unwrap_or(0),
                 "unused": count.is_none(),
             })

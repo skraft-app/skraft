@@ -382,6 +382,19 @@ fn occurrence_line(
         if let Some(m) = top.and_then(|m| doc.material(m).ok()) {
             material_dot(ui, m, greyed);
         }
+        // A component bought or existing: its mark, left of the rest (docs/ui/parts-list.md#rows).
+        let source = doc.component(o.component).map_or(Source::Made, |c| c.source);
+        let source_mark = match source {
+            Source::Made => None,
+            Source::Bought => Some((icons::BOUGHT, t!("panel.entity_info.source_bought"))),
+            Source::Existing => Some((icons::EXISTING, t!("panel.entity_info.source_existing"))),
+        };
+        if let Some((icon, tip)) = source_mark {
+            let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(mark);
+            let r = ui.add(img.sense(egui::Sense::hover()));
+            crate::kit::handles::publish(|| format!("navigator:source:{}", o.id.0), r.rect);
+            r.tip(tip);
+        }
         eye
     };
     let label = |ui: &mut egui::Ui| {

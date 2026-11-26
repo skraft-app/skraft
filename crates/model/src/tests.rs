@@ -846,6 +846,26 @@ fn each_family_goes_to_its_layer_colorations_over_the_others() {
 }
 
 #[test]
+fn a_source_is_kept_by_the_file_and_the_copies() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = h
+        .apply(Operation::AddPrimitive { context: root, primitive: cube(DVec3::ZERO, 10.0), placement: DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .created[0];
+    h.apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::X * 20.0) }).unwrap();
+    let occurrences = h.document().assembly(root).unwrap().occurrences().iter().map(|o| (o.id, o.component)).collect::<Vec<_>>();
+    let part = occurrences[0].1;
+    h.apply(Operation::SetSource { component: part, source: Source::Bought }).unwrap();
+    let doc = Document::from_file(&h.document().to_file().unwrap()).unwrap();
+    assert_eq!(doc.component(part).unwrap().source, Source::Bought, "saved");
+    h.apply(Operation::MakeUnique { context: root, occurrence: occurrences[1].0 }).unwrap();
+    let copy = h.document().assembly(root).unwrap().occurrence(occurrences[1].0).unwrap().component;
+    assert_ne!(copy, part);
+    assert_eq!(h.document().component(copy).unwrap().source, Source::Bought, "a copy comes from where its part does");
+}
+
+#[test]
 fn schemes_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
     let mut h = History::new(Document::new());
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));

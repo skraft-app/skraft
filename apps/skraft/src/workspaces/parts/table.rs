@@ -1,7 +1,8 @@
 //! The parts list, the stage of the « Liste des pièces » workspace (docs/ui/parts-list.md): one
-//! row per part placed in the model and material, its dimensions (its final B-rep's box along
-//! its red, green and blue axes) and how many are placed; sorted by a column's header; a row
-//! chosen selects its parts in the view, a part selected in the view lights its row.
+//! row per part made and component bought placed in the model, its material, its dimensions (its
+//! final B-rep's box along its red, green and blue axes) and how many are placed; sorted by a
+//! column's header; a row chosen selects its occurrences in the view, one selected in the view
+//! lights its row.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -11,22 +12,24 @@ use egui_extras::{Column as TableColumn, TableBuilder};
 use glam::DVec3;
 use skraft_i18n::t;
 use skraft_model::kernel::Solid;
-use skraft_model::{Document, EntityPath, FastMap, Id, Units};
+use skraft_model::{ComponentKind, Document, EntityPath, FastMap, Id, Units};
 use skraft_tools::Editor;
 
 use crate::commands::Action;
 
-/// A row: a part, with one material, and where it is placed.
+/// A row: a part made, or a component bought, and where it is placed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
-    pub part: Id,
+    pub component: Id,
     pub material: Option<Id>,
     pub name: String,
     /// The material's name; none: no material.
     pub material_name: Option<String>,
+    /// An assembly bought: no material of its own (« — »).
+    pub article: bool,
     /// Length, width, thickness (along its axes); none while its shape is not known yet.
     pub dims: Option<[f64; 3]>,
-    /// Its occurrences with this material, from the root, in the model's order.
+    /// Its occurrences, from the root, in the model's order.
     pub paths: Vec<EntityPath>,
 }
 
@@ -36,24 +39,43 @@ impl Row {
     }
 }
 
-/// The rows of `doc`: one per part placed in the model and material its occurrences take, in
-/// the order they are first placed. Hidden occurrences count: they are in the model.
-/// `bounds`: a shape's box in its part's axes.
+/// The rows of `doc`: one per part made and component bought it counts
+/// ([`Document::listed`]), in the order they are first placed. Hidden occurrences count: they
+/// are in the model. `bounds`: a shape's box in its part's axes.
 pub fn rows(doc: &Document, bounds: impl Fn(&Arc<Solid>) -> Option<(DVec3, DVec3)>) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
-    let mut index: FastMap<(Id, Option<Id>), usize> = FastMap::default();
-    for pp in doc.placed_parts() {
-        let key = (pp.part, pp.material);
-        let i = *index.entry(key).or_insert_with(|| {
-            let name = doc.component(pp.part).map(|c| c.name.clone()).unwrap_or_default();
-            let material_name = pp.material.and_then(|m| doc.material(m).ok()).map(|m| m.name.clone());
-            let dims = bounds(&pp.shape).map(|(lo, hi)| (hi - lo).to_array());
-            out.push(Row { part: pp.part, material: pp.material, name, material_name, dims, paths: Vec::new() });
+    let mut index: FastMap<Id, usize> = FastMap::default();
+    for listed in doc.listed() {
+        let Ok(c) = doc.component(listed.component) else { continue };
+        let i = *index.entry(c.id).or_insert_with(|| {
+            let (material, article, dims) = match &c.kind {
+                ComponentKind::Part(p) => (p.material, false, bounds(p.shape())),
+                ComponentKind::Assembly(_) => (None, true, assembly_bounds(doc, c.id, &bounds)),
+            };
+            let material_name = material.and_then(|m| doc.material(m).ok()).map(|m| m.name.clone());
+            let dims = dims.map(|(lo, hi)| (hi - lo).to_array());
+            out.push(Row { component: c.id, material, name: c.name.clone(), material_name, article, dims, paths: Vec::new() });
             out.len() - 1
         });
-        out[i].paths.push(pp.path);
+        out[i].paths.push(listed.path);
     }
     out
+}
+
+/// The box of `assembly`'s parts in its axes, each part's box placed (its corners); none while
+/// one's shape is not known yet. Empty: a point.
+fn assembly_bounds(doc: &Document, assembly: Id, bounds: impl Fn(&Arc<Solid>) -> Option<(DVec3, DVec3)>) -> Option<(DVec3, DVec3)> {
+    let (mut lo, mut hi) = (DVec3::INFINITY, DVec3::NEG_INFINITY);
+    for pp in doc.parts_below(assembly) {
+        let (a, b) = bounds(&pp.shape)?;
+        for k in 0..8 {
+            let corner =
+                DVec3::new(if k & 1 == 0 { a.x } else { b.x }, if k & 2 == 0 { a.y } else { b.y }, if k & 4 == 0 { a.z } else { b.z });
+            let p = pp.transform.transform_point3(corner);
+            (lo, hi) = (lo.min(p), hi.max(p));
+        }
+    }
+    Some(if lo.x.is_finite() { (lo, hi) } else { (DVec3::ZERO, DVec3::ZERO) })
 }
 
 /// The columns, in their order.
@@ -261,6 +283,9 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sidewa
                         Some(m) => {
                             ui.add(egui::Label::new(m).selectable(false).truncate());
                         }
+                        None if r.article => {
+                            ui.add(egui::Label::new(egui::RichText::new("—").weak()).selectable(false));
+                        }
                         None => {
                             ui.add(egui::Label::new(egui::RichText::new(t!("panel.materials.none")).weak()).selectable(false));
                         }
@@ -270,13 +295,7 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sidewa
                     row.col(|ui| right(ui, dim(2)));
                     row.col(|ui| right(ui, r.quantity().to_string()));
                     let response = row.response();
-                    crate::kit::handles::publish(
-                        || match r.material {
-                            Some(m) => format!("parts_list_row:{}:{}", r.part.0, m.0),
-                            None => format!("parts_list_row:{}", r.part.0),
-                        },
-                        response.rect,
-                    );
+                    crate::kit::handles::publish(|| format!("parts_list_row:{}", r.component.0), response.rect);
                     if response.clicked() {
                         actions.push(Action::SelectParts(r.paths.clone()));
                     }
@@ -300,7 +319,7 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sidewa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use skraft_model::{History, Operation, Primitive};
+    use skraft_model::{History, Operation, Primitive, Source};
 
     fn part_row<'a>(rows: &'a [Row], name: &str) -> &'a Row {
         rows.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("no row {name}: {rows:?}"))
@@ -332,6 +351,41 @@ mod tests {
     }
 
     #[test]
+    fn a_component_bought_is_one_row_an_existing_one_none() {
+        let mut h = History::new(Document::new());
+        let root = h.document().root();
+        let add = |h: &mut History, at: DVec3, size: DVec3| {
+            let primitive = Primitive::Box { origin: at, size };
+            let op = Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None };
+            h.apply(op).unwrap().created[0]
+        };
+        let shelf = add(&mut h, DVec3::ZERO, DVec3::new(18.0, 600.0, 400.0));
+        let rail = add(&mut h, DVec3::new(100.0, 0.0, 0.0), DVec3::new(10.0, 400.0, 40.0));
+        let runner = add(&mut h, DVec3::new(110.0, 0.0, 0.0), DVec3::new(5.0, 350.0, 30.0));
+        let wall = add(&mut h, DVec3::new(-100.0, 0.0, 0.0), DVec3::new(50.0, 2000.0, 2500.0));
+        let slide = h.apply(Operation::MakeAssembly { context: root, entities: vec![rail, runner], name: None }).unwrap().created[0];
+        h.apply(Operation::Duplicate {
+            context: root,
+            entities: vec![slide],
+            transform: glam::DAffine3::from_translation(DVec3::Z * 100.0),
+        })
+        .unwrap();
+        let component = |h: &History, o: Id| h.document().assembly(root).unwrap().occurrence(o).unwrap().component;
+        let (slide_c, wall_c, shelf_c) = (component(&h, slide), component(&h, wall), component(&h, shelf));
+        assert_eq!(rows(h.document(), |s| s.vertex_bounds()).len(), 4, "made: every part");
+        h.apply(Operation::SetSource { component: slide_c, source: Source::Bought }).unwrap();
+        h.apply(Operation::SetSource { component: wall_c, source: Source::Existing }).unwrap();
+        let rows = rows(h.document(), |s| s.vertex_bounds());
+        assert_eq!(rows.iter().map(|r| r.component).collect::<Vec<_>>(), [shelf_c, slide_c], "{rows:?}");
+        let slide_row = &rows[1];
+        assert!(slide_row.article && slide_row.material.is_none());
+        assert_eq!(slide_row.quantity(), 2);
+        assert_eq!(slide_row.dims, Some([15.0, 400.0, 40.0]), "its parts' box");
+        let refused = h.apply(Operation::SetSource { component: root, source: Source::Bought });
+        assert!(matches!(refused, Err(skraft_model::Error::Invalid(skraft_model::Refusal::RootSource))));
+    }
+
+    #[test]
     fn a_length_header_says_the_unit_when_the_document_shows_it() {
         let mut units = Units { length: skraft_model::LengthUnit::Inch, ..Default::default() };
         assert_eq!(Column::Length.header(&units), Column::Length.label());
@@ -343,10 +397,11 @@ mod tests {
     #[test]
     fn rows_sort_by_a_column_then_by_name() {
         let row = |name: &str, dims: [f64; 3], n: usize, material: Option<&str>| Row {
-            part: Id(0),
+            component: Id(0),
             material: None,
             name: name.into(),
             material_name: material.map(str::to_owned),
+            article: false,
             dims: Some(dims),
             paths: vec![EntityPath::new(Vec::new(), Id(1)); n],
         };

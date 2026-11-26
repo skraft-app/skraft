@@ -27,7 +27,7 @@ use crate::assets::Asset;
 use crate::clipboard::BodyFragment;
 use crate::document::{
     Assembly, Behavior, BlendMode, Body, BodyDef, ComponentKind, Document, EntityPath, Family, Guide, GuideShape, Id, Material,
-    MaterialKind, Occurrence, Part, Sign, Texture, is_identity,
+    MaterialKind, Occurrence, Part, Sign, Source, Texture, is_identity,
 };
 use crate::drawing::{Border, Container, ElementKind, FieldOn, Paper, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
@@ -429,6 +429,8 @@ pub enum Operation {
     /// ). Every occurrence shows it; no scope. Changes in a row to one component undo
     /// in one go.
     SetBehavior { component: Id, behavior: Behavior },
+    /// Where a part or an assembly comes from (docs/ui/parts-list.md#rows); never the model.
+    SetSource { component: Id, source: Source },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
     /// A new item of the catalog (docs/render/look.md): a material or a covering of `kind`, a
@@ -725,6 +727,7 @@ impl Operation {
             }
             Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
+            Operation::SetSource { .. } => t!("operation.set_source"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
             Operation::Blend { blend: Blend::Round, .. } => t!("operation.round"),
             Operation::Blend { blend: Blend::Chamfer, .. } => t!("operation.chamfer"),
@@ -2057,6 +2060,14 @@ impl Document {
                     d.group = Some(group);
                 }
                 self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
+            Operation::SetSource { component, source } => {
+                if *component == self.root {
+                    return Err(Error::Invalid(Refusal::RootSource));
+                }
+                self.component(*component)?;
+                self.component_mut(*component)?.source = *source;
                 Ok(Outcome::default())
             }
             Operation::SetBehavior { component, behavior } => {

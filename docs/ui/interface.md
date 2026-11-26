@@ -65,7 +65,10 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   included, a click anywhere on it but on its buttons (fold, eye, sign) choosing it; a part's
   bodies lie on a band of their own (`band_color`: the card's colour a shade towards the text;
   white in the light theme), the tree of assemblies and parts on the card's, the band and the
-  hover reaching the card's border across its margin (`style::CARD_MARGIN`). The tree follows
+  hover reaching the card's border across its margin (`style::CARD_MARGIN`). Left of an
+  occurrence's eye, its marks: the chain of a part shaping others, the dot of what a part shows,
+  then a component's source when not « Fabriqué » (`icons::BOUGHT`, a tag; `icons::EXISTING`, a
+  wall; its tooltip naming it, [Parts list](parts-list.md#rows)). The tree follows
   the path being edited down to its end: a part's bodies under it (a single one too), a group's
   under it, and under a body with a profile (an extrusion, a revolution) its « Profil »
   (`icons::PROFILE`), a click editing it (`Action::EditProfile`, `Editor::edit_body_profile`:
@@ -124,7 +127,8 @@ stay, to look into an assembly or a part without entering it.
 ## Entity info
 
 The entity info shows the selection, whatever it is: an assembly or a part (its name,
-occurrence, material, dimensions, position…), a guide, and a part open, the body or group
+occurrence, source — « Provenance »: « Fabriqué », « Acheté », « Existant »,
+[Parts list](parts-list.md#rows) —, material, dimensions, position…), a guide, and a part open, the body or group
 selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or machining (read
 only: the sign is toggled in the navigator), failed or empty, its solid's size, how many bodies
 share it —; the model when its navigator row is clicked; nothing selected, « Aucune

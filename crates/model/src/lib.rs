@@ -48,8 +48,8 @@ pub use clipboard::BodyFragment;
 pub use dimensions::{Anchor, DimKind, Dimension, Entity, Found, Orient, part_names};
 pub use document::{
     Assembly, Behavior, BlendMode, Body, BodyDef, BodyGroup, BodySource, Catalog, Component, ComponentKind, Document, EntityPath, Family,
-    Guide, GuidePath, GuideShape, Id, MAX_DEPTH, Material, MaterialKind, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache,
-    RawCell, Seen, Sign, StretchMask, Texture, name_base,
+    Guide, GuidePath, GuideShape, Id, Listed, MAX_DEPTH, Material, MaterialKind, Nature, Occurrence, Part, PlacedGuide, PlacedPart,
+    RawCache, RawCell, Seen, Sign, Source, StretchMask, Texture, name_base,
 };
 pub use drawing::{
     Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Look, Paper, Perspective,
@@ -110,6 +110,8 @@ pub enum Refusal {
     AxesNotDirect,
     ArrayCount,
     RootRenamed,
+    /// The model is neither made nor bought: its parts are.
+    RootSource,
     /// Another part or assembly has that name.
     NameTaken,
     /// Nothing to put in the assembly.
@@ -292,6 +294,7 @@ impl std::fmt::Display for Refusal {
             Refusal::AxesNotDirect => t!("error.model.axes_not_direct"),
             Refusal::ArrayCount => t!("error.model.array_count"),
             Refusal::RootRenamed => t!("error.model.root_renamed"),
+            Refusal::RootSource => t!("error.model.root_source"),
             Refusal::NameTaken => t!("error.model.name_taken"),
             Refusal::EmptyAssembly => t!("error.model.empty_assembly"),
             Refusal::NotExploded => t!("error.model.not_exploded"),

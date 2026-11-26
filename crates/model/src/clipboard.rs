@@ -149,6 +149,7 @@ impl Document {
             guides,
             behavior: Default::default(),
             props: Default::default(),
+            source: Default::default(),
         };
         let mut all: BTreeMap<Id, Arc<Component>> = components.iter().map(|id| (*id, self.components[id].clone())).collect();
         all.insert(self.root, Arc::new(top));

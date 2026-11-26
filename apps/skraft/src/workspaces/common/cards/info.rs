@@ -203,6 +203,7 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                     actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
                 }
                 ui.end_row();
+                source_row(ui, c, field, actions);
                 if let ComponentKind::Part(p) = &c.kind {
                     // What the part is made of and what it looks like: every copy of it shows
                     // them (docs/render/look.md#palette-and-materials).
@@ -288,6 +289,27 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
     }
 }
 
+/// Where a part or an assembly comes from, chosen: what the parts list counts of it
+/// (docs/ui/parts-list.md#rows).
+fn source_row(ui: &mut egui::Ui, c: &skraft_model::Component, width: f32, actions: &mut Vec<Action>) {
+    field_label(ui, t!("panel.entity_info.source"));
+    let label = |s: Source| match s {
+        Source::Made => t!("panel.entity_info.source_made"),
+        Source::Bought => t!("panel.entity_info.source_bought"),
+        Source::Existing => t!("panel.entity_info.source_existing"),
+    };
+    let labels = Source::ALL.map(label);
+    let current = label(c.source);
+    let id = ui.make_persistent_id(("info_source", c.id));
+    let picked = ui.scope(|ui| super::props::choice_field(ui, id, Some(&current), &labels, width)).inner;
+    if let Some(k) = picked.and_then(|p| labels.iter().position(|l| *l == p))
+        && Source::ALL[k] != c.source
+    {
+        actions.push(Action::Apply(Operation::SetSource { component: c.id, source: Source::ALL[k] }));
+    }
+    ui.end_row();
+}
+
 /// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
 /// (edited there), how many times it is in the model, a part's dimensions, the materials it and
 /// its faces carry.
@@ -315,6 +337,7 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
         ui.label(t!("panel.entity_info.in_model"));
         ui.label(count.to_string());
         ui.end_row();
+        source_row(ui, c, field, actions);
         if let ComponentKind::Part(p) = &c.kind {
             if let Some(error) = pieces_error(p.pieces()) {
                 ui.label(t!("panel.entity_info.dimensions"));

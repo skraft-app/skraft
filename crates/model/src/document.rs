@@ -52,6 +52,32 @@ pub struct Component {
     /// Its typed properties (docs/model/properties.md).
     #[serde(default, skip_serializing_if = "Props::is_empty")]
     pub props: Props,
+    /// Where it comes from: made, bought or there already (docs/ui/parts-list.md#rows).
+    #[serde(default, skip_serializing_if = "Source::is_made")]
+    pub source: Source,
+}
+
+/// Where a component comes from
+/// (docs/decisions/0057-materials-on-the-definition-typed-sources.md): what the parts list
+/// counts of it. The model itself has none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// Made in the workshop: a part is a row of the parts list, an assembly is gone through.
+    #[default]
+    Made,
+    /// Bought (hardware, an appliance): one row, part or assembly, not gone through.
+    Bought,
+    /// There already (a wall, a fridge), drawn to work around it: no row, not gone through.
+    Existing,
+}
+
+impl Source {
+    pub const ALL: [Source; 3] = [Source::Made, Source::Bought, Source::Existing];
+
+    pub fn is_made(&self) -> bool {
+        *self == Source::Made
+    }
 }
 
 /// How a component behaves when stretched (docs/tools/stretch.md, after SketchUp's
@@ -1320,6 +1346,14 @@ impl PlacedPart {
     }
 }
 
+/// An occurrence the parts list counts ([`Document::listed`]): a part made, or a component
+/// bought.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Listed {
+    pub path: EntityPath,
+    pub component: Id,
+}
+
 /// What a part or a face shows (docs/render/look.md#palette-and-materials): what is under — a
 /// covering or a material, else the theme's default — and the coloration over it, if any.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1426,6 +1460,7 @@ impl Document {
             guides: Vec::new(),
             behavior: Behavior::default(),
             props: Props::default(),
+            source: Source::Made,
         };
         Document {
             components: BTreeMap::from([(root, Arc::new(c))]),
@@ -1812,6 +1847,43 @@ impl Document {
         out
     }
 
+    /// The parts placed below `assembly`, in its axes (`transform`: part to assembly), their
+    /// paths from it.
+    pub fn parts_below(&self, assembly: Id) -> Vec<PlacedPart> {
+        let mut out = Vec::new();
+        self.walk(assembly, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
+        out
+    }
+
+    /// What the parts list counts (docs/ui/parts-list.md#rows), in the model's order: each
+    /// occurrence of a part made, and of a component bought, part or assembly, not gone through;
+    /// nothing of an existing one. Hidden occurrences count: they are in the model.
+    pub fn listed(&self) -> Vec<Listed> {
+        fn walk(doc: &Document, assembly: Id, path: &mut Vec<Id>, out: &mut Vec<Listed>) {
+            let Ok(a) = doc.assembly(assembly) else { return };
+            if path.len() > MAX_DEPTH {
+                return;
+            }
+            for o in &a.occurrences {
+                let Ok(c) = doc.component(o.component) else { continue };
+                match (c.source, &c.kind) {
+                    (Source::Existing, _) => {}
+                    (Source::Bought, _) | (Source::Made, ComponentKind::Part(_)) => {
+                        out.push(Listed { path: EntityPath::new(path.clone(), o.id), component: c.id });
+                    }
+                    (Source::Made, ComponentKind::Assembly(_)) => {
+                        path.push(o.id);
+                        walk(doc, c.id, path, out);
+                        path.pop();
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(self, self.root, &mut Vec::new(), &mut out);
+        out
+    }
+
     /// The parts `self` places otherwise than `before` does at the same path — another part,
     /// the same one changed (its component not `before`'s, or one of `touched`), or elsewhere —
     /// as `self` places them, each with what `before` placed there (part and part-to-world).
@@ -2043,7 +2115,16 @@ impl Document {
         let name = self.unique_name(base, named);
         self.components.insert(
             id,
-            Arc::new(Component { id, name, named, kind, guides: Vec::new(), behavior: Behavior::default(), props: Props::default() }),
+            Arc::new(Component {
+                id,
+                name,
+                named,
+                kind,
+                guides: Vec::new(),
+                behavior: Behavior::default(),
+                props: Props::default(),
+                source: Source::Made,
+            }),
         );
         id
     }
@@ -2054,7 +2135,7 @@ impl Document {
         let src = self.component(src)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
         let c = self.component_mut(copy)?;
-        (c.guides, c.behavior, c.props) = (src.guides, src.behavior, src.props);
+        (c.guides, c.behavior, c.props, c.source) = (src.guides, src.behavior, src.props, src.source);
         Ok(copy)
     }
 
@@ -2240,7 +2321,16 @@ impl Document {
             let name = self.unique_name(&c.name, c.named);
             self.components.insert(
                 *new,
-                Arc::new(Component { id: *new, name, named: c.named, kind, guides, behavior: c.behavior.clone(), props: c.props.clone() }),
+                Arc::new(Component {
+                    id: *new,
+                    name,
+                    named: c.named,
+                    kind,
+                    guides,
+                    behavior: c.behavior.clone(),
+                    props: c.props.clone(),
+                    source: c.source,
+                }),
             );
         }
         // The links of the assemblies copied, through the ids drawn afresh: their occurrences

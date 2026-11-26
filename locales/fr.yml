@@ -921,6 +921,12 @@ panel:
     material: "Matériau"
     # What colours a part, over its material.
     coloration: "Coloration"
+    # Where a part or an assembly comes from: what the parts list counts of it
+    # (docs/ui/parts-list.md#rows).
+    source: "Provenance"
+    source_made: "Fabriqué"
+    source_bought: "Acheté"
+    source_existing: "Existant"
     # The model's: parts and assemblies as placed (one per occurrence, at any depth), its
     # materials.
     parts: "Pièces"
@@ -1833,6 +1839,7 @@ operation:
   paint: "$t(common.paint)"
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
+  set_source: "Provenance"
   set_profile: "Modifier le profil"
   round: "Arrondir"
   chamfer: "Chanfreiner"
@@ -1961,6 +1968,7 @@ error:
     axes_not_direct: "de nouveaux axes sont un déplacement et une rotation, jamais une symétrie"
     array_count: "nombre de copies hors limites"
     root_renamed: "le modèle ne se renomme pas"
+    root_source: "le modèle n'a pas de provenance : ses pièces en ont une"
     name_taken: "une autre pièce ou un autre assemblage porte ce nom"
     empty_assembly: "rien à mettre dans l'assemblage"
     not_exploded: "seul un assemblage ou un groupe s'éclate"

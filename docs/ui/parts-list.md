@@ -11,13 +11,21 @@ placed, in which material, of which size, how many.
 
 ## Rows
 
-- **One row per part placed in the model**: a part's occurrences, at any depth, in its
-  material (`PlacedPart::material`, what it is made of, not its coloration: two copies in two
-  materials are two parts, [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)).
-  Hidden occurrences count: they are in the model. Parts not placed are not listed.
+- **The tree walked by the components' source** (`Document::listed`,
+  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)): a part
+  « Fabriqué » is a row, an assembly « Fabriqué » is gone through; a component « Acheté », part
+  or assembly, is **one row, not gone through** (a drawer slide: one article, whatever its
+  parts); a component « Existant » is **no row, not gone through** (a wall, a fridge). The source
+  is chosen in the entity info (« Provenance »).
+- **One row per component** so reached: its occurrences, at any depth. Its material is the
+  part's (`Part::material`, what it is made of, not its coloration: two copies in two materials
+  are two parts); an assembly bought has none (« — »): what identifies it (a reference, a
+  supplier, a price) comes later. Hidden occurrences count: they are in the model. Components
+  not placed are not listed.
 - **Columns**: name (the part's), material (« Matériau »; « Aucune » when none), length, width, thickness —
   the box of the part's final B-rep along its red, green and blue axes (the scene's
-  exact bounds, else the shape's vertices; « — » while the kernel computes it) —, quantity (its
+  exact bounds, else the shape's vertices; « — » while the kernel computes it), an assembly's
+  the box of its parts' boxes in its axes —, quantity (its
   occurrences). Lengths in the document's units; their
   symbol, when the document shows it, is in the column's header (« Longueur (mm) »), not in each
   cell. The columns are as wide as a number at the document's decimals.
@@ -63,4 +71,4 @@ views in its menu).
 
 Handles ([Control protocol](../control-protocol.md)): `parts_list` (the card),
 `parts_list_header:<column>` (`name`, `material`, `length`, `width`, `thickness`, `quantity`),
-`parts_list_row:<part>` (`:<material>` after it when the row has one), `stage_split`.
+`parts_list_row:<component>`, `stage_split`.
