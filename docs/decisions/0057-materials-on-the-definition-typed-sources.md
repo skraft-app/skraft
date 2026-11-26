@@ -1,6 +1,7 @@
-# Materials: a part's material on its definition, a type saying where a material goes
+# Materials, coverings, colorations: three families, on the part's definition
 
-- Status: accepted (2026-11-26)
+- Status: accepted (2026-11-26; step 1 built: the material on the definition; three families
+  decided the same day)
 - Design: [Palette and materials](../render/look.md#palette-and-materials),
   [Parts list](../ui/parts-list.md), [Data model](../model/data-model.md),
   [STEP import](../io/step-import.md), [SketchUp import](../io/sketchup-import.md)
@@ -18,6 +19,12 @@ surface. Hardware (a drawer slide: an assembly of a rail, a ball cage and a runn
 colours) has to be one row of the parts list, and the room's walls or an existing fridge, drawn
 to work around them, none. Decided on 2026-11-26 (questions / answers).
 
+What a part is made of, what covers a face and what colours it are three things. Solid oak and
+an oak veneer are not counted nor cut alike (OpenCutList's types: solid wood, sheet good,
+dimensional, edge, veneer), and an edge banding has nothing to do beside solid wood in one list
+of types. A paint gives a colour and is never cut; a tinted varnish lets the wood show. Layers
+stack: an MDF panel, an oak veneer on a face, a paint or a stain over it.
+
 STEP draws the same lines: a material designation belongs to the product's definition
 (`MATERIAL_DESIGNATION`), a colour to the geometry (`STYLED_ITEM` on a solid, a shell or a face),
 and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE`:
@@ -25,17 +32,29 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 
 ## Decision
 
-- **One catalog of materials, each with a type** (`Material.kind`) saying where it goes:
-  - **substance** (what a part is made of: solid wood, sheet good, metal…): on a part's
-    definition;
-  - **surface** (paint, varnish, edge banding, veneer): on faces;
-  - **untyped** (a colour, « Couleur #RRGGBB » of an import): anywhere, for the look only.
-  The substance's own kinds (OpenCutList's solid wood, sheet good, dimensional…) come later,
-  under it.
-- **A part's material is on its definition** (`Part.material`), as substance or untyped.
-  **Only parts have one**: an assembly never does, whatever its source; painting it lays the
-  material on the parts below it. **No material on occurrences, and no inheritance through
-  assemblies.** Display: face > the part's definition > the theme's default.
+- **Three families, each a table of its own** in the document, each a tab of the « Matières »
+  card with its own « + », search, « Aucune » and unused items:
+  - **materials** (« Matériaux »): what a part is made of, counted and cut; a **type**:
+    « Massif » (the default), « Panneau », « Profilé » (dimensional timber, a tube, a bar);
+  - **coverings** (« Revêtements »): what covers a face, counted (later, with stable face
+    names); a type: « Placage » (the default), « Chant »;
+  - **colorations** (« Colorations »): what colours a face, never counted — a colour, maybe a
+    texture; an **opacity** next (a paint opaque, a stain or a tinted varnish letting what is
+    under show). The colours of imports are colorations.
+  Each item has a colour and maybe a texture, to be seen. **A type changes only within its
+  family**, and every type of a family goes to the same place: nothing can end up where it does
+  not go. An item never changes family (a new one is made).
+- **Where they go**, on the part's definition and its faces; **only parts have them**: an
+  assembly never does, whatever its source; painting it lays them on the parts below it. **None
+  on occurrences, and no inheritance through assemblies.**
+
+  | | Counted | Seen |
+  |---|---|---|
+  | Part | its material | its coloration (all its faces), else its material |
+  | Face | its covering | its coloration, else its covering, else what the part shows |
+
+  Then the theme's default. A slot takes only an item of its family (the model refuses any
+  other).
 - **A component has a source** (`Component.source`), a field of the model like its name, not a
   property ([Properties](../model/properties.md)): it cannot be removed or renamed.
   « Fabriqué » (`Made`, the default), « Acheté » (`Bought`), « Existant » (`Existing`).
@@ -46,39 +65,41 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   only seen. An article assembly's row has no material (« — »): what identifies it (a
   reference, a supplier, a price) comes later. This replaces the property « exclusion from the
   cut list » once planned on occurrences.
-- **The paint tool takes its target from the material's type**; the option « L'exemplaire /
-  La face » goes:
-  - a substance paints the definition of what is clicked, with the scope (« Toutes » /
-    « Celle-ci », the second making the part unique); an assembly paints the definitions of the
-    parts below it, at any depth, an article's or an existing component's included;
-  - a surface paints the face clicked (on every occurrence of its part);
-  - an untyped material paints the definition, or the face through the tool's option, kept
-    for it only;
-  - **refused**: a substance on a face (that is a veneer, a surface), a surface on a definition
-    (a finish covering a whole part, later).
-- **A material's type may change while used**: only its type changes. What it now cannot be on
-  stays, **flagged** (⚠ in the parts list, the navigator, the entity info and on the material in
-  the « Matières » card, a click there selecting those uses), for the user to repaint, unpaint
-  or set the type back. Nothing is unpainted nor moved for them: the app does not guess at an
-  edit, as when a stretch takes a round's edges away and the node shows ⚠.
+- **The paint tool lays what it is given where its family goes**: a material on the part
+  clicked (the definition, with the scope: « Tous les exemplaires » / « Celui-ci », the second
+  making the part unique); a covering on the face clicked (on every occurrence of its part); a
+  coloration on the part or on the face, as the tool's option says (« La pièce / La face »),
+  shown only for it. « Aucune » takes off the family of the tab it was chosen in. An assembly
+  clicked lays it on the parts below it, at any depth, an article's or an existing component's
+  included.
 - **Faces are painted one by one** for now: their index in the record stays their name, with
-  its known limit (a boolean renumbers them).
+  its known limit (a boolean renumbers them). Veneers and edges counted in the parts list wait
+  for stable face names.
 - **Imports**:
   - STEP: a product's source from `.BOUGHT.` (`.MADE.` and `.NOT_KNOWN.` give `Made`); a colour
-    on a body or a shell becomes an untyped material on its part, a part's product's
-    `MATERIAL_DESIGNATION` a substance; an option « Importer comme » (Fabriqué / Acheté /
+    on a body or a shell becomes a **coloration** of its part, a part's product's
+    `MATERIAL_DESIGNATION` a material (solid); an option « Importer comme » (Fabriqué / Acheté /
     Existant) sets the imported root's source (a vendor's slide file: one article).
-  - SketchUp: an instance's material goes on its definition, untyped; a definition painted
-    differently by its instances is made unique, one definition per material; an assembly's
-    instance's material goes on the parts below it that have none.
+  - SketchUp: an instance's material becomes a **coloration** of its part, a face's of its
+    face; a definition painted differently by its instances is made unique, one per
+    coloration. OpenCutList's material types, read later, will make materials of them.
   - The same « Importer comme » option for a `.skp`.
 
 ## Alternatives considered
 
 - **Keeping the material on the occurrence** (SketchUp's, OpenCutList's): a part's nature on
   one of its copies, a part in two rows of the list.
-- **Two notions, a « material » and a separate « look »**: two catalogs to explain; the untyped
-  material is the look.
+- **One kind of material with a type « substance / surface / untyped »** (decided first, the
+  same day): a veneer and a paint in one slot of a face, so no paint over a veneer; and one
+  « oak » for the solid and the veneer, which are not counted nor cut alike.
+- **Two families, materials (typed solid… edge) and appearances** (decided next, the same
+  day): an edge banding among the types of solid wood; and a type change could leave a
+  material where it did not go, which then had to be flagged (⚠) everywhere.
+- **One table with a family field**: a material could change family, and every slot would
+  check it; a table per family makes a wrong one impossible.
+- **One material for the solid and the veneer**, where it is laid telling them apart: counted
+  and cut alike, which they are not.
+- **Three cards**: three places to choose what the paint tool lays.
 - **The type deciding nothing, the tool's option choosing the target**: the user picks a mode
   where the material already says where it goes.
 - **« Acheté » as a material type** (OpenCutList's *hardware*): a bought slide has a substance
@@ -90,18 +111,17 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **Layers / tags for the environment** (SketchUp's): a display notion deciding what is made; a
   part left in the wrong layer would leave the list unnoticed. Layers may come later to hide the
   environment at once.
-- **A material's type change**: refused while used (unpainting everything by hand to fix a
-  typo), unpainting what no longer fits (destructive, past what was edited), or moving it (a
-  substance turned surface laid on every face of its parts: a guess).
 - **A finish on the definition now**, covering all faces present and future: one more slot to
   explain; faces one by one first.
 
 ## Consequences
 
-- **Files**: materials painted on occurrences are lost (format v1 until 0.1.0: no
-  compatibility code); the changelog says so.
-- One part, one material: trying a copy in walnut makes it unique.
+- **Files**: earlier files whose faces are painted no longer open, and materials painted on
+  occurrences are lost (format v1 until 0.1.0: no compatibility code); the changelog says so.
+- One part, one material: trying a copy in walnut makes it unique (a coloration too: it is
+  the part's).
 - An article assembly shows no material in the parts list until articles get their
   reference, supplier and price.
-- Edge banding and veneers in the parts list wait for stable face names.
+- Coverings in the parts list wait for stable face names; a coloration's opacity is the next
+  step (the renderer blends two layers).
 - A lock on components (`locked`, as SketchUp's) may come later, apart from the source.
