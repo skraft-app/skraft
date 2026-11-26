@@ -968,6 +968,8 @@ panel:
     kind:
       coat: "Coat"
       scheme: "Scheme"
+      generic: "Generic"
+      generic_covering: "Generic"
       solid: "Solid"
       sheet: "Sheet"
       profile: "Profile"

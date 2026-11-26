@@ -873,7 +873,7 @@ fn each_family_goes_to_its_layer_colorations_over_the_others() {
     }
     assert_eq!(&Document::from_json(&json).unwrap(), h.document());
     let json = json.replace("\"kind\":\"sheet\",", "");
-    assert_eq!(Document::from_json(&json).unwrap().material(oak).unwrap().kind, Some(MaterialKind::Solid));
+    assert_eq!(Document::from_json(&json).unwrap().material(oak).unwrap().kind, Some(MaterialKind::Generic));
 }
 
 #[test]

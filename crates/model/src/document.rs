@@ -986,8 +986,8 @@ impl Family {
     /// Its types, in the order they are offered, the first a new item's (none for colorations).
     pub fn kinds(self) -> &'static [MaterialKind] {
         match self {
-            Family::Material => &[MaterialKind::Solid, MaterialKind::Sheet, MaterialKind::Profile],
-            Family::Covering => &[MaterialKind::Veneer, MaterialKind::Edge],
+            Family::Material => &[MaterialKind::Generic, MaterialKind::Solid, MaterialKind::Sheet, MaterialKind::Profile],
+            Family::Covering => &[MaterialKind::GenericCovering, MaterialKind::Veneer, MaterialKind::Edge],
             Family::Coloration => &[MaterialKind::Coat, MaterialKind::Scheme],
         }
     }
@@ -997,12 +997,18 @@ impl Family {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MaterialKind {
-    /// Solid wood, a block of metal… (« Massif »).
+    /// Whatever is listed without being cut from a stock (« Générique »): glass, steel, a
+    /// plastic, a foam, a cast or printed part; a new material's type.
+    Generic,
+    /// Solid wood (« Massif »).
     Solid,
     /// A sheet good (« Panneau »).
     Sheet,
     /// Dimensional timber, a tube, a bar (« Profilé »).
     Profile,
+    /// Whatever covers a face and is neither a veneer nor an edge banding (« Générique »): a
+    /// laminate, a fabric, a leather; a new covering's type.
+    GenericCovering,
     /// A veneer (« Placage »).
     Veneer,
     /// An edge banding (« Chant »).
@@ -1042,8 +1048,8 @@ impl MaterialKind {
     /// The family it is a type of.
     pub fn family(self) -> Family {
         match self {
-            MaterialKind::Solid | MaterialKind::Sheet | MaterialKind::Profile => Family::Material,
-            MaterialKind::Veneer | MaterialKind::Edge => Family::Covering,
+            MaterialKind::Generic | MaterialKind::Solid | MaterialKind::Sheet | MaterialKind::Profile => Family::Material,
+            MaterialKind::GenericCovering | MaterialKind::Veneer | MaterialKind::Edge => Family::Covering,
             MaterialKind::Coat | MaterialKind::Scheme => Family::Coloration,
         }
     }

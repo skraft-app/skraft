@@ -2,7 +2,8 @@
 
 - Status: accepted (2026-11-26; step 1 built: the material on the definition; three families
   decided the same day; « Importer comme » dropped and the navigator's source mark decided
-  the same day; colorations without texture decided the same day)
+  the same day; colorations without texture decided the same day; the generic types, the
+  default of materials and coverings, decided the same day)
 - Design: [Palette and materials](../render/look.md#palette-and-materials),
   [Parts list](../ui/parts-list.md), [Data model](../model/data-model.md),
   [STEP import](../io/step-import.md), [SketchUp import](../io/sketchup-import.md)
@@ -36,9 +37,13 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **Three families, each a table of its own** in the document, each a tab of the « Matières »
   card with its own « + », search, « Aucune » and unused items:
   - **materials** (« Matériaux »): what a part is made of, counted and cut; a **type**:
-    « Massif » (the default), « Panneau », « Profilé » (dimensional timber, a tube, a bar);
+    « Générique » (the default: glass, steel, a plastic, a foam, a cast or printed part —
+    listed by the piece, without a stock to cut it from nor a cutting diagram, OpenCutList's
+    « Indéfini »), « Massif », « Panneau », « Profilé » (dimensional timber, a tube, a
+    bar);
   - **coverings** (« Revêtements »): what covers a face, counted (later, with stable face
-    names); a type: « Placage » (the default), « Chant »;
+    names); a type: « Générique » (the default: a laminate, a fabric, a leather), « Placage »,
+    « Chant »;
   - **colorations** (« Colorations »): what colours a face, never counted. The colours of
     imports are colorations. Two categories:
     - a **coat** (« Couche », the default): a colour, never a texture, a **mode** and an
@@ -95,7 +100,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **Imports**:
   - STEP: a product's source from `.BOUGHT.` (`.MADE.` and `.NOT_KNOWN.` give `Made`); a colour
     on a body or a shell becomes a **coloration** of its part, a part's product's
-    `MATERIAL_DESIGNATION` a material (solid).
+    `MATERIAL_DESIGNATION` a material (generic).
   - SketchUp: an instance's material becomes a **material** of its part (what it is made of),
     a face's a **coloration** of its face — or, by OpenCutList's type of it when it has one,
     the material, covering or coloration it says (sheet good, dimensional, edge, veneer…; a
@@ -128,6 +133,11 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   coat by coat on every face, the tool to tell adding from replacing, and the finishing
   scheme, a notion of the workshop, nameless.
 - **Schemes holding schemes**: cycles, and stacks hard to read; one level suffices.
+- **Solid wood as the default type** (decided first): a steel or an ABS read from a STEP
+  designation, a SketchUp material without an OpenCutList type, came into the wood's cutting;
+  generic by default, a material is cut only once the user has typed it. Named « Générique »
+  rather than « Autre » (a leftover) or « Indéfini » (not chosen yet), as it is every new
+  item's.
 - **A coat with a texture** (decided first, the same day): its texture showed only when it
   covered fully, its image's mean colour otherwise — a thinned grain shown as a plain veil.
   Keeping the texture under a partial intensity holds one textured coat per scheme in the map

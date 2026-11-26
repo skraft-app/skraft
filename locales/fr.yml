@@ -1065,6 +1065,8 @@ panel:
     kind:
       coat: "Couche"
       scheme: "Schéma"
+      generic: "Générique"
+      generic_covering: "Générique"
       solid: "Massif"
       sheet: "Panneau"
       profile: "Profilé"

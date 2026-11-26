@@ -58,7 +58,7 @@ Read from the exchange beside the product structure, which carries neither
   parts list, a vendor's slide whole. `.MADE.`, `.NOT_KNOWN.` or no source: « Fabriqué ».
 - **Material**: a `MATERIAL_DESIGNATION` (its name; what it characterises — one definition in
   AP203, a set in AP214 and AP242 — a product definition, its `PRODUCT_DEFINITION_SHAPE`, its
-  formation or its product) gives a **material** « Massif » of that name (one per name, a
+  formation or its product) gives a **material** « Générique » of that name (one per name, a
   neutral grey: the file gives no colour) to the parts of the product's own bodies; a colour
   stays a coloration over it.
 

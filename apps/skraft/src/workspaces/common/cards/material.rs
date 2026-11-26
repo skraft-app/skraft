@@ -21,6 +21,8 @@ pub(crate) fn family_label(family: Family) -> String {
 /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
 pub(crate) fn kind_label(kind: MaterialKind) -> String {
     match kind {
+        MaterialKind::Generic => t!("panel.materials.kind.generic"),
+        MaterialKind::GenericCovering => t!("panel.materials.kind.generic_covering"),
         MaterialKind::Solid => t!("panel.materials.kind.solid"),
         MaterialKind::Sheet => t!("panel.materials.kind.sheet"),
         MaterialKind::Coat => t!("panel.materials.kind.coat"),

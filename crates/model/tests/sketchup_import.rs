@@ -155,7 +155,8 @@ fn opencutlist_types_put_materials_where_they_go() {
         let (_, m) = slots.iter().find(|(f, _)| (planes[**f as usize].normal - normal).length() < 1e-6).unwrap();
         item(Some(*m)).unwrap()
     };
-    let (solid, sheet, profile, edge, veneer, coat) = (
+    let (generic, solid, sheet, profile, edge, veneer, coat) = (
+        Some(MaterialKind::Generic),
         Some(MaterialKind::Solid),
         Some(MaterialKind::Sheet),
         Some(MaterialKind::Profile),
@@ -187,10 +188,10 @@ fn opencutlist_types_put_materials_where_they_go() {
     assert_eq!(face(slat[0], DVec3::Z, false), ("MDF", coat));
     assert_eq!(face(slat[0], -DVec3::Z, false), ("Rainure", coat));
 
-    // Hardware, a solid material for now; a machining on an instance, its look.
+    // Hardware, a generic material for now; a machining on an instance, its look.
     let knob = parts("Bouton");
     assert_eq!(knob.len(), 2);
-    assert!(knob.iter().any(|p| item(p.material) == Some(("Charnière", solid))));
+    assert!(knob.iter().any(|p| item(p.material) == Some(("Charnière", generic))));
     assert!(knob.iter().any(|p| p.material.is_none() && item(p.coloration) == Some(("Rainure", coat))));
 
     // One item per material and type: « MDF » and « Chant chêne » twice, « Rainure » once.
