@@ -111,7 +111,7 @@ impl ViewsCache {
                 let placed = e.document().subject_parts(r.subject);
                 let mut by_part: HashMap<Id, Vec<Placed>> = HashMap::new();
                 for p in &placed {
-                    by_part.entry(p.part).or_default().push((p.transform, p.material));
+                    by_part.entry(p.part).or_default().push((p.transform, p.shown()));
                 }
                 let mut parts: Vec<_> = by_part.into_iter().collect();
                 parts.sort_by_key(|(p, _)| *p);
@@ -138,7 +138,7 @@ fn looks_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> u64 {
     }
     let used = materials_of(e, parts);
     for (id, m) in e.document().materials().filter(|(id, _)| used.contains(id)) {
-        (id.0, m.color).hash(&mut h);
+        (id.0, m.color, m.blend, m.intensity.to_bits()).hash(&mut h);
         if let Some(t) = &m.texture {
             (&t.image, t.size.map(f64::to_bits), t.rotation.to_bits()).hash(&mut h);
         }
@@ -148,14 +148,18 @@ fn looks_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> u64 {
 
 /// The materials `parts` show: those of their placements and of their painted faces.
 fn materials_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> std::collections::BTreeSet<Id> {
-    let mut used = std::collections::BTreeSet::new();
+    let mut seen = std::collections::BTreeSet::new();
     for (part, places) in parts {
-        used.extend(places.iter().filter_map(|(_, m)| *m));
+        seen.extend(places.iter().map(|(_, m)| *m));
         if let Some(dm) = e.scene().definition_mesh(*part) {
-            used.extend(dm.faces.values().copied());
+            seen.extend(dm.faces.values().copied());
         }
     }
-    used
+    // What is under, and the coats of the colorations over it.
+    let doc = e.document();
+    let coats =
+        |s: &skraft_model::Seen| s.over.map(|o| doc.coats_of(o).into_iter().map(|(id, _)| id).collect::<Vec<Id>>()).unwrap_or_default();
+    seen.iter().flat_map(|s| s.under.into_iter().chain(coats(s))).collect()
 }
 
 /// The texture images `parts` show, each once: a picture is drawn again as they get ready.
@@ -222,4 +226,4 @@ pub fn view_frame(e: &Editor, r: &Resolved<'_>) -> (DVec2, DVec2) {
 }
 
 /// A part placed in a view's subject: its transform there, its material.
-pub type Placed = (DAffine3, Option<Id>);
+pub type Placed = (DAffine3, skraft_model::Seen);

@@ -594,6 +594,13 @@ impl SkraftApp {
             Action::SelectModel => e.select_model(),
             Action::ChooseComponent(c) => e.choose_component(c),
             Action::ChooseMaterial(m) => e.choose_material(m),
+            Action::PaintFamily(f) => e.set_paint_family(f),
+            Action::DeleteMaterial(m) => match e.document().schemes_with(m).len() {
+                0 => {
+                    let _ = e.apply(skraft_model::Operation::DeleteMaterial { material: m });
+                }
+                n => self.deleting_coat = Some((doc.id, m, n)),
+            },
             Action::PlaceComponent(c) => {
                 doc.vcb.clear();
                 if e.place_component(c) {

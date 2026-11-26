@@ -73,10 +73,8 @@ Decision [0038](../decisions/0038-components-library-card.md).
   (`THUMBNAIL_EDGE_SCALE`); a part's mesh once in its own axes, an
   assembly's parts as placed in it (`thumbnails::Content`: its hidden occurrences left out,
   5 000 placements at most). Square, `TILE` points at the screen's pixel density.
-- **Colours**: the view's palette; its faces' paints (in the meshes); the material each
-  placement shows in an assembly; the occurrences' material when they all carry the same one,
-  else the theme's default — a definition has no material of its own
-  ([Palette and materials](../render/look.md#palette-and-materials)).
+- **Colours**: the view's palette; its faces' paints (in the meshes); each part's material,
+  else the theme's default ([Palette and materials](../render/look.md#palette-and-materials)).
 - **The renderer's pictures** (`render::Picture`, `Renderer::render_picture`): a picture is its
   resolved texture only (64 kB at 128 px), drawn with a multisampled colour and depth the
   renderer keeps for pictures of one size; for one call it is the renderer's target, with
@@ -141,7 +139,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
 - **Choosing**: a click chooses the component (marked in the card; `Editor::choose_component`,
   the selection let go); the entity info then shows it as it shows the model
   ([The model row](interface.md#the-model-row)): its nature, its name (edited there), its count
-  in the model, a part's dimensions, the materials its occurrences and faces carry
+  in the model, a part's dimensions, the materials it and its faces carry
   (`component_info`). It stays chosen until anything else is (a click or Esc in the view, a
   selection, a part opened: `Editor::chosen_component`).
 - **Context menu** (right click), on the component under it. A right click **does not choose
@@ -151,7 +149,7 @@ Decision [0038](../decisions/0038-components-library-card.md).
     paths with the scope turned to « Pièces » (`Editor::select_occurrences_of`,
     [Selection scope](../tools/selection.md#selection-scope)); greyed when it has none there.
   - « Remplacer la sélection »: the occurrences selected become occurrences of it, each one
-    keeping its placement, its occurrence name, its material and its visibility
+    keeping its placement, its occurrence name and its visibility
     (`Operation::ReplaceOccurrences`, grouped per parent with `Operation::At`). Enabled for a
     selection of occurrences that holds none of the assemblies it contains (a cycle) and is
     not only of it (`Editor::can_replace_selection`). At any depth, the paths grouped per
@@ -195,9 +193,6 @@ Decision [0038](../decisions/0038-components-library-card.md).
   active path not restricting the rows. Whether a definition holds a match is found once per
   definition, kept for the document's revision and the search (`NavigatorState`), so a search
   costs the definitions, not the placements. Emptied, everything is as before.
-- **No material criterion**: a component has no material of its own — its occurrences carry
-  them, inherited down the assemblies, a part's faces others —, so « what is in oak » is not a
-  question about definitions (asked on 2026-11-19, the card's material menu dropped).
 - **The searches are the document's**: kept per card in the document (`LibraryState.search`,
   `NavigatorState.search`, in `docs::Doc`), never on disk.
 

@@ -200,7 +200,7 @@ pub fn methods() -> Vec<Method> {
         ),
         m(
             "components.replace",
-            "Replaces the selected occurrences by occurrences of a component, each keeping its placement, name, material and visibility.",
+            "Replaces the selected occurrences by occurrences of a component, each keeping its placement, name and visibility.",
             true,
             schema::<ComponentParams>,
         ),

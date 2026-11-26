@@ -39,10 +39,10 @@ along the path are first made unique.
 
 ## Pick material
 
-« Pipette »: the part made takes the picked part's material — its occurrence's own, else the one
-it inherits from its assemblies (as the view paints it); none, none. The toggle's button is filled
-with that material's colour (its icon black or white to stay readable) and its tip ends with
-« : <material name> ». `AddPrimitive` carries that `material` (the occurrence's).
+« Pipette »: the part made takes the picked part's material (its definition's); none, none. The
+toggle's button is filled with that material's colour (its icon black or white to stay readable)
+and its tip ends with « : <material name> ». `AddPrimitive` carries that `material`, the new
+part's.
 
 ## Shared settings
 

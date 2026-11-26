@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use skraft_model::kernel::{Job, Output, StepImport, Task, run};
-use skraft_model::{Document, Operation, Outcome, Prepared};
+use skraft_model::{Document, MaterialKind, Operation, Outcome, Prepared, Source};
 
 /// Applies an operation that needs no kernel.
 fn apply(doc: &Document, op: &Operation) -> (Document, Outcome) {
@@ -31,14 +31,41 @@ fn a_step_file_becomes_parts_and_assemblies() {
     let board = frag.components().find(|c| c.name == "Planche é").unwrap();
     assert!(board.is_part() && board.named);
     assert_eq!(frag.occurrence_count(board.id), 2);
-    // The body's colour on both occurrences.
-    let cabinet = frag.components().find(|c| c.name == "Caisson").unwrap().as_assembly().unwrap();
-    for o in cabinet.occurrences() {
-        let m = frag.material(o.material.unwrap()).unwrap();
-        assert_eq!(m.color, [204, 153, 102]);
-    }
+    // The body's colour on its part, which both occurrences show.
+    let m = frag.material(board.as_part().unwrap().coloration.unwrap()).unwrap();
+    assert_eq!(m.color, [204, 153, 102]);
     assert_eq!(frag.materials().count(), 1);
     assert_eq!(frag.root_assembly().occurrences().len(), 1);
+}
+
+#[test]
+fn a_product_bought_and_its_material_designation_are_read() {
+    // The board bought (AP214's source on its formation), its material designated through its
+    // shape; the cabinet made.
+    let text = String::from_utf8(ASSEMBLY.to_vec()).unwrap();
+    let text = text
+        .replace(
+            "#111=PRODUCT_DEFINITION_FORMATION('','',#110);",
+            "#111=PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#110,.BOUGHT.);",
+        )
+        .replace(
+            "#121=PRODUCT_DEFINITION_FORMATION('','',#120);",
+            "#121=PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#120,.MADE.);",
+        )
+        .replace("ENDSEC;\nEND-ISO", "#170=MATERIAL_DESIGNATION('Ch\\X\\EAne',(#113));\nENDSEC;\nEND-ISO");
+    assert!(text.contains("#170="), "the designation added");
+    let (frag, _) = Document::from_step(&read(text.as_bytes()), "assembly.step");
+    let board = frag.components().find(|c| c.name == "Planche é").unwrap();
+    assert_eq!(board.source, Source::Bought);
+    let oak = frag.material(board.as_part().unwrap().material.unwrap()).unwrap();
+    assert_eq!((oak.name.as_str(), oak.kind), ("Chêne", Some(MaterialKind::Solid)));
+    assert!(board.as_part().unwrap().coloration.is_some(), "its colour still a coloration over it");
+    let cabinet = frag.components().find(|c| c.name == "Caisson").unwrap();
+    assert_eq!(cabinet.source, Source::Made);
+    // Without them: made, no material.
+    let (frag, _) = Document::from_step(&read(ASSEMBLY), "assembly.step");
+    let board = frag.components().find(|c| c.name == "Planche é").unwrap();
+    assert_eq!((board.source, board.as_part().unwrap().material), (Source::Made, None));
 }
 
 #[test]

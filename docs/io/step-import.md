@@ -43,9 +43,24 @@ shell or a body the reader refuses is excluded and counted.
 ## Colours
 
 A `STYLED_ITEM`'s surface colour (`COLOUR_RGB`, pre-defined colours), on the body, its shell, or
-shared by all its faces, becomes a **material** (one per colour, « Couleur #RRGGBB ») on the
-occurrences of its part. Not yet: other face colours (a face's index in the built B-rep would
+shared by all its faces, becomes a **coloration** (one per colour, « Couleur #RRGGBB ») of its
+part. Not yet: other face colours (a face's index in the built B-rep would
 have to be matched).
+
+## Source and material
+
+Read from the exchange beside the product structure, which carries neither
+([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)):
+
+- **Bought**: a definition whose formation is a
+  `PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE` with `.BOUGHT.` gives a component
+  « Acheté » — its part, or its assembly when it has several bodies or products: one row of the
+  parts list, a vendor's slide whole. `.MADE.`, `.NOT_KNOWN.` or no source: « Fabriqué ».
+- **Material**: a `MATERIAL_DESIGNATION` (its name; what it characterises — one definition in
+  AP203, a set in AP214 and AP242 — a product definition, its `PRODUCT_DEFINITION_SHAPE`, its
+  formation or its product) gives a **material** « Massif » of that name (one per name, a
+  neutral grey: the file gives no colour) to the parts of the product's own bodies; a colour
+  stays a coloration over it.
 
 ## Model
 

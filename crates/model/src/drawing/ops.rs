@@ -39,12 +39,13 @@ impl Document {
                     part: *c,
                     transform: DAffine3::IDENTITY,
                     shape: p.shape().clone(),
-                    material: None,
+                    material: p.material,
+                    coloration: p.coloration,
                     hidden_at: None,
                 }],
                 Ok(ComponentKind::Assembly(_)) => {
                     let mut out = Vec::new();
-                    self.walk(*c, &mut Vec::new(), DAffine3::IDENTITY, (None, None), &mut out, 0);
+                    self.walk(*c, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
                     out
                 }
                 Err(_) => Vec::new(),

@@ -277,7 +277,7 @@ fn component_bytes(c: &Component, other: Option<&Component>, solid: &dyn Fn(&Arc
             std::mem::size_of_val(p.defs.as_slice())
                 + std::mem::size_of_val(p.bodies.as_slice())
                 + names
-                + (p.faces.len() + p.failed.len()) * MAP_ENTRY as usize
+                + (p.faces.len() + p.coverings.len() + p.failed.len()) * MAP_ENTRY as usize
         }
         // Its occurrences and their index by id, once built; their names (mostly none) left
         // out: the root's tens of thousands would be walked at each move.

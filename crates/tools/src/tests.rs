@@ -1,7 +1,7 @@
 //! Whole scenarios driven like the app does: pixels in, operations out.
 
 use glam::{DVec2, DVec3};
-use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive};
+use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope};
 
 use crate::draw::ThemeColor;
 use crate::*;
@@ -1777,7 +1777,7 @@ fn drawn_material(e: &Editor, o: Id) -> Option<Id> {
             paths.into_iter().zip(ps.clone())
         })
         .find(|(p, _)| p.path.last() == Some(&o))
-        .and_then(|(_, v)| v.material)
+        .and_then(|(_, v)| v.material.top())
 }
 
 #[test]
@@ -1786,10 +1786,12 @@ fn paint_tool_paints_occurrences_the_selection_and_faces() {
     let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
     let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
     let c = draw_box(&mut e, DVec3::new(600.0, 0.0, 0.0), DVec3::new(700.0, 100.0, 0.0), "50");
-    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap();
+    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() }).unwrap();
     let oak = e.document().materials().next().unwrap().0;
     e.set_paint_material(Some(oak));
     assert_eq!(e.paint_material(), Some(oak));
+    // Colorations (« Aucune » taking them off).
+    e.set_paint_family(skraft_model::Family::Coloration);
 
     // A click on an occurrence paints it.
     e.set_tool(ToolKind::Paint);
@@ -1817,7 +1819,7 @@ fn paint_tool_paints_occurrences_the_selection_and_faces() {
     let (part, p, _) = e.document().resolve_part(&EntityPath::root(a)).unwrap();
     assert_eq!(p.faces.len(), 1, "one face painted");
     let dm = e.scene().definition_mesh(part).unwrap();
-    assert_eq!(dm.faces.values().copied().collect::<Vec<_>>(), [oak]);
+    assert_eq!(dm.faces.values().map(|s| s.top()).collect::<Vec<_>>(), [Some(oak)]);
 }
 
 /// The paint tool shows what a click would paint in the colour it would take, and its pipette
@@ -1830,18 +1832,19 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
     let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
     // Never painted.
     draw_box(&mut e, DVec3::new(600.0, 0.0, 0.0), DVec3::new(700.0, 100.0, 0.0), "50");
-    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap();
-    e.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
+    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() }).unwrap();
+    e.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap();
     let ids: Vec<Id> = e.document().materials().map(|(id, _)| id).collect();
     let (oak, walnut) = (ids[0], ids[1]);
     let (top_a, top_b, top_c) = (DVec3::new(50.0, 50.0, 50.0), DVec3::new(350.0, 50.0, 50.0), DVec3::new(650.0, 50.0, 50.0));
     let painted = |e: &Editor| {
         let mut marks: Vec<(Option<Id>, Option<u32>)> =
-            e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).map(|h| (h.material, h.face)).collect();
+            e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).map(|h| (h.material.top(), h.face)).collect();
         marks.sort();
         marks
     };
     e.set_tool(ToolKind::Paint);
+    e.set_paint_family(skraft_model::Family::Coloration);
     e.set_paint_material(Some(walnut));
     click(&mut e, top_b);
     e.set_paint_material(Some(oak));
@@ -1879,13 +1882,19 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
 
     // Held over the paint tool by the other modifier (the tool stack): each click takes, the
     // paint tool waiting under it as it was, back when the key is released.
-    e.set_tool_option("target", OptionValue::Choice("occurrence".into()));
+    e.set_tool_option("target", OptionValue::Choice("part".into()));
     e.set_alt(true);
     assert_eq!((e.tool_kind(), e.suspended_tools()), (ToolKind::Sample, vec![ToolKind::Paint]));
     assert_eq!(e.tool_cursor(), Some(Cursor::Picker));
     click(&mut e, top_c);
     assert_eq!(e.paint_material(), None);
-    e.apply(Operation::PaintOccurrences { context: e.document().root(), entities: vec![a], material: Some(walnut) }).unwrap();
+    e.apply(Operation::PaintParts {
+        targets: vec![EntityPath::root(a)],
+        layer: skraft_model::Family::Coloration,
+        material: Some(walnut),
+        scope: Scope::All,
+    })
+    .unwrap();
     click(&mut e, top_a);
     assert_eq!((e.paint_material(), e.tool_kind()), (Some(walnut), ToolKind::Sample), "held: it takes again");
     e.set_alt(false);
@@ -1905,18 +1914,24 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
     assert_eq!(e.tool_kind(), ToolKind::Select);
     e.set_tool(ToolKind::Paint);
 
-    // An assembly: its parts in the colour they would inherit, a part painted keeping its own.
+    // An assembly: every part below it takes the material, one painted too; the assembly
+    // itself has none (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
     let root = e.document().root();
-    e.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: None }).unwrap();
+    e.apply(Operation::PaintParts {
+        targets: vec![EntityPath::root(a)],
+        layer: skraft_model::Family::Coloration,
+        material: None,
+        scope: Scope::All,
+    })
+    .unwrap();
     let asm = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
     e.select(vec![]);
     e.set_paint_material(Some(oak));
     hover(&mut e, top_a);
-    assert_eq!(painted(&e), [(Some(oak), None), (Some(walnut), None)], "b keeps its walnut");
-    assert_eq!(e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).count(), 2);
+    assert_eq!(painted(&e), [(Some(oak), None), (Some(oak), None)], "b's walnut too");
     click(&mut e, top_a);
-    let occurrence = |e: &Editor| e.document().assembly(root).unwrap().occurrence(asm).unwrap().material;
-    assert_eq!(occurrence(&e), Some(oak));
+    let part = |e: &Editor, id| part_material(e, &EntityPath::new(vec![asm], id));
+    assert_eq!((part(&e, a), part(&e, b)), (Some(oak), Some(oak)));
 }
 
 #[test]
@@ -3711,7 +3726,7 @@ fn a_sketchup_file_is_imported_into_the_context_in_one_step() {
     let said: Vec<_> = e.take_notices().into_iter().map(|n| (n.kind, n.title)).collect();
     assert_eq!(
         said,
-        [(NoticeKind::Success, "cabinet.skp importé : 5 pièces".to_owned()), (NoticeKind::Warning, "1 corps non solide ignoré".to_owned())]
+        [(NoticeKind::Success, "cabinet.skp importé : 6 pièces".to_owned()), (NoticeKind::Warning, "1 corps non solide ignoré".to_owned())]
     );
     e.undo();
     assert!(e.document().root_assembly().occurrences().is_empty());
@@ -5711,7 +5726,7 @@ fn distribute_and_paint_started_as_quick_tools_hand_back_at_their_action() {
     e.undo();
 
     // Paint: its first click paints, and hands back.
-    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap();
+    e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() }).unwrap();
     let oak = e.document().materials().next().unwrap().0;
     e.set_paint_material(Some(oak));
     e.set_tool(ToolKind::Box);
@@ -6372,6 +6387,11 @@ fn drawers_editor() -> (Editor, [Id; 5]) {
     (e, [a, b, c, g, g2])
 }
 
+/// What the part `path` leads to shows: its coloration, else its material.
+fn part_material(e: &Editor, path: &EntityPath) -> Option<Id> {
+    e.document().resolve_part(path).ok().and_then(|(_, p, _)| p.shown().top())
+}
+
 fn parts_scope(e: &mut Editor) {
     e.set_tool_option(crate::tools::PICK_SCOPE, OptionValue::Choice(crate::tools::PICK_PARTS.into()));
     assert!(e.pick_parts());
@@ -6602,14 +6622,17 @@ fn copy_tools_stretch_paint_and_the_clipboard_take_parts_at_any_depth() {
     // Paint: the part under the cursor, in its assembly (the definition shared: both copies).
     e.set_tool(ToolKind::Select);
     e.input(ToolInput::Key { key: Key::Escape, mods: none });
-    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+    let oak = e
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .unwrap()
+        .material
+        .unwrap();
     e.set_paint_material(Some(oak));
     e.set_tool(ToolKind::Paint);
     click(&mut e, DVec3::new(250.0, 350.0, 50.0));
-    let material = |e: &Editor, p: EntityPath| e.document().resolve(&p).unwrap().material;
-    assert_eq!(material(&e, EntityPath::new(vec![g2], b)), Some(oak));
-    assert_eq!(material(&e, EntityPath::new(vec![g], b)), Some(oak));
-    assert_eq!(material(&e, EntityPath::root(g2)), None);
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g2], b)), Some(oak));
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g], b)), Some(oak));
 }
 
 #[test]
@@ -6753,18 +6776,23 @@ fn an_assembly_selected_at_any_depth_explodes() {
 fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     let (mut e, [a, b, c, g, g2]) = drawers_editor();
     let none = Modifiers::default();
-    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
+    let oak = e
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .unwrap()
+        .material
+        .unwrap();
     e.set_paint_material(Some(oak));
-    let material = |e: &Editor, p: EntityPath| e.document().resolve(&p).unwrap().material;
+    let material = |e: &Editor, p: EntityPath| part_material(e, &p);
     e.set_tool(ToolKind::Paint);
 
-    // « Context »: a rectangle around the first copy and the lone part, left to right: both
-    // painted, in one step.
+    // « Context »: a rectangle around the first copy and the lone part, left to right: the
+    // parts of both painted, in one step — on their definitions, so in the other copy too.
     let steps = e.history().journal().count();
     drag(&mut e, DVec3::new(-10.0, 110.0, 0.0), DVec3::new(710.0, -10.0, 0.0), none);
-    assert_eq!(material(&e, EntityPath::root(g)), Some(oak));
+    assert_eq!(material(&e, EntityPath::new(vec![g], a)), Some(oak));
     assert_eq!(material(&e, EntityPath::root(c)), Some(oak));
-    assert_eq!(material(&e, EntityPath::root(g2)), None);
+    assert_eq!(material(&e, EntityPath::new(vec![g2], b)), Some(oak), "shared parts: every copy");
     assert_eq!(e.history().journal().count(), steps + 1);
     e.undo();
 
@@ -6773,7 +6801,7 @@ fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     drag(&mut e, DVec3::new(-10.0, 410.0, 0.0), DVec3::new(310.0, 290.0, 0.0), none);
     assert_eq!(material(&e, EntityPath::new(vec![g2], a)), Some(oak));
     assert_eq!(material(&e, EntityPath::new(vec![g2], b)), Some(oak));
-    assert_eq!(material(&e, EntityPath::root(g2)), None);
+    assert_eq!(material(&e, EntityPath::root(c)), None);
     e.undo();
 
     // The tree drop-up: the level chosen is painted, not selected.
@@ -6782,8 +6810,88 @@ fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     assert!(e.tree().is_some());
     e.pick_tree_row(0);
     e.set_copy(false);
-    assert_eq!(material(&e, EntityPath::root(g2)), Some(oak));
+    assert_eq!(material(&e, EntityPath::new(vec![g2], a)), Some(oak));
     assert!(e.deep_selection().is_empty());
+}
+
+/// The paint tool lays a material on the part, a covering on a face, a coloration where its
+/// option says (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+#[test]
+fn paint_lays_each_family_on_its_layer() {
+    use skraft_model::MaterialKind;
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let add = |e: &mut Editor, name: &str, kind| {
+        e.apply(Operation::AddMaterial { name: name.into(), color: [1, 2, 3], kind }).unwrap().unwrap().material.unwrap()
+    };
+    let (oak, veneer) = (add(&mut e, "Chêne", Some(MaterialKind::Solid)), add(&mut e, "Placage", Some(MaterialKind::Veneer)));
+    let part = |e: &Editor| e.document().resolve_part(&EntityPath::root(a)).unwrap().1.clone();
+    let top = DVec3::new(50.0, 50.0, 50.0);
+    let target = |e: &Editor| e.tool_options().iter().any(|o| o.key == "target");
+    e.set_tool(ToolKind::Paint);
+    e.set_tool_option("target", OptionValue::Choice("face".into()));
+
+    // A solid: the part, whatever the option, which is not offered.
+    e.set_paint_material(Some(oak));
+    click(&mut e, top);
+    assert!(!target(&e));
+    assert_eq!((part(&e).material, part(&e).coverings.len()), (Some(oak), 0));
+
+    // A veneer: the face clicked, its covering.
+    e.set_paint_material(Some(veneer));
+    hover(&mut e, top);
+    assert_eq!(e.tool_cursor(), Some(Cursor::PaintFace));
+    click(&mut e, top);
+    assert!(!target(&e));
+    assert_eq!(part(&e).coverings.values().copied().collect::<Vec<_>>(), [veneer]);
+    assert_eq!(part(&e).material, Some(oak), "the part's material left");
+
+    // « Aucune » among the materials: no option; the part's material taken off.
+    e.set_paint_family(skraft_model::Family::Material);
+    e.set_paint_material(None);
+    hover(&mut e, top);
+    assert!(!target(&e));
+    click(&mut e, top);
+    assert_eq!((part(&e).material, part(&e).coverings.len()), (None, 1));
+
+    // A coloration: the option, on the part or the face.
+    e.set_paint_family(skraft_model::Family::Coloration);
+    hover(&mut e, top);
+    assert!(target(&e));
+}
+
+#[test]
+fn paint_only_these_copies_makes_their_parts_unique() {
+    let (mut e, [a, b, _, g, g2]) = drawers_editor();
+    let oak = e
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .unwrap()
+        .material
+        .unwrap();
+    e.set_paint_material(Some(oak));
+    e.set_tool(ToolKind::Paint);
+    e.set_tool_option("scope", OptionValue::Choice("this".into()));
+    // The hovered part's copies counted in the option.
+    e.input(ToolInput::Hover { px: px(&e, DVec3::new(50.0, 350.0, 50.0)) });
+    let scope = e.tool_options().into_iter().find(|o| o.key == "scope").unwrap();
+    assert!(scope.choices[0].label.ends_with("×2"), "{}", scope.choices[0].label);
+    // The second copy of the drawer (the context's occurrence): it and its parts made its own,
+    // the first left as it was.
+    click(&mut e, DVec3::new(50.0, 350.0, 50.0));
+    let doc = e.document();
+    assert_ne!(doc.resolve(&EntityPath::root(g)).unwrap().component, doc.resolve(&EntityPath::root(g2)).unwrap().component);
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g2], a)), Some(oak));
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g2], b)), Some(oak));
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g], a)), None);
+    e.undo();
+
+    // « Parts »: the part clicked alone.
+    parts_scope(&mut e);
+    click(&mut e, DVec3::new(50.0, 350.0, 50.0));
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g2], a)), Some(oak));
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g2], b)), None, "only the part clicked");
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g], a)), None);
 }
 
 /// « Dessiner dans » and « Pipette » (docs/tools/draw-options.md): the drawers' first part `a` (in the
@@ -6791,9 +6899,19 @@ fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
 fn draw_in_editor() -> (Editor, [Id; 5], Id) {
     let (mut e, ids) = drawers_editor();
     let [a, _, _, g, _] = ids;
-    let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
-    let paint = Operation::PaintOccurrences { context: Id(0), entities: vec![a], material: Some(oak) };
-    e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
+    let oak = e
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .unwrap()
+        .material
+        .unwrap();
+    e.apply(Operation::PaintParts {
+        targets: vec![EntityPath::new(vec![g], a)],
+        layer: skraft_model::Family::Coloration,
+        material: Some(oak),
+        scope: Scope::All,
+    })
+    .unwrap();
     e.set_tool(ToolKind::Box);
     e.set_tool_option(crate::tools::DRAW_IN, OptionValue::Toggle(true));
     e.set_tool_option(crate::tools::PICK_MATERIAL, OptionValue::Toggle(true));
@@ -6835,7 +6953,7 @@ fn draw_in_makes_the_part_in_the_assembly_of_the_part_picked_with_its_material()
     let occs = e.document().assembly(asm).unwrap().occurrences().to_vec();
     assert_eq!(occs.len(), 3, "made in the assembly");
     let made = occs.iter().find(|o| o.id != a && o.id != b).unwrap();
-    assert_eq!(made.material, Some(oak));
+    assert_eq!(part_material(&e, &EntityPath::new(vec![g], made.id)), Some(oak));
     assert_eq!(e.document().assembly(e.document().root()).unwrap().occurrences().len(), 3, "not in the model");
     // Placed where it was drawn, in both copies of the assembly (« Portée » all).
     let path = EntityPath::new(vec![g], made.id);
@@ -6880,7 +6998,7 @@ fn without_the_options_or_over_a_part_of_the_context_the_part_goes_in_the_contex
     box_on_a(&mut e);
     assert_eq!(e.document().assembly(asm).unwrap().occurrences().len(), 2);
     let made = drawn(&e);
-    assert_eq!(e.document().resolve(&EntityPath::root(made)).unwrap().material, Some(oak));
+    assert_eq!(part_material(&e, &EntityPath::root(made)), Some(oak));
     // « Dessiner dans » over a part of the model: in the model, no At.
     e.set_tool_option(crate::tools::DRAW_IN, OptionValue::Toggle(true));
     e.set_tool_option(crate::tools::PICK_MATERIAL, OptionValue::Toggle(false));
@@ -6889,7 +7007,7 @@ fn without_the_options_or_over_a_part_of_the_context_the_part_goes_in_the_contex
     click(&mut e, DVec3::new(680.0, 80.0, 50.0));
     e.input(ToolInput::Vcb("10".into()));
     assert_eq!(e.document().assembly(root).unwrap().occurrences().len(), before + 1);
-    assert_eq!(e.document().resolve(&EntityPath::root(drawn(&e))).unwrap().material, None);
+    assert_eq!(part_material(&e, &EntityPath::root(drawn(&e))), None);
     let _ = c;
 }
 

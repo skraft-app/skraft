@@ -170,7 +170,7 @@ the first click. `EdgeRef::Arc` carries the arc's centre and radius for this.
   [Selection](selection.md#selection-scope)).
 - **Operations**: no guide-specific ones beyond `AddGuide`. `Delete`, `Transform`,
   `Duplicate`, `Array` and `MakeAssembly` take guide ids of their context among their entities
-  (the guides go into the new assembly; guides alone make none; `PaintOccurrences` leaves them
+  (the guides go into the new assembly; guides alone make none; the paint tool leaves them
   out). The new assembly's axes have their origin at the low corner of its content's bounds
   (in the context's axes): the content and its guides are brought into them, the new
   occurrence placed there, so nothing moves in the context. The operations on machinings take

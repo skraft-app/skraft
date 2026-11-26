@@ -32,6 +32,13 @@ pub struct StepProduct {
     pub name: String,
     pub bodies: Vec<StepBody>,
     pub children: Vec<StepInstance>,
+    /// Bought, its formation says (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE`,
+    /// `.BOUGHT.`); `.MADE.`, `.NOT_KNOWN.` or no source: made.
+    #[serde(default)]
+    pub bought: bool,
+    /// Its material's designation (`MATERIAL_DESIGNATION`), maybe none.
+    #[serde(default)]
+    pub material: Option<String>,
 }
 
 /// A solid body of a product, in the product's axes (mm).
@@ -120,7 +127,8 @@ pub(crate) mod read {
         }
 
         for node in &structure.nodes {
-            let mut product = StepProduct { name: node.name.clone(), ..Default::default() };
+            let mut product =
+                StepProduct { name: node.name.clone(), bought: node.bought, material: node.material.clone(), ..Default::default() };
             for b in &node.bodies {
                 match &built[&b.entity] {
                     Ok((solid, faces)) => {
@@ -350,6 +358,8 @@ pub(crate) mod read {
         name: String,
         bodies: Vec<NodeBody>,
         children: Vec<StepInstance>,
+        bought: bool,
+        material: Option<String>,
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -370,6 +380,8 @@ pub(crate) mod read {
     /// What the walk needs from the structure, worked out once.
     struct Graph<'a> {
         ps: &'a ProductStructure,
+        /// Per definition: bought, its material's designation.
+        facts: Vec<(bool, Option<String>)>,
         /// Per definition: the representations of its shape and those joined to them without a
         /// transformation (the same axes).
         closure: Vec<Vec<usize>>,
@@ -380,7 +392,7 @@ pub(crate) mod read {
     }
 
     impl<'a> Graph<'a> {
-        fn new(ps: &'a ProductStructure) -> Graph<'a> {
+        fn new(ex: &Exchange, ps: &'a ProductStructure) -> Graph<'a> {
             let mut children = vec![Vec::new(); ps.definitions.len()];
             for (i, o) in ps.occurrences.iter().enumerate() {
                 // A higher usage overrides a placement deeper down; it places nothing itself.
@@ -397,7 +409,18 @@ pub(crate) mod read {
                 }
             }
             let closure = ps.definitions.iter().map(|d| Graph::joined(ps, &d.shapes)).collect();
-            Graph { ps, closure, children, owner }
+            let materials = materials(ex);
+            let facts = ps
+                .definitions
+                .iter()
+                .map(|d| {
+                    let product = ps.products.get(d.product).map(|p| p.entity);
+                    let material =
+                        [Some(d.entity), Some(d.formation), product].into_iter().flatten().find_map(|e| materials.get(&e)).cloned();
+                    (bought(ex, d.formation), material)
+                })
+                .collect();
+            Graph { ps, facts, closure, children, owner }
         }
 
         /// `reps` and the representations joined to them without a transformation.
@@ -454,7 +477,7 @@ pub(crate) mod read {
             let mut reached: HashSet<u64> = HashSet::new();
             if let Some(ps) = ps {
                 s.styles = ps.styles.clone();
-                let g = Graph::new(ps);
+                let g = Graph::new(ex, ps);
                 let mut memo: HashMap<Key, Option<usize>> = HashMap::new();
                 for &def in &ps.roots {
                     if let Some(n) = s.node(&g, Key::Product(def), 0, &mut memo, &mut reached, diagnostics) {
@@ -485,7 +508,7 @@ pub(crate) mod read {
         /// One more node at the top for bodies no product holds.
         fn push_loose(&mut self, bodies: Vec<NodeBody>) {
             if !bodies.is_empty() {
-                self.nodes.push(Node { name: String::new(), bodies, children: Vec::new() });
+                self.nodes.push(Node { name: String::new(), bodies, children: Vec::new(), bought: false, material: None });
                 self.roots.push(StepInstance { product: self.nodes.len() - 1, name: String::new(), transform: DAffine3::IDENTITY });
             }
         }
@@ -561,13 +584,54 @@ pub(crate) mod read {
                     }
                 }
             }
+            let (bought, material) = match key {
+                Key::Product(def) => g.facts.get(def).cloned().unwrap_or_default(),
+                Key::Shape(_) => (false, None),
+            };
             let n = (!bodies.is_empty() || !children.is_empty()).then(|| {
-                self.nodes.push(Node { name, bodies, children });
+                self.nodes.push(Node { name, bodies, children, bought, material });
                 self.nodes.len() - 1
             });
             memo.insert(key, n);
             n
         }
+    }
+
+    /// Is the formation `formation` one of a product bought
+    /// (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE`, its `make_or_buy` `.BOUGHT.`)?
+    fn bought(ex: &Exchange, formation: u64) -> bool {
+        let source = ex.get(formation).and_then(|e| e.record("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE")).and_then(|p| p.get(3));
+        matches!(source, Some(Param::Enum(e)) if e.trim_matches('.').eq_ignore_ascii_case("BOUGHT"))
+    }
+
+    /// The materials' designations (`MATERIAL_DESIGNATION`: its name, what it characterises —
+    /// one definition in AP203, a set in AP214 and AP242), by the entity they are of: a product
+    /// definition (a `PRODUCT_DEFINITION_SHAPE` standing for its own), a formation or a
+    /// product. The first one met wins.
+    fn materials(ex: &Exchange) -> HashMap<u64, String> {
+        let mut out = HashMap::new();
+        for e in ex.entities.values() {
+            let Some(params) = e.record("MATERIAL_DESIGNATION") else { continue };
+            let Some(Param::Str(name)) = params.first() else { continue };
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let targets: Vec<u64> = match params.get(1) {
+                Some(Param::Ref(id)) => vec![*id],
+                Some(Param::List(l)) => l.iter().filter_map(Param::as_ref_id).collect(),
+                _ => continue,
+            };
+            for t in targets {
+                // A shape of a definition: the definition (its third parameter).
+                let t = match ex.get(t).and_then(|s| s.record("PRODUCT_DEFINITION_SHAPE")).and_then(|p| p.get(2)) {
+                    Some(Param::Ref(def)) => *def,
+                    _ => t,
+                };
+                out.entry(t).or_insert_with(|| name.to_owned());
+            }
+        }
+        out
     }
 
     /// An entity's `name` (its first parameter, when a string).

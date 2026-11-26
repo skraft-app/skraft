@@ -19,15 +19,17 @@ Document
 ├─ root       : Id of the root assembly (the model, never counted itself)
 ├─ next_id
 ├─ settings   : display style and units, saved with the model
-├─ materials  : Id → Material { name, color, props }
+├─ materials  : Catalog — materials, coverings, colorations: Id → Material { name, kind, color, texture, props }
 └─ prop_defs  : key → PropDef — the properties' definitions (Properties)
 
-Component { id, name, named, kind, guides, behavior, props }
+Component { id, name, named, kind, guides, behavior, props, source }
   guides   : construction lines and circles in the component's axes (Tape measure and guides)
   behavior : how it is stretched — its cutters and locked axes (Stretch)
-  kind     = Part     { defs, bodies, shape, failed, faces }             — a part (Bodies)
+  source   = Made | Bought | Existing — what the parts list counts of it (Parts list)
+  kind     = Part     { defs, bodies, shape, failed, material, coloration, coverings, faces }
+                                                                    — a part (Bodies)
            | Assembly { occurrences: Vec<Occurrence>, links: Vec<Link> } — an assembly
-Occurrence { id, name, component: Id, transform: T, material, hidden, props }  — an occurrence
+Occurrence { id, name, component: Id, transform: T, hidden, props }  — an occurrence
 ```
 
 Guides, body definitions and bodies have `props` too: typed values by key
@@ -76,16 +78,23 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   own. A parent left holding only it goes too, once left in turn. Unlike empty parts, kept and
   flagged ([Empty parts](bodies.md#empty-parts)): an empty part still holds bodies (its
   machinings) to fix, an empty assembly holds nothing.
-- Not yet: **properties** (exclusion from the cut list…) on any component, and the part's
-  **type** — the kind of stock it comes from (for wood, OpenCutList's solid wood, sheet good,
-  dimensional, edge, veneer, hardware…; other materials have their own) — not a component
-  property: it will come from the **material** applied to the occurrence, as in OpenCutList
-  (`MaterialAttributes.type`). A material is a name and a colour today.
+- A part's **material** — what it is made of — and its **coloration** are on its definition,
+  its faces' **coverings** (veneers, edges) and colorations too: every occurrence of it shows them; an assembly has none
+  ([Palette and materials](../render/look.md#palette-and-materials),
+  [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)).
+- A component's **source** — « Fabriqué » (`Made`, the default), « Acheté » (`Bought`),
+  « Existant » (`Existing`) — is a field of the model, as its name, not a property: it cannot be
+  removed or renamed. It decides what the parts list counts of it
+  ([Parts list](../ui/parts-list.md#rows)): a hardware slide, an assembly of parts in several
+  materials, is one article; the room's walls, drawn to work around them, nothing. Chosen in
+  the entity info (`Operation::SetSource`; never the model's), kept by the copies of the
+  component. The paint tool and the materials are not concerned: what is inside an article or
+  an existing component is painted and seen as anywhere else.
 
 ## Occurrences and transformation
 
 - An occurrence carries **T = translation + rotation + optional mirror** (determinant ±1), its
-  **material**, its occurrence name and whether it is **hidden** ([Interaction](../tools/interaction.md)). Moving or rotating only changes T: instant, no kernel,
+  occurrence name and whether it is **hidden** ([Interaction](../tools/interaction.md)). Moving or rotating only changes T: instant, no kernel,
   no remeshing, no drift of the geometry.
 - **T is never baked into the B-rep.** Booleans and stretches work in the part's frame,
   the other operand brought in by the relative transformation; export applies T on the fly.

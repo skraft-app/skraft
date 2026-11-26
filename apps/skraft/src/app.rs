@@ -72,6 +72,9 @@ pub struct SkraftApp {
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Empreindre » (decision 0055).
     imprint: Option<crate::workspaces::modelling::dialogs::imprint::Dialog>,
+    /// A coat to delete that schemes lay, waiting for its confirmation: its document, its id,
+    /// how many schemes (decision 0057).
+    deleting_coat: Option<(u64, skraft_model::Id, usize)>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -336,6 +339,7 @@ impl SkraftApp {
             closing: None,
             naming: None,
             imprint: None,
+            deleting_coat: None,
             quit_ok: false,
             #[cfg(target_arch = "wasm32")]
             unsaved: Default::default(),
@@ -653,6 +657,28 @@ fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
     image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()
 }
 
+/// The mean colour of an image (sRGB), averaged in linear light on a small copy of it.
+fn mean_color(bytes: &[u8]) -> Option<[u8; 3]> {
+    let small = image::load_from_memory(bytes).ok()?.thumbnail(64, 64).to_rgb8();
+    let linear = |c: u8| {
+        let c = c as f64 / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let table: Vec<f64> = (0..=255u8).map(linear).collect();
+    let mut sum = [0.0; 3];
+    for p in small.pixels() {
+        for k in 0..3 {
+            sum[k] += table[p.0[k] as usize];
+        }
+    }
+    let n = (small.width() * small.height()).max(1) as f64;
+    let srgb = |l: f64| {
+        let c = if l <= 0.0031308 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+        (c.clamp(0.0, 1.0) * 255.0).round() as u8
+    };
+    Some(sum.map(|s| srgb(s / n)))
+}
+
 /// Was `key` pressed this frame?
 fn ui_key(ctx: &egui::Context, key: egui::Key) -> bool {
     ctx.input(|i| i.key_pressed(key))
@@ -715,6 +741,16 @@ pub(crate) fn open_url(ctx: &egui::Context, url: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_image_mean_colour_is_averaged_in_linear_light() {
+        // Half black, half white: a mid grey of light, 188, not 128.
+        let img = image::RgbImage::from_fn(64, 64, |x, _| if x < 32 { image::Rgb([0, 0, 0]) } else { image::Rgb([255, 255, 255]) });
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgb8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        assert_eq!(mean_color(&png), Some([188, 188, 188]));
+        assert_eq!(mean_color(b"not an image"), None);
+    }
 
     #[test]
     fn modifier_keys_do_not_interrupt_a_tap() {

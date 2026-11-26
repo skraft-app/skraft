@@ -106,51 +106,89 @@ symbols the code writes, and of Greek.
 
 ## Palette and materials
 
-- **Model**: `Document.materials: Id → Material { name, color, texture, props }` (sRGB; a
-  texture: [Textures](#textures); properties: [Properties](../model/properties.md));
-  `Occurrence.material: Option<Id>` (the copy's material, as in OpenCutList; an assembly's
-  occurrence paints the parts below it that have none); `Part.faces: BTreeMap<u32, Id>`, the
-  material of single **faces** of the part's final B-rep (so of all its occurrences).
-  Priority: face > occurrence > the theme's default; back faces keep the back colour.
-  **Accepted limit**: a face is named by its index in the record, which a boolean renumbers;
-  an index past the solid's faces is ignored.
-- **Operations**: `AddMaterial`, `EditMaterial` (name, colour; dragging a colour merges into one
-  step), `DeleteMaterial` (unpaints what used it), `PaintOccurrences`, `PaintFaces`,
+- **Three families, a table each** (`Catalog`: `materials`, `coverings`, `colorations`, under
+  the file's `catalog`), every item a `Material { name, kind, color, texture, props }` (sRGB; a
+  texture: [Textures](#textures); properties: [Properties](../model/properties.md); ids unique
+  across the tables) — [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md):
+  - **materials**, what a part is made of, counted and cut; their type (`kind`): « Massif »
+    (`Solid`, a new one's), « Panneau » (`Sheet`), « Profilé » (`Profile`);
+  - **coverings**, what covers a face; their type: « Placage » (`Veneer`, a new one's),
+    « Chant » (`Edge`);
+  - **colorations**, what colours a part or a face, never counted; the colours of imports are
+    colorations. A **coat** (« Couche », `Coat`, a new one's) has a `blend` — « Couvrant »
+    (`Cover`: laid over what is under, its `intensity` its opacity) or « Teintant » (`Tint`:
+    multiplying it, its intensity its strength) — and an `intensity` (0 to 1); a **scheme**
+    (« Schéma », `Scheme`) lays coats of the catalog, referred to, from the bottom up
+    (`coats`; one level, a coat may come twice; `SetCoat`, `SetCoats`).
+  An item's family is its type's (`Material::family`, a coloration without one); a type changes
+  only within its family (`SetMaterialKind`), an item never changes family. A file's item
+  without a type of its table's family takes the family's first.
+- **Where they go** (`Family`), on the part's definition, so every occurrence shows them; an
+  assembly has none:
+
+  | | Counted | Seen |
+  |---|---|---|
+  | Part | `Part.material` | `Part.coloration` over its material |
+  | Face | `Part.coverings` | `Part.faces` (its coloration), else the part's, over its covering, else the part's material |
+
+  What is seen is a pair, `Seen { under, over }` (`Part::shown`, `Part::faces_shown`,
+  `PlacedPart::shown`); under nothing, the theme's default; back faces keep the back colour. An item laid in a slot of another family is
+  refused (`Refusal::MaterialLayer`).
+- **Operations**: `AddMaterial` (its type: its family), `EditMaterial` (name, colour; dragging a colour merges into one
+  step), `SetMaterialKind`, `DeleteMaterial` (unpaints what used it), `PaintParts`, `PaintFaces` (each
+  on a family's layer),
   `SetTexture`, `ImportMaterials`. None calls the kernel. A file painting with an unknown
   material is refused.
-- **Rendering**: a **palette** (a storage buffer of linear RGBA); each instance carries a
-  palette index, each vertex the index of its painted face (or none). Changing a material's
-  colour rewrites only the palette; painting an occurrence only the instances (rewritten each
-  frame); painting a face re-uploads that one part's mesh. The app gives each material a
+- **Rendering**: a **palette** (a storage buffer of linear RGBA), an entry per pair seen (the
+  app's `Viewport::colours`): what is under's colour, its texture beside it, and the
+  coloration's coats composed into one map per channel, `x -> A·x + B` (`compose`: covering
+  `(1 − t)·x + t·c`, tinting `x·((1 − t) + t·c)`), two `vec4` per entry in a third buffer
+  (`Style::overlays`) that the shader applies over the colour or the texture: a scheme of any
+  number of coats costs one. A coat covering fully with a texture is what is under from it on;
+  otherwise a coat's colour counts. Each instance carries a palette index (what its part
+  shows), each vertex the index of what its face shows (or none).
+  Changing a material's colour rewrites only the palette; painting a part only the instances
+  (rewritten each frame); painting a face re-uploads that one part's mesh. The app gives each material a
   palette slot for the session, never reused, so baked face indices stay valid. A highlight
   may stand for a single face (`Highlight::face`): only that face's triangles (each part keeps
   its faces' runs of triangles in the index buffer, `PartRange::faces`), without edges, its
   colour forced over the face's own paint (the instance's palette entry flagged `FORCED`).
 - **Paint tool** (`tool.paint`, B, as SketchUp's paint bucket and OpenCutList's Smart Paint): a
-  click paints with the current material (none: the paint is removed). Its option « Peindre »
-  (Tab turns it over): « L'exemplaire » — the occurrence clicked, or the whole selection when
-  it is in it — or « La face » — the face clicked, on every occurrence of its part. Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
+  click lays the current item (none: it is taken off) where its family goes: a material on
+  « la pièce » — the part clicked, every part below an assembly clicked, or the whole
+  selection when it is in it —, a covering on « la face » clicked, on every occurrence of its
+  part; a coloration on either, as its option « Peindre » says (Tab turns it over), shown only
+  then. « Aucune » takes off the family of the card's tab it was chosen in
+  (`Editor::set_paint_family`). Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
   the cursor at any depth, in its assembly (the parts selected when it is one of them), and
-  the level chosen in the tree drop-up. Painting occurrences, a drag draws a rectangle: what it
+  the level chosen in the tree drop-up. Painting parts, a drag draws a rectangle: what it
   encloses (left to right) or touches (right to left) is painted when it is released (one
-  step); Esc drops it.
+  step); Esc drops it. `Operation::PaintParts { targets, layer, material, scope }`, the targets
+  by their paths from the root.
+  - **Scope** (« Portée », painting parts; hidden for a part placed once, as the other tools'):
+    « Tous les exemplaires ×n » paints the parts' definitions, so every copy; « Celui-ci »
+    paints only the placements aimed at: a part some of whose placements are not painted gets
+    a copy for those that are (`Document::paint_parts`) — an occurrence all of whose placements
+    are painted is pointed at it where it stands, the assemblies on the way made their own only
+    when their copies differ.
   - **Preview** (OCL's `_preview_instances`): what a click (or the rectangle) would paint is
     drawn in the colour it would take (`Preview::paint`, `Mark::Painted`: no tint, hovered
-    edges): each part under the occurrences painted in the material it would then inherit — a
-    part painted below them keeps its own, a painted face its paint —, the default colour when
-    the paint is removed; a face alone, on every occurrence of its part, in the material (none:
-    its occurrence's). Not in an open part.
+    edges): each part under the targets as it would then show — every copy of it shown under
+    « Tous les exemplaires »; a material under a coloration shows the coloration —; a face
+    alone, on every occurrence of its part, as it would show. Not in an open part.
   - The other modifier held (Command on macOS, Alt elsewhere) holds « Prélever » over it
     ([tool stack](../tools/interaction.md#tool-stack)).
 - **« Prélever »** (`tool.sample`, SketchUp's Sample Paint, OCL's `ACTION_PICK`; ribbon
-  « Apparence », no key): a click takes the material shown under the cursor — the face's own,
-  else its occurrence's (its own or its assemblies'), else none — as the paint tool's; its
+  « Apparence », no key): a click takes what is shown under the cursor — the face's
+  coloration, else its covering, else the part's coloration, else its material, else none — as
+  the paint tool's; its
   tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
   the paint tool with it; held over the paint tool, each click takes, until the key is released
   (or Esc).
 - **Interface**: the **Matières** card ([Catalog cards](../ui/catalog.md#the-materials-card)):
   the materials as tiles or rows; one chosen is what the paint tool paints with and is edited
-  in the entity info. The occurrence's material in the entity info.
+  in the entity info. A part's material and coloration in its entity info (« Matériau »,
+  « Coloration »: every copy).
   The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
   it would hide what the tool paints with); it stays so when the tool ends.
 
@@ -164,8 +202,14 @@ A material may have a **texture**: an image laid on the faces at its real size.
   once), `size` its real width (along the grain) and height in mm, `rotation` in its plane.
   `SetTexture { material, texture, image }` sets it, the image added first when given; the
   images no material uses are dropped (`Document::prune_assets`). Pastes and imports bring the
-  images of their materials. The colour stays: it shows until the image is loaded, and in the
-  panel's swatch.
+  images of their materials. **A colour or a texture, not both**: an image picked gives the
+  material its mean colour (averaged in linear light on a 64 × 64 copy, `SetTexture`'s
+  `color`), which shows until the image is loaded and wherever no image is drawn; it is not
+  edited while the texture is there (`EditMaterial` keeps it, the entity info hides the colour
+  row). The texture removed, that colour stays and is edited again. Colour and image together
+  are made with a coloration over the material
+  ([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)). A size
+  or a rotation changed keeps the colour.
 - **Mapping**: nothing per face nor per vertex — a **box projection in the part's axes**, in
   the shader (`textured`), an open part's bodies included (`Placement::texture`: they keep the
   texture the part shows): a face takes the image on the plane of the two axes it least faces,
@@ -185,9 +229,11 @@ A material may have a **texture**: an image laid on the faces at its real size.
   section's `discard`.
 - **Interface**: in the entity info of the material chosen, a texture button (an image picked,
   PNG or JPEG: 600 mm wide, its height as the image's, or the size it had), showing the
-  texture's thumbnail once it has one — its middle, square; the whole image under the pointer;
+  texture's thumbnail once it has one — as wide as the field, the remove button beside it (the coats'
+  small ✕), 64 points high whatever the panel's width (the rows below stay put), the image's
+  middle filling it — a material without texture shows its colour in a box of that size; the whole image under the pointer;
   a textured material shows its width, height (typed as lengths), rotation in degrees and a
-  button to remove it (its colour stays). Thumbnails: 128 texels, made once per image, decoded
+  button to remove it (its mean colour stays); no colour row while it has one. Thumbnails: 256 texels, made once per image, decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why

@@ -60,6 +60,10 @@ pub struct SketchUpMaterial {
     pub name: String,
     pub color: [u8; 3],
     pub texture: Option<SketchUpTexture>,
+    /// OpenCutList's type of it (`ladb_opencutlist` › `type`: 1 solid wood, 2 sheet good, 3
+    /// dimensional, 4 edge, 5 hardware, 6 veneer, 7 machining), when it has one.
+    #[serde(default)]
+    pub ocl_type: Option<u8>,
 }
 
 /// A material's texture: its image (PNG or JPEG, as the file holds it) and the real size it is
@@ -182,7 +186,8 @@ pub(crate) mod read {
             diagnostics: model.diagnostics.iter().filter(|d| d.is_desync()).map(|d| format!("{d:?}")).collect(),
             ..Default::default()
         };
-        let source = source(&model, &mut out);
+        let ocl = ocl_types_in_xml(bytes);
+        let source = source(&model, &ocl, &mut out);
         out.read = clock.elapsed();
 
         // The plan: each definition at each of its scales, children first.
@@ -215,7 +220,7 @@ pub(crate) mod read {
 
     /// The model's entity lists, definitions taken as they are first placed; its definitions
     /// and the materials of its instances into `out`.
-    fn source(model: &Model, out: &mut SketchUpImport) -> Source {
+    fn source(model: &Model, ocl: &HashMap<String, u8>, out: &mut SketchUpImport) -> Source {
         let visible_layer = |slot: u16| model.layer_of(slot).is_none_or(|l| l.visible);
         // A definition's run (its entities) by the key instances name it with.
         let run_of: HashMap<usize, usize> = model.geometry.iter().enumerate().filter_map(|(i, r)| r.def_index.map(|d| (d, i))).collect();
@@ -232,7 +237,9 @@ pub(crate) mod read {
         let material_index = |slot: u16, out: &mut SketchUpImport| -> Option<usize> {
             let m = *material_of.get(&slot).filter(|_| slot != 0)?;
             Some(*materials.borrow_mut().entry(m).or_insert_with(|| {
-                out.materials.push(material_record(&model.materials[m]));
+                let mut record = material_record(&model.materials[m]);
+                record.ocl_type = ocl_type(model, m).or_else(|| ocl.get(&record.name).copied());
+                out.materials.push(record);
                 out.materials.len() - 1
             }))
         };
@@ -383,10 +390,64 @@ pub(crate) mod read {
         }
     }
 
+    /// OpenCutList's types of the materials of a 2026 file, by name: SketchUp 2026 keeps a
+    /// material's dictionaries in its `materials/<name>/material.xml`, which skpwright 0.6 does
+    /// not read (it reads those of the records, as older files hold them).
+    fn ocl_types_in_xml(bytes: &[u8]) -> HashMap<String, u8> {
+        let mut out = HashMap::new();
+        if skpwright::detect_container(bytes) == skpwright::Container::Stream {
+            return out;
+        }
+        let Ok(doc) = skpwright::Document::open(bytes) else { return out };
+        for name in doc.entry_names().into_iter().filter(|n| n.starts_with("materials/") && n.ends_with("/material.xml")) {
+            let Some(xml) = doc.entry(name).and_then(|x| std::str::from_utf8(x).ok()) else { continue };
+            if let (Some(material), Some(ocl)) = (xml_material_name(xml), xml_ocl_type(xml)) {
+                out.insert(material, ocl);
+            }
+        }
+        out
+    }
+
+    /// The `name` attribute of a material XML's `material` element, unescaped.
+    fn xml_material_name(xml: &str) -> Option<String> {
+        let tag = &xml[xml.find(":material ")?..];
+        let tag = &tag[..tag.find('>')?];
+        let start = tag.find(" name=\"")? + 7;
+        let value = &tag[start..start + tag[start..].find('"')?];
+        Some(value.replace("&quot;", "\"").replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
+    }
+
+    /// The value of `type` in a material XML's dictionary `ladb_opencutlist` (1 to 7).
+    fn xml_ocl_type(xml: &str) -> Option<u8> {
+        let dictionary = &xml[xml.find("AttributeDictionary name=\"ladb_opencutlist\"")?..];
+        let dictionary = &dictionary[..dictionary.find("AttributeDictionary>").unwrap_or(dictionary.len())];
+        let attribute = &dictionary[dictionary.find("key=\"type\"")?..];
+        let value = &attribute[attribute.find('>')? + 1..];
+        let value = value[..value.find('<')?].trim();
+        let n: i64 = value.parse().ok().or_else(|| value.parse::<f64>().ok().map(|x| x as i64))?;
+        u8::try_from(n).ok().filter(|t| (1..=7).contains(t))
+    }
+
+    /// OpenCutList's type of material `m` (its dictionary `ladb_opencutlist`, key `type`: an
+    /// integer, or its text from older releases), when known (1 to 7).
+    fn ocl_type(model: &Model, m: usize) -> Option<u8> {
+        let owner = model.dictionaries.iter().find(|a| a.owner == skpwright::Owner::Material(m))?;
+        let dictionary = owner.dictionaries.iter().find(|d| d.name == "ladb_opencutlist")?;
+        let (_, value) = dictionary.entries.iter().find(|(k, _)| k == "type")?;
+        let n = match value {
+            skpwright::Value::Int(n) => i64::from(*n),
+            skpwright::Value::Double(x) => *x as i64,
+            skpwright::Value::Float(x) => *x as i64,
+            skpwright::Value::Text(t) => t.trim().parse().ok()?,
+            _ => return None,
+        };
+        u8::try_from(n).ok().filter(|t| (1..=7).contains(t))
+    }
+
     fn material_record(m: &skpwright::Material) -> SketchUpMaterial {
         match m {
             skpwright::Material::Solid { name, rgba, .. } => {
-                SketchUpMaterial { name: name.clone(), color: [rgba[0], rgba[1], rgba[2]], texture: None }
+                SketchUpMaterial { name: name.clone(), color: [rgba[0], rgba[1], rgba[2]], texture: None, ocl_type: None }
             }
             skpwright::Material::Textured { name, avg_rgba, image_bytes, applied_size_in, .. } => {
                 let rgba = avg_rgba.unwrap_or([200, 200, 200, 255]);
@@ -396,7 +457,7 @@ pub(crate) mod read {
                     .zip(*applied_size_in)
                     .filter(|(_, (w, h))| *w > 0.0 && *h > 0.0)
                     .map(|(image, (w, h))| SketchUpTexture { image: image.clone(), size: [w * MM_PER_INCH, h * MM_PER_INCH] });
-                SketchUpMaterial { name: name.clone(), color: [rgba[0], rgba[1], rgba[2]], texture }
+                SketchUpMaterial { name: name.clone(), color: [rgba[0], rgba[1], rgba[2]], texture, ocl_type: None }
             }
         }
     }

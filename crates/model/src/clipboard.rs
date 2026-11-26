@@ -125,20 +125,20 @@ impl Document {
     fn fragment(&self, occurrences: Vec<crate::Occurrence>, guides: Vec<Guide>, next_id: u64) -> Result<Document> {
         // The components the occurrences use, at any depth, and their materials.
         let mut components = BTreeSet::new();
-        let mut materials: BTreeSet<Id> = occurrences.iter().filter_map(|o| o.material).collect();
+        let mut materials: BTreeSet<Id> = BTreeSet::new();
         let mut stack: Vec<Id> = occurrences.iter().map(|o| o.component).collect();
         while let Some(id) = stack.pop() {
             if !components.insert(id) {
                 continue;
             }
             match &self.component(id)?.kind {
-                ComponentKind::Assembly(a) => {
-                    materials.extend(a.occurrences().iter().filter_map(|o| o.material));
-                    stack.extend(a.occurrences().iter().map(|o| o.component));
-                }
-                ComponentKind::Part(p) => materials.extend(p.faces.values().copied()),
+                ComponentKind::Assembly(a) => stack.extend(a.occurrences().iter().map(|o| o.component)),
+                ComponentKind::Part(p) => materials.extend(p.materials_held()),
             }
         }
+        // The schemes' coats come along.
+        let coats: Vec<Id> = materials.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied()).collect();
+        materials.extend(coats);
 
         let root = self.component(self.root)?;
         let top = Component {
@@ -149,6 +149,7 @@ impl Document {
             guides,
             behavior: Default::default(),
             props: Default::default(),
+            source: Default::default(),
         };
         let mut all: BTreeMap<Id, Arc<Component>> = components.iter().map(|id| (*id, self.components[id].clone())).collect();
         all.insert(self.root, Arc::new(top));

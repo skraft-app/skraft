@@ -190,6 +190,7 @@ fn components(e: &Editor) -> Answer {
                 "name": c.name,
                 "kind": if c.is_part() { "part" } else { "assembly" },
                 "named": c.named,
+                "source": c.source,
                 "count": count.unwrap_or(0),
                 "unused": count.is_none(),
             })
@@ -335,6 +336,7 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
         "occurrence_name": occurrence.map(|o| o.name.as_str()).filter(|n| !n.is_empty()),
         "hidden": pp.hidden_at.is_some(),
         "material": pp.material.map(|m| m.0),
+        "coloration": pp.coloration.map(|m| m.0),
         "transform": json::affine(&pp.transform),
         "pieces": pp.shape.pieces(),
     });

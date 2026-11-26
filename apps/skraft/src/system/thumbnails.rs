@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use glam::DAffine3;
-use skraft_model::{ComponentKind, Document, Id};
+use skraft_model::{Document, Id};
 use skraft_tools::Editor;
 
 /// A thumbnail's side in the grid, in points.
@@ -20,7 +20,7 @@ pub const CAP: usize = 300;
 const MAX_PLACEMENTS: usize = 5000;
 
 /// A part mesh and its placements, each with the material it shows.
-pub type PartPlaces = (Id, Vec<(DAffine3, Option<Id>)>);
+pub type PartPlaces = (Id, Vec<(DAffine3, skraft_model::Seen)>);
 
 /// What a component's thumbnail draws, in its own axes: each part mesh, at its placements
 /// (with the material each one shows), and a hash of all of it.
@@ -37,39 +37,27 @@ impl Content {
     }
 
     fn of(doc: &Document, component: Id) -> Content {
-        // The material its occurrences show when they all carry the same one.
-        let mut common: Option<Option<Id>> = None;
-        for c in doc.components().chain(std::iter::once(doc.component(doc.root()).ok()).flatten()) {
-            let ComponentKind::Assembly(a) = &c.kind else { continue };
-            for o in a.occurrences().iter().filter(|o| o.component == component) {
-                common = match common {
-                    None => Some(o.material),
-                    Some(m) if m == o.material => Some(m),
-                    Some(_) => Some(None),
-                };
-            }
-        }
-        let outer = common.flatten();
         let mut parts: Vec<PartPlaces> = Vec::new();
         let mut count = 0;
-        fn walk(doc: &Document, c: Id, t: DAffine3, m: Option<Id>, parts: &mut Vec<PartPlaces>, count: &mut usize, depth: usize) {
+        // Each part in its own material.
+        fn walk(doc: &Document, c: Id, t: DAffine3, parts: &mut Vec<PartPlaces>, count: &mut usize, depth: usize) {
             if *count >= MAX_PLACEMENTS || depth > skraft_model::MAX_DEPTH {
                 return;
             }
-            if doc.part(c).is_ok() {
+            if let Ok(p) = doc.part(c) {
                 *count += 1;
                 match parts.iter_mut().find(|(p, _)| *p == c) {
-                    Some((_, places)) => places.push((t, m)),
-                    None => parts.push((c, vec![(t, m)])),
+                    Some((_, places)) => places.push((t, p.shown())),
+                    None => parts.push((c, vec![(t, p.shown())])),
                 }
                 return;
             }
             let Ok(a) = doc.assembly(c) else { return };
             for o in a.occurrences().iter().filter(|o| !o.hidden) {
-                walk(doc, o.component, t * o.transform, o.material.or(m), parts, count, depth + 1);
+                walk(doc, o.component, t * o.transform, parts, count, depth + 1);
             }
         }
-        walk(doc, component, DAffine3::IDENTITY, outer, &mut parts, &mut count, 0);
+        walk(doc, component, DAffine3::IDENTITY, &mut parts, &mut count, 0);
         let mut h = std::hash::DefaultHasher::new();
         for (p, places) in &parts {
             p.0.hash(&mut h);
@@ -78,8 +66,12 @@ impl Content {
                     v.to_bits().hash(&mut h);
                 }
                 m.hash(&mut h);
-                // A material's colour changed: drawn again.
-                m.and_then(|m| doc.material(m).ok()).map(|m| m.color).hash(&mut h);
+                // A colour, a coat changed: drawn again.
+                let coats = m.over.map(|o| doc.coats_of(o)).unwrap_or_default();
+                let under = m.under.and_then(|u| doc.material(u).ok());
+                for x in under.into_iter().chain(coats.into_iter().map(|(_, c)| c)) {
+                    (x.color, x.blend, x.intensity.to_bits()).hash(&mut h);
+                }
             }
         }
         Content { parts, hash: h.finish() }
@@ -260,7 +252,7 @@ mod tests {
         // A part: itself, once, in its own axes.
         let part = Content::of(doc, pa);
         assert_eq!(part.parts.len(), 1);
-        assert_eq!(part.parts[0].1, vec![(DAffine3::IDENTITY, None)]);
+        assert_eq!(part.parts[0].1, vec![(DAffine3::IDENTITY, skraft_model::Seen::NONE)]);
 
         // An assembly: its parts as placed in it.
         let content = Content::of(doc, asm);
@@ -268,14 +260,26 @@ mod tests {
         let at = |c: &Content, k: usize| c.parts[k].1[0].0.translation;
         assert!((at(&content, 1) - at(&content, 0) - DVec3::new(100.0, 0.0, 0.0)).length() < 1e-9);
 
-        // Its occurrences all painted oak: its parts drawn in oak; a hidden part left out.
-        let oak = e.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().unwrap().material.unwrap();
-        e.apply(Operation::PaintOccurrences { context: root, entities: vec![g], material: Some(oak) }).unwrap();
+        // Its parts painted oak: drawn in oak; a hidden part left out.
+        let oak = e
+            .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+            .unwrap()
+            .unwrap()
+            .material
+            .unwrap();
+        let targets = vec![skraft_model::EntityPath::root(g)];
+        e.apply(Operation::PaintParts {
+            targets,
+            layer: skraft_model::Family::Coloration,
+            material: Some(oak),
+            scope: skraft_model::Scope::All,
+        })
+        .unwrap();
         let paint = Operation::SetHidden { context: Id(0), entities: vec![b], hidden: true };
         e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
         let painted = Content::of(e.document(), asm);
         assert_eq!(painted.parts.len(), 1, "the hidden part left out");
-        assert_eq!(painted.parts[0].1[0].1, Some(oak));
+        assert_eq!(painted.parts[0].1[0].1.top(), Some(oak));
         assert_ne!(painted.hash, content.hash, "drawn again");
     }
 }

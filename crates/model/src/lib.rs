@@ -20,6 +20,7 @@ mod links;
 pub mod measure;
 mod moves;
 mod ops;
+mod paint;
 mod profile;
 pub mod props;
 mod settings;
@@ -46,8 +47,9 @@ pub use assets::{Asset, ImageKind};
 pub use clipboard::BodyFragment;
 pub use dimensions::{Anchor, DimKind, Dimension, Entity, Found, Orient, part_names};
 pub use document::{
-    Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Component, ComponentKind, Document, EntityPath, Guide, GuidePath, GuideShape,
-    Id, MAX_DEPTH, Material, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell, Sign, StretchMask, Texture, name_base,
+    Assembly, Behavior, BlendMode, Body, BodyDef, BodyGroup, BodySource, Catalog, Component, ComponentKind, Document, EntityPath, Family,
+    Guide, GuidePath, GuideShape, Id, Listed, MAX_DEPTH, Material, MaterialKind, Nature, Occurrence, Part, PlacedGuide, PlacedPart,
+    RawCache, RawCell, Seen, Sign, Source, StretchMask, Texture, name_base,
 };
 pub use drawing::{
     Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Look, Paper, Perspective,
@@ -108,6 +110,8 @@ pub enum Refusal {
     AxesNotDirect,
     ArrayCount,
     RootRenamed,
+    /// The model is neither made nor bought: its parts are.
+    RootSource,
     /// Another part or assembly has that name.
     NameTaken,
     /// Nothing to put in the assembly.
@@ -126,6 +130,9 @@ pub enum Refusal {
     NothingReached,
     /// A face index past the part's faces (docs/render/look.md).
     NoSuchFace,
+    /// A material laid where its kind does not go: a part's material on a face, a veneer on a
+    /// part, a coloration as what a part is made of (docs/render/look.md).
+    MaterialLayer,
     /// A change to bodies names none.
     NoBodies,
     /// A guide with no length or direction, or not finite.
@@ -287,6 +294,7 @@ impl std::fmt::Display for Refusal {
             Refusal::AxesNotDirect => t!("error.model.axes_not_direct"),
             Refusal::ArrayCount => t!("error.model.array_count"),
             Refusal::RootRenamed => t!("error.model.root_renamed"),
+            Refusal::RootSource => t!("error.model.root_source"),
             Refusal::NameTaken => t!("error.model.name_taken"),
             Refusal::EmptyAssembly => t!("error.model.empty_assembly"),
             Refusal::NotExploded => t!("error.model.not_exploded"),
@@ -297,6 +305,7 @@ impl std::fmt::Display for Refusal {
             Refusal::UnionTargets => t!("error.model.union_targets"),
             Refusal::NothingReached => t!("error.model.nothing_reached"),
             Refusal::NoSuchFace => t!("error.model.no_such_face"),
+            Refusal::MaterialLayer => t!("error.model.material_layer"),
             Refusal::NoBodies => t!("error.model.no_bodies"),
             Refusal::BadGuide => t!("error.model.bad_guide"),
             Refusal::NothingStretched => t!("error.model.nothing_stretched"),

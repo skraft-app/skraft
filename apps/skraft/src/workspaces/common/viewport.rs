@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use glam::{DMat4, DVec2, DVec3};
 use skraft_i18n::t;
-use skraft_model::Id;
+use skraft_model::{BlendMode, Seen};
 use skraft_render as render;
 use skraft_theme::{Rgba, Theme};
 use skraft_tools::draw;
@@ -133,11 +133,11 @@ pub struct Viewport {
     /// Each material's palette entry, for the session: an entry is never given to another
     /// material, so meshes with painted faces stay valid when materials come and go.
     /// They are the shown document's: ids are a document's own.
-    slots: HashMap<Id, u32>,
+    slots: HashMap<Seen, u32>,
     /// The document shown ([`crate::docs::DocId`]), and the others' palette entries, kept
     /// while they are not shown.
     document: u64,
-    parked_slots: HashMap<u64, HashMap<Id, u32>>,
+    parked_slots: HashMap<u64, HashMap<Seen, u32>>,
     /// The textures' images, prepared off the interface's thread.
     images: crate::system::images::TextureImages,
     /// The size of the last frame drawn (pixels).
@@ -153,6 +153,7 @@ pub struct Viewport {
     /// The palette of the last frame and its entries' textures, the thumbnails' too.
     palette: Vec<[f32; 4]>,
     textures: Vec<[f32; 4]>,
+    overlays: Vec<[f32; 4]>,
     /// The pictures of the drawing's views (docs/ui/drawing.md#rendered-views), by document
     /// and view slot, and the textures of those dropped, freed at the next frame.
     sheet: HashMap<(u64, crate::workspaces::drawing::sheet::ViewSlot), SheetPicture>,
@@ -308,7 +309,7 @@ impl Viewport {
         if todo.is_empty() {
             return;
         }
-        let (palette, textures, _) = self.sync(state, editor, theme);
+        let colours = self.sync(state, editor, theme);
         let Some(renderer) = self.renderer.as_mut() else { return };
         let scene = editor.scene();
         let start = web_time::Instant::now();
@@ -322,7 +323,14 @@ impl Viewport {
             let device = &state.device;
             let key = (doc, w.slot);
             let images = images_ready(&self.images, w);
-            let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, ppp };
+            let look = SheetLook {
+                theme,
+                palette: &colours.palette,
+                textures: &colours.textures,
+                overlays: &colours.overlays,
+                slots: &self.slots,
+                ppp,
+            };
             match self.sheet.get_mut(&key) {
                 Some(p) if p.picture.size() == w.size => {
                     draw_sheet_picture(renderer, state, scene, &look, w, &p.picture);
@@ -357,9 +365,16 @@ impl Viewport {
     ) -> Option<(u32, u32, Vec<u8>)> {
         let state = frame.wgpu_render_state()?;
         self.show_document(doc);
-        let (palette, textures, _) = self.sync(state, editor, theme);
+        let colours = self.sync(state, editor, theme);
         let renderer = self.renderer.as_mut()?;
-        let look = SheetLook { theme, palette: &palette, textures: &textures, slots: &self.slots, ppp };
+        let look = SheetLook {
+            theme,
+            palette: &colours.palette,
+            textures: &colours.textures,
+            overlays: &colours.overlays,
+            slots: &self.slots,
+            ppp,
+        };
         let picture = renderer.new_picture(&state.device, w.size);
         draw_sheet_picture(renderer, state, editor.scene(), &look, w, &picture);
         read_texture(state, picture.texture())
@@ -908,49 +923,81 @@ impl Viewport {
         (ids.iter().filter(|id| self.images.settled(id)).count(), ids.len())
     }
 
-    /// The palette entry of `material`, given on first use (docs/render/look.md).
-    fn slot(&mut self, material: Option<Id>) -> u32 {
-        let Some(m) = material else { return render::NO_MATERIAL };
+    /// The palette entry of what is seen, `seen`, given on first use (docs/render/look.md).
+    fn slot(&mut self, seen: Seen) -> u32 {
+        if seen.is_none() {
+            return render::NO_MATERIAL;
+        }
         let next = self.slots.len() as u32;
-        *self.slots.entry(m).or_insert(next)
+        *self.slots.entry(seen).or_insert(next)
     }
 
-    /// What every picture of the shown document needs, kept up to date: the palette (each
-    /// material at its entry, then an open part's tools' colours, from the returned slot), the
-    /// textures' layers, the meshes uploaded.
-    fn sync(&mut self, state: &egui_wgpu::RenderState, editor: &Editor, theme: &Theme) -> (Vec<[f32; 4]>, Vec<[f32; 4]>, u32) {
-        let device = &state.device;
-        let doc = editor.document();
-        // The palette: every material at its entry (entries of deleted ones stay unused).
-        let materials: Vec<(Id, [u8; 3])> = doc.materials().map(|(id, m)| (id, m.color)).collect();
-        for (id, _) in &materials {
-            self.slot(Some(*id));
-        }
-        let mut palette = vec![[0.0f32; 4]; self.slots.len()];
-        for (id, [r, g, b]) in &materials {
-            palette[self.slots[id] as usize] = skraft_theme::srgb(*r, *g, *b);
-        }
-        // The textures (docs/render/look.md#textures): one layer per image used, its entry beside
-        // its material's colour.
+    /// The palette, its entries' textures and colorations (docs/render/look.md#palette-and-materials):
+    /// each pair seen at its entry — what is under (its colour, its texture once ready; the
+    /// theme's default under nothing), the coloration over it as `A·x + B`, its coats composed —
+    /// then an open part's tools' colours, from the returned slot; and the textures' layers.
+    fn colours(&self, doc: &skraft_model::Document, theme: &Theme) -> Colours {
         let mut layers: Vec<String> = doc.materials().filter_map(|(_, m)| m.texture.as_ref().map(|t| t.image.clone())).collect();
         layers.sort();
         layers.dedup();
-        // Those not ready yet ([`Viewport::textures_progress`], every frame): their material's
-        // colour meanwhile.
+        // Those not ready yet ([`Viewport::textures_progress`], every frame): their colour meanwhile.
         layers.retain(|id| self.images.get(id).is_some());
-        let mut textures = vec![render::NO_TEXTURE; palette.len()];
-        for (id, m) in doc.materials() {
-            if let Some(t) = &m.texture
-                && let Some(layer) = layers.iter().position(|l| *l == t.image)
-            {
-                textures[self.slots[&id] as usize] = render::texture_entry(layer as u32, t.size, t.rotation);
-            }
+        let texture = |m: &skraft_model::Material| {
+            let t = m.texture.as_ref()?;
+            let layer = layers.iter().position(|l| *l == t.image)?;
+            Some(render::texture_entry(layer as u32, t.size, t.rotation))
+        };
+        let linear = |c: [u8; 3]| skraft_theme::srgb(c[0], c[1], c[2]);
+        let n = self.slots.len();
+        let mut palette = vec![[0.0f32; 4]; n];
+        let mut textures = vec![render::NO_TEXTURE; n];
+        let mut overlays = vec![render::NO_OVERLAY[0]; 2 * n];
+        for (i, slot) in overlays.iter_mut().enumerate() {
+            *slot = render::NO_OVERLAY[i % 2];
         }
-        // Then the colours of an open part's tools (docs/model/opening-a-part.md).
+        for (seen, &k) in &self.slots {
+            let k = k as usize;
+            match seen.under.and_then(|m| doc.material(m).ok()) {
+                Some(m) => {
+                    palette[k] = linear(m.color);
+                    textures[k] = texture(m).unwrap_or(render::NO_TEXTURE);
+                }
+                None => palette[k] = theme.face_front,
+            }
+            // The coats over it, composed (docs/decisions/0057-materials-on-the-definition-typed-sources.md);
+            // a coat covering fully with a texture is what is under from it on.
+            let coats = seen.over.map(|o| doc.coats_of(o)).unwrap_or_default();
+            let layers: Vec<Coat> = coats
+                .iter()
+                .map(|(_, m)| Coat { blend: m.blend, intensity: m.intensity, color: linear(m.color), textured: texture(m).is_some() })
+                .collect();
+            let (from, a, b) = compose(&layers);
+            if let Some(f) = from {
+                let m = coats[f].1;
+                palette[k] = linear(m.color);
+                textures[k] = texture(m).unwrap_or(render::NO_TEXTURE);
+            }
+            overlays[2 * k] = [a[0], a[1], a[2], 1.0];
+            overlays[2 * k + 1] = [b[0], b[1], b[2], 0.0];
+        }
         let tool_slot = palette.len() as u32;
         palette.push(theme.machining);
         palette.push(theme.machining_failed);
         palette.push(theme.intersect);
+        Colours { palette, textures, overlays, tool_slot, layers }
+    }
+
+    /// What every picture of the shown document needs, kept up to date: each part's and face's
+    /// palette entry, the meshes uploaded, the textures' layers; then its colours
+    /// ([`Viewport::colours`]).
+    fn sync(&mut self, state: &egui_wgpu::RenderState, editor: &Editor, theme: &Theme) -> Colours {
+        let device = &state.device;
+        let doc = editor.document();
+        // Every part's entry, placed or not (a thumbnail draws those not placed).
+        let shown: Vec<Seen> = doc.components().filter_map(|c| c.as_part()).map(|p| p.shown()).collect();
+        for seen in shown {
+            self.slot(seen);
+        }
 
         // Meshes: one per definition, re-uploaded when its revision (faces' paint included)
         // changes.
@@ -963,7 +1010,7 @@ impl Viewport {
             let len = dm.faces.keys().next_back().map_or(0, |f| *f as usize + 1);
             let mut paint = vec![render::NO_MATERIAL; len];
             for (f, m) in &dm.faces {
-                paint[*f as usize] = self.slot(Some(*m));
+                paint[*f as usize] = self.slot(*m);
             }
             uploads.push((dm, paint));
         }
@@ -975,19 +1022,23 @@ impl Viewport {
                 dm.parts.iter().map(|p| render::Part { id: p.solid.0, mesh: &p.mesh, face_paint: paint }).collect();
             renderer.set_mesh(device, dm.definition.0, dm.revision, &parts);
         }
-        let layer_images: Vec<(u64, &[Vec<u8>])> =
-            layers.iter().filter_map(|id| self.images.get(id).map(|l| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), l))).collect();
+        let colours = self.colours(doc, theme);
+        let Some(renderer) = self.renderer.as_mut() else { return colours };
+        let layer_images: Vec<(u64, &[Vec<u8>])> = colours
+            .layers
+            .iter()
+            .filter_map(|id| self.images.get(id).map(|l| (u64::from_str_radix(&id[..16], 16).unwrap_or(0), l)))
+            .collect();
         renderer.set_textures(device, &state.queue, &layer_images);
         renderer.retain_meshes(|k| scene.definition_mesh(skraft_model::Id(k)).is_some());
-        (palette, textures, tool_slot)
+        colours
     }
 
     fn render(&mut self, state: &egui_wgpu::RenderState, size: [u32; 2], pixels_per_point: f32, editor: &Editor, theme: &Theme) {
         let device = &state.device;
         let doc = editor.document();
-        let (palette, textures, tool_slot) = self.sync(state, editor, theme);
+        let mut colours = self.sync(state, editor, theme);
         let scene = editor.scene();
-        let Some(renderer) = self.renderer.as_mut() else { return };
 
         let display = &doc.settings().display;
         // The palette's, not the document's (docs/render/look.md).
@@ -996,9 +1047,25 @@ impl Viewport {
         let start = web_time::Instant::now();
         let view = editor.view();
         self.timing.view_ms = start.elapsed().as_secs_f64() * 1e3;
+        // What only a preview shows (a paint's): its entries, then the colours again.
+        let before = self.slots.len();
+        let previewed: Vec<Seen> = view
+            .batches
+            .iter()
+            .flat_map(|(_, ps)| ps.iter().map(|p| p.material))
+            .chain(view.highlights.iter().map(|h| h.material))
+            .collect();
+        for seen in previewed {
+            self.slot(seen);
+        }
+        if self.slots.len() != before {
+            colours = self.colours(doc, theme);
+        }
+        let Colours { palette, textures, overlays, tool_slot, .. } = colours;
+        let Some(renderer) = self.renderer.as_mut() else { return };
         let fade: render::Tint = [background[0], background[1], background[2], theme.fade];
         let slots = &self.slots;
-        let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+        let slot = |m: Seen| slot_of(slots, m);
         // A machining's ghost, a little more opaque than a blank's.
         let machining = (theme.machining_opacity - theme.ghost_opacity).max(0.0);
         let in_part = open_part_texture(editor);
@@ -1099,6 +1166,7 @@ impl Viewport {
             grid: rgb(theme.grid),
             palette: &palette,
             textures: &textures,
+            overlays: &overlays,
             silhouettes: display.silhouettes,
             section: view.section.map(|s| render::Section { origin: s.origin, normal: s.normal }),
             cap_shade: theme.cap_shade,
@@ -1108,6 +1176,7 @@ impl Viewport {
         };
         self.palette.clone_from(&palette);
         self.textures.clone_from(&textures);
+        self.overlays.clone_from(&overlays);
         let frame = render::Frame {
             view: cam.view(),
             proj: cam.proj(aspect, scene.bounds()),
@@ -1203,6 +1272,7 @@ impl Viewport {
                     grid: rgb(theme.grid),
                     palette: &self.palette,
                     textures: &self.textures,
+                    overlays: &self.overlays,
                     silhouettes: true,
                     section: None,
                     ..render::Style::default()
@@ -1250,7 +1320,7 @@ impl Viewport {
 /// placements. None when there is nothing to draw.
 fn content_batches(
     renderer: &render::Renderer,
-    slots: &HashMap<Id, u32>,
+    slots: &HashMap<Seen, u32>,
     scene: &skraft_tools::DisplayScene,
     content: &crate::system::thumbnails::Content,
 ) -> Option<((DVec3, DVec3), Vec<render::Batch>)> {
@@ -1273,7 +1343,7 @@ fn content_batches(
         }
     }
     let bounds = bounds?;
-    let slot = |m: Option<Id>| m.and_then(|m| slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+    let slot = |m: Seen| slot_of(slots, m);
     let batches: Vec<render::Batch> = content
         .parts
         .iter()
@@ -1325,14 +1395,69 @@ fn unblend(black: &[u8], white: &[u8]) -> Vec<u8> {
 /// How much finer a thumbnail's edges are than the view's (`render::EDGE_WIDTH` times this).
 const THUMBNAIL_EDGE_SCALE: f32 = 0.5;
 
-/// What a sheet view's picture is drawn with: the theme, the palette and textures, the
-/// materials' entries, its points' pixels.
+/// What a sheet view's picture is drawn with: the theme, the palette, its textures and
+/// colorations, what is seen's entries, its points' pixels.
 struct SheetLook<'a> {
     theme: &'a Theme,
     palette: &'a [[f32; 4]],
     textures: &'a [[f32; 4]],
-    slots: &'a HashMap<Id, u32>,
+    overlays: &'a [[f32; 4]],
+    slots: &'a HashMap<Seen, u32>,
     ppp: f32,
+}
+
+/// The palette of a picture and what goes with it ([`Viewport::colours`]).
+struct Colours {
+    palette: Vec<[f32; 4]>,
+    textures: Vec<[f32; 4]>,
+    overlays: Vec<[f32; 4]>,
+    /// The first of an open part's tools' entries.
+    tool_slot: u32,
+    /// The textures' images ready, a layer each.
+    layers: Vec<String>,
+}
+
+/// A coat as [`compose`] reads it: its blend, intensity, linear colour, and whether its texture
+/// is ready.
+struct Coat {
+    blend: BlendMode,
+    intensity: f32,
+    color: [f32; 4],
+    textured: bool,
+}
+
+/// The coats `coats`, from the bottom up, composed per channel into one map of what is under,
+/// `x -> A·x + B` (docs/decisions/0057-materials-on-the-definition-typed-sources.md): covering,
+/// `(1 − t)·x + t·c`; tinting, `x·((1 − t) + t·c)`. A coat covering fully with its texture is
+/// what is under from it on: its index, then the map of the coats above it.
+fn compose(coats: &[Coat]) -> (Option<usize>, [f32; 3], [f32; 3]) {
+    let (mut from, mut a, mut b) = (None, [1.0f32; 3], [0.0f32; 3]);
+    for (k, coat) in coats.iter().enumerate() {
+        let t = coat.intensity.clamp(0.0, 1.0);
+        let c = coat.color;
+        match coat.blend {
+            BlendMode::Cover if t >= 1.0 && coat.textured => (from, a, b) = (Some(k), [1.0; 3], [0.0; 3]),
+            BlendMode::Cover => {
+                for ch in 0..3 {
+                    a[ch] *= 1.0 - t;
+                    b[ch] = b[ch] * (1.0 - t) + t * c[ch];
+                }
+            }
+            BlendMode::Tint => {
+                for ch in 0..3 {
+                    let m = 1.0 - t + t * c[ch];
+                    a[ch] *= m;
+                    b[ch] *= m;
+                }
+            }
+        }
+    }
+    (from, a, b)
+}
+
+/// The palette entry of `seen` among `slots`, none when it has none.
+fn slot_of(slots: &HashMap<Seen, u32>, seen: Seen) -> u32 {
+    slots.get(&seen).copied().unwrap_or(render::NO_MATERIAL)
 }
 
 /// A sheet view's picture `w` drawn into `picture` (docs/ui/drawing.md#rendered-views): its
@@ -1350,8 +1475,8 @@ fn draw_sheet_picture(
     w: &crate::workspaces::drawing::sheet::Wanted,
     picture: &render::Picture,
 ) {
-    let (theme, palette, textures, ppp) = (look.theme, look.palette, look.textures, look.ppp);
-    let slot = |m: Option<Id>| m.and_then(|m| look.slots.get(&m).copied()).unwrap_or(render::NO_MATERIAL);
+    let (theme, palette, textures, overlays, ppp) = (look.theme, look.palette, look.textures, look.overlays, look.ppp);
+    let slot = |m: Seen| slot_of(look.slots, m);
     let rgb = |c: Rgba| [c[0], c[1], c[2]];
     let batches: Vec<render::Batch> = w
         .parts
@@ -1397,6 +1522,7 @@ fn draw_sheet_picture(
             grid: rgb(theme.grid),
             palette,
             textures,
+            overlays,
             silhouettes: true,
             section: None,
             ..render::Style::default()
@@ -1980,6 +2106,7 @@ impl Viewport {
                     grid: rgb(theme.grid),
                     palette: &self.palette,
                     textures: &self.textures,
+                    overlays: &self.overlays,
                     silhouettes: true,
                     section: None,
                     ..render::Style::default()
@@ -2045,6 +2172,26 @@ impl Viewport {
 
 #[cfg(test)]
 mod tests {
+    use super::{Coat, compose};
+    use skraft_model::BlendMode;
+
+    #[test]
+    fn coats_compose_into_one_map_of_what_is_under() {
+        let coat = |blend, intensity, c: f32, textured| Coat { blend, intensity, color: [c, c, c, 1.0], textured };
+        let apply = |(_, a, b): (Option<usize>, [f32; 3], [f32; 3]), x: f32| x * a[0] + b[0];
+        // A paint covering fully hides what is under; half covering, half of each.
+        assert!((apply(compose(&[coat(BlendMode::Cover, 1.0, 0.2, false)]), 0.9) - 0.2).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Cover, 0.5, 0.2, false)]), 0.8) - 0.5).abs() < 1e-6);
+        // A stain multiplies: the wood darker, its grain (x) still there.
+        assert!((apply(compose(&[coat(BlendMode::Tint, 1.0, 0.5, false)]), 0.8) - 0.4).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Tint, 0.5, 0.5, false)]), 0.8) - 0.6).abs() < 1e-6);
+        // A scheme: a stain then a covering varnish at 20 %, one map, as laid one after the other.
+        let two = compose(&[coat(BlendMode::Tint, 1.0, 0.5, false), coat(BlendMode::Cover, 0.2, 1.0, false)]);
+        assert!((apply(two, 0.8) - (0.8 * 0.5 * 0.8 + 0.2)).abs() < 1e-6);
+        // A textured coat covering fully starts it again: what is above it only.
+        let textured = compose(&[coat(BlendMode::Tint, 1.0, 0.5, false), coat(BlendMode::Cover, 1.0, 0.3, true)]);
+        assert_eq!((textured.0, textured.1[0], textured.2[0]), (Some(1), 1.0, 0.0));
+    }
 
     /// A tooltip goes under the cursor's drawing, above it at the view's bottom, and stays in
     /// the view.

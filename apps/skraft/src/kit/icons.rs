@@ -95,6 +95,7 @@ icon!(GUIDES_DELETE, "guides_delete");
 icon!(CLOSE, "close");
 icon!(ADD, "add");
 icon!(TEXTURE, "texture");
+icon!(IMAGE, "image");
 icon!(EXPORT, "export");
 icon!(IMPORT, "import");
 icon!(OPEN, "open");
@@ -105,6 +106,8 @@ icon!(CHEVRON_DOWN, "chevron_down");
 icon!(TILES, "tiles");
 icon!(LIST, "list");
 icon!(HIDE_REST, "hide_rest");
+icon!(BOUGHT, "bought");
+icon!(EXISTING, "existing");
 
 /// The chevron (pointing down, turned by `angle` clockwise) `side` wide centered on `at`: the
 /// one fold and drop-down mark of the app (panels' title bars, navigator rows, menus, combo boxes).

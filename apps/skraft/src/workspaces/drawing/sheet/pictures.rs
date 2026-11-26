@@ -174,7 +174,7 @@ pub(super) fn wanted_picture(
         p.0.hash(&mut h);
         for (t, m) in places {
             t.to_cols_array().map(f64::to_bits).hash(&mut h);
-            m.map(|m| m.0).hash(&mut h);
+            m.hash(&mut h);
         }
     }
     Some(Wanted { slot, size, camera, parts, lines, images, stamp: h.finish() })
@@ -202,7 +202,7 @@ pub fn printed(e: &Editor, id: Id, style: ViewStyle, r: &Resolved<'_>, dpi: f64)
         let px = |mm: f64| (mm * dpi / 25.4).round().clamp(8.0, 8192.0) as u32;
         let mut by_part: HashMap<Id, Vec<Placed>> = HashMap::new();
         for p in &placed {
-            by_part.entry(p.part).or_default().push((p.transform, p.material));
+            by_part.entry(p.part).or_default().push((p.transform, p.shown()));
         }
         let mut parts: Vec<_> = by_part.into_iter().collect();
         parts.sort_by_key(|(p, _)| *p);

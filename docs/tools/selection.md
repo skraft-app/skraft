@@ -122,7 +122,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   several groups make several operations, in one undo step — and a world transform is brought
   into each parent's axes.
 - Model: `Operation::At { parent, unique, op }` — `op` (Transform, Duplicate, Array, Copies,
-  Delete, SetHidden, PaintOccurrences, MakeAssembly) on the assembly `parent` leads into, its `context` set
+  Delete, SetHidden, MakeAssembly) on the assembly `parent` leads into, its `context` set
   when applied; `unique` makes the assemblies along it unique first, outermost first
   (`MakeUnique`, ids kept) — and `Operation::Batch(ops)`, applied in order, outcomes put
   together, one history step; `Document::shared_along(occurrences)`. An operation `At` / `Batch`
@@ -159,7 +159,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   first, in one step (`Explode` taken by `At`), what they held then selected by its paths. In
   an assembly placed several times, the « Portée » says whether all its copies change.
 - **Paint**: under « Parts », the part under the cursor — the parts selected when it is one of
-  them — painted at its parent (`PaintOccurrences` taken by `At`); painting occurrences (either
+  them — painted by its path (`PaintParts`, paths from the root); painting parts (either
   scope), a drag draws a rectangle whose take is painted when released, one step (the context's
   occurrences, or the parts at any depth); the level chosen in the tree drop-up is painted, not
   selected (`Tool::tree_pick`); painting faces, no scope, no list.

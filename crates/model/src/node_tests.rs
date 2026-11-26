@@ -626,8 +626,12 @@ fn a_part_flattened_is_one_free_body_its_painted_faces_kept() {
     let mut h = History::new(Document::new());
     let (target, part, board, drill) = drilled_board(&mut h);
     let sharp = volume(h.document(), part);
-    let material = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [150, 110, 60] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintFaces { part, faces: vec![2], material: Some(material) }).unwrap();
+    let material = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [150, 110, 60], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    h.apply(Operation::PaintFaces { part, faces: vec![2], layer: Family::Coloration, material: Some(material) }).unwrap();
     let before = h.document().part(part).unwrap().shape().clone();
     h.apply(Operation::FlattenPart { target: target.clone(), scope: Scope::All }).unwrap();
     let p = h.document().part(part).unwrap();

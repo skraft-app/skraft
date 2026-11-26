@@ -409,12 +409,19 @@ impl Document {
             Ok(())
         };
         let below = |id: Id| if id.0 < self.next_id { Ok(()) } else { Err(Error::File(FileError::BadOccurrenceId(id))) };
-        for (id, m) in &self.materials {
+        for (id, m) in self.materials.iter() {
             if id.0 >= self.next_id {
                 return Err(Error::File(FileError::BadMaterialId(*id)));
             }
             if m.texture.as_ref().is_some_and(|t| !t.is_valid() || !self.assets.contains_key(&t.image)) {
                 return Err(Error::File(FileError::BadTexture(*id)));
+            }
+            // A scheme lays coats of the catalog, never schemes (docs/decisions/0057).
+            if m.coats.iter().any(|c| self.materials.get(c).is_none_or(|c| c.kind != Some(crate::MaterialKind::Coat))) {
+                return Err(Error::File(FileError::UnknownMaterial(*id)));
+            }
+            if !(0.0..=1.0).contains(&m.intensity) {
+                return Err(Error::File(FileError::BadMaterialId(*id)));
             }
         }
         // The drawing (docs/ui/drawing.md): ids fresh, images present, views resolved, what
@@ -502,8 +509,8 @@ impl Document {
                     if p.failed.iter().any(|id| p.body(*id).is_none()) {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
                     }
-                    for m in p.faces.values() {
-                        material(&Some(*m))?;
+                    for m in p.materials_held() {
+                        material(&Some(m))?;
                     }
                     if p.is_plain() != p.shape.is_none() {
                         return Err(Error::File(FileError::ShapeOutOfStep(c.id)));
@@ -512,7 +519,6 @@ impl Document {
                 ComponentKind::Assembly(a) => {
                     for o in a.occurrences() {
                         below(o.id)?;
-                        material(&o.material)?;
                         if !here.insert(o.id) {
                             return Err(Error::File(FileError::DuplicateOccurrence { occurrence: o.id, assembly: c.id }));
                         }

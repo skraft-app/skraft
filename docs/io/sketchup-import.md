@@ -69,15 +69,39 @@ part) and its top instances; [`Operation::Insert`](step-import.md#insertion) pla
 
 ## Materials
 
-A material used by an instance or a face becomes a document material: its name, its colour (a
-texture's average colour), and its **texture**, the image (PNG or JPEG, as the file holds it)
-among the document's assets laid at the real size SketchUp gives it
+A material used by an instance or a face becomes an item of the document's catalog
+([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)): its name, its
+colour (a texture's average colour), and its **texture**, the image (PNG or JPEG, as the file
+holds it) among the document's assets laid at the real size SketchUp gives it
 ([Textures](../render/look.md#textures): a box projection in the part's axes, not SketchUp's
-per-face placement). An instance's material goes on its occurrence. A **face's** goes on its
-part (`Part::faces`, by the face's index in the solid's record): the material of its side facing
-out — a face SketchUp holds reversed shows its back —, none when only its inner side is
-painted (unseen in SketchUp too). The kernel finds each face again in the built solid by its
-vertices (`painted` in `crates/kernel/src/sketchup.rs`).
+per-face placement). Its family comes from **where it is laid**, and from **OpenCutList's
+type** of it when it has one (`ladb_opencutlist` › `type`, `SketchUpMaterial::ocl_type`):
+
+| Type (OCL) | On an instance | On a face |
+|---|---|---|
+| none, 1 solid wood, 5 hardware (bought, later) | material « Massif » | coloration |
+| 2 sheet good | material « Panneau » | coloration |
+| 3 dimensional | material « Profilé » | coloration |
+| 4 edge | coloration (its look) | covering « Chant » |
+| 6 veneer | coloration (its look) | covering « Placage » |
+| 7 machining | coloration | coloration |
+
+One item per material and type (`Items`, `crates/model/src/import.rs`): a material laid both
+ways is two items of one name. SketchUp 2026 keeps a material's dictionaries in its
+`materials/<name>/material.xml`, which skpwright does not read: the kernel reads the type there
+(`ocl_types_in_xml`), from the records for older files (quirk sheet
+`skp2026-material-dictionaries-in-xml` of the SketchUp API quirks base).
+
+An instance's item goes on its **part** (on the definition), where its family goes: a part
+takes the one of the nearest instance above it that has one
+(`Document::settle_occurrence_paints`); a definition reached in several stays one part for the
+one most of its placements take, and gets a copy for each other, made from the part as it was
+— the instance pointed at its copy where it stands, the assemblies on the way made their own
+only when their copies differ. A **face's** goes on its part, its covering or its coloration
+(`Part::coverings`, `Part::faces`, by the face's index in the solid's record): the material of
+its side facing out — a face SketchUp holds reversed shows its back —, none when only its inner
+side is painted (unseen in SketchUp too). The kernel finds each face again in the built solid by
+its vertices (`painted` in `crates/kernel/src/sketchup.rs`).
 
 ## In the app
 

@@ -24,7 +24,9 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use skraft_kernel::{Display, Mesh, Quality, Snaps, Solid};
-use skraft_model::{Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Sign};
+use skraft_model::{
+    Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Seen, Sign,
+};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
@@ -47,8 +49,9 @@ pub struct DefinitionMesh {
     /// Changes with the mesh and with the faces' materials.
     pub revision: u64,
     pub parts: Vec<PartMesh>,
-    /// The materials of single faces (by face index), over the occurrences' (docs/render/look.md).
-    pub faces: BTreeMap<u32, Id>,
+    /// What single faces show (by face index), over the part's: their coloration, else their
+    /// covering (docs/render/look.md).
+    pub faces: BTreeMap<u32, Seen>,
 }
 
 /// One occurrence of a part in the scene.
@@ -58,8 +61,9 @@ pub struct Placement {
     pub path: Vec<Id>,
     /// Part to world.
     pub transform: DAffine3,
-    /// The material its faces take (its occurrence's, else an assembly's above it).
-    pub material: Option<Id>,
+    /// What its faces without anything of their own show: the part's coloration over its
+    /// material.
+    pub material: Seen,
     /// Hidden by the user: it, or an occurrence above it, out of the active path (what is
     /// being edited shows).
     pub hidden: bool,
@@ -361,7 +365,7 @@ impl DisplayScene {
         self.missing.clear();
         for c in doc.components() {
             let ComponentKind::Part(p) = &c.kind else { continue };
-            self.define(p.shape(), c.id, &p.faces, &mut seen);
+            self.define(p.shape(), c.id, &p.faces_shown(), &mut seen);
         }
         self.recipe = None;
         let shown = self.recipe_path.as_ref().and_then(|path| Some((doc.resolve_container(path).ok()?, path)));
@@ -398,10 +402,11 @@ impl DisplayScene {
 
         self.placements.clear();
         for p in doc.placed_parts() {
+            let material = p.shown();
             let mut path = p.path.occurrences;
             path.push(p.path.entity);
             let hidden = hidden_off(&path, p.hidden_at, &self.active);
-            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material, hidden });
+            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material, hidden });
         }
         self.section = doc.settings().display.active_section();
         self.show_hidden = doc.settings().display.show_hidden;
@@ -426,7 +431,7 @@ impl DisplayScene {
                     self.recipe_places.push((place, b.key, Piece::Blank(b.body)));
                 }
                 for t in &r.tools {
-                    let place = Placement { transform: open.transform * r.within * t.placement, material: None, ..open.clone() };
+                    let place = Placement { transform: open.transform * r.within * t.placement, material: Seen::NONE, ..open.clone() };
                     self.recipe_places.push((place, t.key, Piece::Tool(t.body)));
                 }
             }
@@ -562,7 +567,7 @@ impl DisplayScene {
 
     /// The mesh of `solid` under the key `key` (a part, or a recipe's solid): cached, or a
     /// stand-in asked for once.
-    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut FastSet<usize>) -> DefinitionMesh {
+    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Seen>, seen: &mut FastSet<usize>) -> DefinitionMesh {
         let at = Arc::as_ptr(solid) as usize;
         let entry = self.solids.entry(at).or_insert_with(|| Cached::pending(solid.clone()));
         // A part made unique shares its shape until it changes: ask for it once.
@@ -576,7 +581,7 @@ impl DisplayScene {
 
     /// The definition `key` drawn from `solid` ([`DisplayScene::mesh_of`]), recorded as one
     /// of its users.
-    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut FastSet<usize>) {
+    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Seen>, seen: &mut FastSet<usize>) {
         let dm = self.mesh_of(solid, key, faces, seen);
         self.users.entry(Arc::as_ptr(solid) as usize).or_default().push(key);
         self.definitions.insert(key, dm);
@@ -991,19 +996,16 @@ pub struct Under {
     pub part: Id,
     /// Part to world.
     pub transform: DAffine3,
-    /// The material its faces take there.
-    pub material: Option<Id>,
+    /// What its faces without anything of their own show.
+    pub material: Seen,
 }
 
-/// The occurrences of the assembly a context path leads into, indexed by id, with what
-/// they inherit from above: built once, it answers many occurrences (a selection of tens of
+/// The occurrences of the assembly a context path leads into, indexed by id: built once, it answers many occurrences (a selection of tens of
 /// thousands) without searching the assembly for each.
 pub struct ContextIndex<'d> {
     doc: &'d Document,
     /// Context to world.
     transform: DAffine3,
-    /// The material the assemblies above the context give.
-    inherited: Option<Id>,
     /// Searched by id through its own index (`Assembly::occurrence`).
     assembly: &'d Assembly,
     /// The occurrences hidden by the user are shown.
@@ -1014,15 +1016,8 @@ impl<'d> ContextIndex<'d> {
     pub fn new(doc: &'d Document, context_path: &[Id]) -> Option<Self> {
         let ctx = doc.context_of(context_path).ok()?;
         let transform = doc.transform_of(context_path).ok()?;
-        let mut inherited = None;
-        let mut at = doc.root();
-        for &i in context_path {
-            let Some(occ) = doc.assembly(at).ok().and_then(|a| a.occurrence(i)) else { break };
-            inherited = occ.material.or(inherited);
-            at = occ.component;
-        }
         let assembly = doc.assembly(ctx).ok()?;
-        Some(ContextIndex { doc, transform, inherited, assembly, show_hidden: doc.settings().display.show_hidden })
+        Some(ContextIndex { doc, transform, assembly, show_hidden: doc.settings().display.show_hidden })
     }
 
     /// Context to world.
@@ -1043,11 +1038,11 @@ impl<'d> ContextIndex<'d> {
         out
     }
 
-    /// [`ContextIndex::solids_under`] as they would be drawn with `entity` painted with
-    /// `material` (none: unpainted): what is painted below it keeps its own.
-    pub fn solids_under_painted(&self, entity: Id, material: Option<Id>) -> Vec<Under> {
+    /// [`ContextIndex::solids_under`] as they would be drawn with `layer` of every part below
+    /// `entity` painted with `material` (none: unpainted, docs/render/look.md).
+    pub fn solids_under_painted(&self, entity: Id, layer: skraft_model::Family, material: Option<Id>) -> Vec<Under> {
         let mut out = Vec::new();
-        self.walk_under(entity, Some(material), &mut out);
+        self.walk_under(entity, Some((layer, material)), &mut out);
         out
     }
 
@@ -1056,32 +1051,42 @@ impl<'d> ContextIndex<'d> {
         self.walk_under(entity, None, out);
     }
 
-    /// The parts under `entity`, its own material replaced by `painted` when given.
-    fn walk_under(&self, entity: Id, painted: Option<Option<Id>>, out: &mut Vec<Under>) {
-        fn walk(doc: &Document, show_hidden: bool, component: Id, t: DAffine3, material: Option<Id>, out: &mut Vec<Under>, depth: usize) {
+    /// The parts under `entity`, each showing what it shows, or would with `painted` (a layer,
+    /// its material).
+    fn walk_under(&self, entity: Id, painted: Painted, out: &mut Vec<Under>) {
+        fn walk(doc: &Document, show_hidden: bool, component: Id, t: DAffine3, painted: Painted, out: &mut Vec<Under>, depth: usize) {
             if depth > MAX_DEPTH {
                 return;
             }
             match doc.component(component).map(|c| &c.kind) {
-                Ok(ComponentKind::Part(_)) => out.push(Under { part: component, transform: t, material }),
+                Ok(ComponentKind::Part(p)) => {
+                    let material = match painted {
+                        None => p.shown(),
+                        Some((skraft_model::Family::Material, m)) => Seen { under: m, ..p.shown() },
+                        Some((_, m)) => Seen { over: m, ..p.shown() },
+                    };
+                    out.push(Under { part: component, transform: t, material })
+                }
                 Ok(ComponentKind::Assembly(a)) => {
                     for o in a.occurrences().iter().filter(|o| show_hidden || !o.hidden) {
-                        walk(doc, show_hidden, o.component, t * o.transform, o.material.or(material), out, depth + 1);
+                        walk(doc, show_hidden, o.component, t * o.transform, painted, out, depth + 1);
                     }
                 }
                 Err(_) => {}
             }
         }
         if let Some(o) = self.occurrence(entity) {
-            let own = painted.unwrap_or(o.material);
-            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, own.or(self.inherited), out, 0);
+            walk(self.doc, self.show_hidden, o.component, self.transform * o.transform, painted, out, 0);
         }
     }
 }
 
+/// A layer of the parts painted, and what with.
+type Painted = Option<(skraft_model::Family, Option<Id>)>;
+
 /// A definition's revision: changes with its solid, its state (a stand-in, then the real
 /// mesh) and its faces' materials.
-fn revision(at: usize, state: State, faces: &BTreeMap<u32, Id>) -> u64 {
+fn revision(at: usize, state: State, faces: &BTreeMap<u32, Seen>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (at, matches!(state, State::Pending { .. } | State::Failed), state == State::Ready, faces).hash(&mut h);
     h.finish()

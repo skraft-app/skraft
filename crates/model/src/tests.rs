@@ -735,33 +735,40 @@ fn only_this_one_makes_the_way_to_it_unique() {
 }
 
 #[test]
-fn materials_paint_occurrences_assemblies_and_faces() {
+fn materials_paint_parts_assemblies_and_faces() {
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
-    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    let walnut = h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap().material.unwrap();
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    let walnut =
+        h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap().material.unwrap();
     assert_eq!(h.document().materials().count(), 2);
+    let paint = |targets: Vec<EntityPath>, material, scope| Operation::PaintParts { targets, layer: Family::Coloration, material, scope };
 
-    // An occurrence painted: its placed part takes the material, the other does not.
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
-    let placed = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().material;
+    // A part painted: on its definition, the other part not.
+    h.apply(paint(vec![EntityPath::root(a)], Some(oak), Scope::All)).unwrap();
+    let placed = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().shown().top();
     assert_eq!(placed(&h, a), Some(oak));
     assert_eq!(placed(&h, b), None);
+    let part_a = h.document().root_assembly().occurrence(a).unwrap().component;
+    assert_eq!(h.document().part(part_a).unwrap().coloration, Some(oak));
 
-    // An assembly painted paints the parts in it that have no material of their own.
+    // An assembly painted paints every part below it, one painted too; it has none itself.
     let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![asm], material: Some(walnut) }).unwrap();
-    assert_eq!(placed(&h, a), Some(oak));
-    assert_eq!(placed(&h, b), Some(walnut));
+    h.apply(paint(vec![EntityPath::root(asm)], Some(walnut), Scope::All)).unwrap();
+    assert_eq!((placed(&h, a), placed(&h, b)), (Some(walnut), Some(walnut)));
 
     // A face of a part: kept by the part (every occurrence), refused past the last face.
     let part = h.document().placed_parts().into_iter().find(|p| p.path.entity == b).unwrap().part;
-    h.apply(Operation::PaintFaces { part, faces: vec![0, 2], material: Some(oak) }).unwrap();
+    h.apply(Operation::PaintFaces { part, faces: vec![0, 2], layer: Family::Coloration, material: Some(oak) }).unwrap();
     assert_eq!(h.document().part(part).unwrap().faces.len(), 2);
-    assert!(h.apply(Operation::PaintFaces { part, faces: vec![6], material: Some(oak) }).is_err());
-    h.apply(Operation::PaintFaces { part, faces: vec![2], material: None }).unwrap();
+    assert!(h.apply(Operation::PaintFaces { part, faces: vec![6], layer: Family::Coloration, material: Some(oak) }).is_err());
+    h.apply(Operation::PaintFaces { part, faces: vec![2], layer: Family::Coloration, material: None }).unwrap();
     assert_eq!(h.document().part(part).unwrap().faces.keys().copied().collect::<Vec<_>>(), [0]);
 
     // Recolouring in a row is one step; the file keeps it all.
@@ -774,11 +781,184 @@ fn materials_paint_occurrences_assemblies_and_faces() {
     assert!(h.undo());
     assert_eq!(h.document(), &before, "both recolourings undo together");
 
-    // Deleting a material unpaints what used it.
+    // Deleting a material unpaints what used it, parts and faces.
+    h.apply(paint(vec![EntityPath::new(vec![asm], a)], Some(oak), Scope::All)).unwrap();
     h.apply(Operation::DeleteMaterial { material: oak }).unwrap();
-    assert_eq!(placed(&h, a), Some(walnut), "the assembly's material shows through");
+    assert_eq!((placed(&h, a), placed(&h, b)), (None, Some(walnut)));
     assert!(h.document().part(part).unwrap().faces.is_empty());
-    assert!(h.apply(Operation::PaintOccurrences { context: root, entities: vec![asm], material: Some(oak) }).is_err());
+    assert!(h.apply(paint(vec![EntityPath::root(asm)], Some(oak), Scope::All)).is_err());
+}
+
+#[test]
+fn each_family_goes_to_its_layer_colorations_over_the_others() {
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let item = |h: &mut History, name: &str, kind| {
+        h.apply(Operation::AddMaterial { name: name.into(), color: [1, 2, 3], kind }).unwrap().material.unwrap()
+    };
+    let oak = item(&mut h, "Chêne massif", Some(MaterialKind::Solid));
+    let veneer = item(&mut h, "Placage chêne", Some(MaterialKind::Veneer));
+    let paint = item(&mut h, "Peinture", None);
+    let families = |h: &History| [oak, veneer, paint].map(|m| h.document().material(m).unwrap().family());
+    assert_eq!(families(&h), [Family::Material, Family::Covering, Family::Coloration]);
+    let part = h.document().root_assembly().occurrence(a).unwrap().component;
+    let on_part = |layer, material| Operation::PaintParts { targets: vec![EntityPath::root(a)], layer, material, scope: Scope::All };
+    let on_face = |layer, material| Operation::PaintFaces { part, faces: vec![0], layer, material };
+    let refused = |r: Result<Outcome>| matches!(r, Err(Error::Invalid(Refusal::MaterialLayer)));
+
+    // Each family to its layer; anywhere else, refused.
+    h.apply(on_part(Family::Material, Some(oak))).unwrap();
+    h.apply(on_face(Family::Covering, Some(veneer))).unwrap();
+    assert!(refused(h.apply(on_part(Family::Coloration, Some(oak)))));
+    assert!(refused(h.apply(on_part(Family::Material, Some(veneer)))));
+    assert!(refused(h.apply(on_face(Family::Covering, Some(oak)))));
+    assert!(refused(h.apply(on_face(Family::Coloration, Some(veneer)))));
+    assert!(refused(h.apply(on_part(Family::Covering, None))), "no covering on a part");
+    assert!(refused(h.apply(on_face(Family::Material, None))), "no material on a face");
+
+    // Seen: the coloration over the material, a face's coloration over its covering.
+    let p = |h: &History| h.document().part(part).unwrap().clone();
+    assert_eq!((p(&h).shown().top(), p(&h).faces_shown().get(&0).and_then(|s| s.top())), (Some(oak), Some(veneer)));
+    h.apply(on_part(Family::Coloration, Some(paint))).unwrap();
+    h.apply(on_face(Family::Coloration, Some(paint))).unwrap();
+    assert_eq!(
+        (p(&h).material, p(&h).shown().top(), p(&h).faces_shown().get(&0).and_then(|s| s.top())),
+        (Some(oak), Some(paint), Some(paint))
+    );
+    h.apply(on_part(Family::Coloration, None)).unwrap();
+    assert_eq!(p(&h).shown().top(), Some(oak), "the coloration taken off: the material again");
+
+    // A type changes within its family only.
+    h.apply(Operation::SetMaterialKind { material: oak, kind: MaterialKind::Sheet }).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().kind, Some(MaterialKind::Sheet));
+    assert!(refused(h.apply(Operation::SetMaterialKind { material: oak, kind: MaterialKind::Edge })));
+    assert!(refused(h.apply(Operation::SetMaterialKind { material: paint, kind: MaterialKind::Solid })));
+
+    // A table per family in the file; an item without a type of its table's family takes its
+    // first one.
+    let json = h.document().to_json().unwrap();
+    for key in ["\"materials\":", "\"coverings\":", "\"colorations\":"] {
+        assert!(json.contains(key), "{key}");
+    }
+    assert_eq!(&Document::from_json(&json).unwrap(), h.document());
+    let json = json.replace("\"kind\":\"sheet\",", "");
+    assert_eq!(Document::from_json(&json).unwrap().material(oak).unwrap().kind, Some(MaterialKind::Solid));
+}
+
+#[test]
+fn a_source_is_kept_by_the_file_and_the_copies() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = h
+        .apply(Operation::AddPrimitive { context: root, primitive: cube(DVec3::ZERO, 10.0), placement: DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .created[0];
+    h.apply(Operation::Duplicate { context: root, entities: vec![a], transform: DAffine3::from_translation(DVec3::X * 20.0) }).unwrap();
+    let occurrences = h.document().assembly(root).unwrap().occurrences().iter().map(|o| (o.id, o.component)).collect::<Vec<_>>();
+    let part = occurrences[0].1;
+    h.apply(Operation::SetSource { component: part, source: Source::Bought }).unwrap();
+    let doc = Document::from_file(&h.document().to_file().unwrap()).unwrap();
+    assert_eq!(doc.component(part).unwrap().source, Source::Bought, "saved");
+    h.apply(Operation::MakeUnique { context: root, occurrence: occurrences[1].0 }).unwrap();
+    let copy = h.document().assembly(root).unwrap().occurrence(occurrences[1].0).unwrap().component;
+    assert_ne!(copy, part);
+    assert_eq!(h.document().component(copy).unwrap().source, Source::Bought, "a copy comes from where its part does");
+}
+
+#[test]
+fn schemes_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let item = |h: &mut History, name: &str, kind| {
+        h.apply(Operation::AddMaterial { name: name.into(), color: [9, 9, 9], kind }).unwrap().material.unwrap()
+    };
+    let stain = item(&mut h, "Teinte noyer", None);
+    let varnish = item(&mut h, "Vernis ambré", Some(MaterialKind::Coat));
+    let scheme = item(&mut h, "Noyer verni", Some(MaterialKind::Scheme));
+    let oak = item(&mut h, "Chêne", Some(MaterialKind::Solid));
+    let refused = |r: Result<Outcome>| matches!(r, Err(Error::Invalid(Refusal::MaterialLayer)));
+    assert_eq!(h.document().material(stain).unwrap().kind, Some(MaterialKind::Coat), "a coat by default");
+
+    // A coat's blend and intensity; dragging it merges into one step.
+    h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Tint, intensity: 0.4 }).unwrap();
+    h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Tint, intensity: 0.6 }).unwrap();
+    assert_eq!(h.document().material(stain).unwrap().intensity, 0.6);
+    assert!(refused(h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Cover, intensity: 1.5 })));
+    assert!(refused(h.apply(Operation::SetCoat { material: scheme, blend: BlendMode::Cover, intensity: 1.0 })));
+
+    // A scheme lays coats, twice the same if need be; never a scheme nor a material.
+    h.apply(Operation::SetCoats { material: scheme, coats: vec![stain, varnish, varnish] }).unwrap();
+    assert!(refused(h.apply(Operation::SetCoats { material: scheme, coats: vec![scheme] })));
+    assert!(refused(h.apply(Operation::SetCoats { material: scheme, coats: vec![oak] })));
+    assert!(refused(h.apply(Operation::SetCoats { material: stain, coats: vec![varnish] })), "a coat lays none");
+    let ids = |h: &History| h.document().coats_of(scheme).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+    assert_eq!(ids(&h), [stain, varnish, varnish]);
+    assert_eq!(h.document().schemes_with(varnish), [scheme]);
+
+    // Laid on a part: the scheme and its coats count as used, kept by the purge.
+    let paint =
+        Operation::PaintParts { targets: vec![EntityPath::root(a)], layer: Family::Coloration, material: Some(scheme), scope: Scope::All };
+    h.apply(paint).unwrap();
+    h.apply(Operation::PurgeMaterials).unwrap();
+    for m in [stain, varnish, scheme] {
+        assert!(h.document().material(m).is_ok());
+    }
+    assert!(h.document().material(oak).is_err(), "unused: purged");
+
+    // A file keeps it all; a material file brings a scheme's coats along.
+    assert_eq!(&Document::from_json(&h.document().to_json().unwrap()).unwrap(), h.document());
+    let alone = h.document().materials_fragment(&[scheme]).unwrap();
+    assert_eq!(alone.materials().count(), 3);
+    let (_, s) = alone.materials().find(|(_, m)| m.is_scheme()).unwrap();
+    assert_eq!(s.coats.len(), 3);
+    assert!(s.coats.iter().all(|c| alone.material(*c).is_ok()));
+
+    // Deleted, a coat leaves the schemes laying it.
+    h.apply(Operation::DeleteMaterial { material: varnish }).unwrap();
+    assert_eq!(ids(&h), [stain]);
+}
+
+#[test]
+fn painting_only_these_copies_makes_their_parts_unique() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    let t = DAffine3::from_translation(DVec3::Y * 50.0);
+    let copy = h.apply(Operation::Duplicate { context: root, entities: vec![asm], transform: t }).unwrap().created[0];
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    let parts = |h: &History| h.document().components().filter(|c| c.is_part()).count();
+    let material = |h: &History, p: EntityPath| h.document().resolve_part(&p).unwrap().1.coloration;
+    assert_eq!(parts(&h), 2);
+
+    // « Only this one » on one copy of the assembly: it and its parts made its own.
+    let paint = |targets, scope| Operation::PaintParts { targets, layer: Family::Coloration, material: Some(oak), scope };
+    h.apply(paint(vec![EntityPath::root(copy)], Scope::This)).unwrap();
+    assert_eq!(parts(&h), 4);
+    assert_eq!((material(&h, EntityPath::new(vec![copy], a)), material(&h, EntityPath::new(vec![copy], b))), (Some(oak), Some(oak)));
+    assert_eq!(material(&h, EntityPath::new(vec![asm], a)), None, "the other copy left as it was");
+    assert!(h.undo());
+
+    // Every placement of a part painted: the part itself, no copy.
+    h.apply(paint(vec![EntityPath::new(vec![asm], a), EntityPath::new(vec![copy], a)], Scope::This)).unwrap();
+    assert_eq!(parts(&h), 2);
+    assert_eq!(material(&h, EntityPath::new(vec![asm], a)), Some(oak));
+    assert!(h.undo());
+
+    // One part of one copy: that copy of the assembly made its own, a copy of the part alone.
+    h.apply(paint(vec![EntityPath::new(vec![copy], a)], Scope::This)).unwrap();
+    assert_eq!(parts(&h), 3);
+    assert_eq!(material(&h, EntityPath::new(vec![copy], b)), None);
+    let doc = h.document();
+    let shared = |o: Id| {
+        (doc.resolve(&EntityPath::new(vec![asm], o)).unwrap().component, doc.resolve(&EntityPath::new(vec![copy], o)).unwrap().component)
+    };
+    assert_eq!(shared(b).0, shared(b).1, "b still one part");
 }
 
 #[test]
@@ -831,12 +1011,16 @@ fn asm_def(h: &History, o: Id) -> Id {
 #[test]
 fn a_file_with_an_unknown_material_is_refused() {
     let mut h = History::new(Document::new());
-    let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
-    let m = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(m) }).unwrap();
+    let m = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    h.apply(Operation::PaintParts { targets: vec![EntityPath::root(a)], layer: Family::Coloration, material: Some(m), scope: Scope::All })
+        .unwrap();
     let json = h.document().to_json().unwrap();
-    let broken = json.replace(&format!("\"material\":{}", m.0), "\"material\":999");
+    let broken = json.replace(&format!("\"coloration\":{}", m.0), "\"coloration\":999");
     assert_ne!(broken, json);
     assert!(Document::from_json(&broken).is_err());
 }
@@ -1074,9 +1258,6 @@ fn guides_are_erased_moved_copied_and_grouped_like_occurrences() {
     assert_eq!(out.created.len(), 2);
     assert_eq!(guides(&h).len(), 3);
     assert_eq!(guides(&h)[2].shape, GuideShape::Line { origin: DVec3::new(0.0, 5.0, 60.0), dir: DVec3::X });
-    // Painting a selection holding a guide paints only the occurrences.
-    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a, g], material: Some(oak) }).unwrap();
     // Erased.
     h.apply(Operation::Delete { context: root, entities: vec![out.created[0]] }).unwrap();
     assert_eq!(guides(&h).len(), 2);
@@ -1820,15 +2001,7 @@ fn placed_changes_skip_only_what_is_shared() {
 
 /// An occurrence of `component`, for the assembly's own tests.
 fn bare_occurrence(id: u64, component: Id) -> Occurrence {
-    Occurrence {
-        id: Id(id),
-        name: String::new(),
-        component,
-        transform: DAffine3::IDENTITY,
-        material: None,
-        hidden: false,
-        props: Props::default(),
-    }
+    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, hidden: false, props: Props::default() }
 }
 
 #[test]
@@ -2097,9 +2270,19 @@ fn pasting_in_another_document_grafts_and_keeps_occurrences_loose() {
     let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
-    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap();
+    h.apply(Operation::PaintParts {
+        targets: vec![EntityPath::root(a)],
+        layer: Family::Coloration,
+        material: Some(oak),
+        scope: Scope::All,
+    })
+    .unwrap();
     // Two occurrences of one part: still one part once pasted.
     h.apply(Operation::Duplicate { context: root, entities: vec![b], transform: DAffine3::from_translation(DVec3::X * 20.0) }).unwrap();
     let all: Vec<Id> = h.document().root_assembly().occurrences().iter().map(|o| o.id).collect();
@@ -2107,7 +2290,11 @@ fn pasting_in_another_document_grafts_and_keeps_occurrences_loose() {
     assert_eq!(fragment.materials().count(), 1, "only the material used");
 
     let mut other = History::new(Document::new());
-    let oak2 = other.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
+    let oak2 = other
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
     let c = add(&mut other, cube(DVec3::new(0.0, 50.0, 0.0), 5.0));
     let parts = other.document().components().count();
     let other_root = other.document().root();
@@ -2117,7 +2304,7 @@ fn pasting_in_another_document_grafts_and_keeps_occurrences_loose() {
     assert_eq!(doc.root_assembly().occurrences().len(), 4, "loose, not gathered in an assembly");
     assert_eq!(doc.components().count(), parts + 2);
     assert_eq!(doc.materials().count(), 1, "the same oak");
-    assert_eq!(occ(doc, &EntityPath::root(out.created[0])).material, Some(oak2));
+    assert_eq!(doc.part(occ(doc, &EntityPath::root(out.created[0])).component).unwrap().coloration, Some(oak2));
     let (p1, p2) = (occ(doc, &EntityPath::root(out.created[1])).component, occ(doc, &EntityPath::root(out.created[2])).component);
     assert_eq!(p1, p2);
     assert_ne!(occ(doc, &EntityPath::root(out.created[0])).component, occ(doc, &EntityPath::root(c)).component);
@@ -3854,11 +4041,9 @@ fn deleting_a_component_takes_all_its_occurrences() {
 }
 
 #[test]
-fn replacing_occurrences_keeps_their_placement_name_material_and_visibility() {
+fn replacing_occurrences_keeps_their_placement_name_and_visibility() {
     let (mut h, a3, groups, asm, pa, pb) = library();
     let root = h.document().root();
-    let m = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    h.apply(Operation::PaintOccurrences { context: root, entities: vec![a3], material: Some(m) }).unwrap();
     h.apply(Operation::RenameOccurrence { context: root, occurrence: a3, name: "Gauche".into() }).unwrap();
     h.apply(Operation::SetHidden { context: root, entities: vec![a3], hidden: true }).unwrap();
     let before = occ(h.document(), &EntityPath::root(a3));
@@ -3896,7 +4081,11 @@ fn properties_are_typed_kept_by_copies_and_saved() {
     let root = h.document().root();
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let part = occ(h.document(), &EntityPath::root(a)).component;
-    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [200, 160, 100] }).unwrap().material.unwrap();
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [200, 160, 100], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
     let guide = h
         .apply(Operation::AddGuide { component: root, shape: GuideShape::Line { origin: DVec3::ONE, dir: DVec3::X } })
         .unwrap()
@@ -4063,14 +4252,43 @@ fn texture(image: &Asset) -> Texture {
 }
 
 #[test]
+fn a_textured_material_takes_its_image_mean_colour_and_keeps_it() {
+    let mut h = History::new(Document::new());
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    let image = png(1);
+    let set =
+        Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: Some([10, 20, 30]) };
+    h.apply(set).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [10, 20, 30], "the image's mean");
+    // Renamed: its colour not edited while it has a texture.
+    h.apply(Operation::EditMaterial { material: oak, name: "Chêne clair".into(), color: [255, 0, 0] }).unwrap();
+    let m = h.document().material(oak).unwrap();
+    assert_eq!((m.name.as_str(), m.color), ("Chêne clair", [10, 20, 30]));
+    // Its texture taken off: the mean stays, edited again.
+    h.apply(Operation::SetTexture { material: oak, texture: None, image: None, color: Some([1, 1, 1]) }).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [10, 20, 30]);
+    h.apply(Operation::EditMaterial { material: oak, name: "Chêne clair".into(), color: [255, 0, 0] }).unwrap();
+    assert_eq!(h.document().material(oak).unwrap().color, [255, 0, 0]);
+}
+
+#[test]
 fn textures_are_stored_once_and_saved() {
     let mut h = History::new(Document::new());
-    let oak = h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    let walnut = h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap().material.unwrap();
+    let oak = h
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    let walnut =
+        h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap().material.unwrap();
     let image = png(1);
-    h.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()) }).unwrap();
+    h.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: None }).unwrap();
     // The same image for another: no bytes again.
-    h.apply(Operation::SetTexture { material: walnut, texture: Some(texture(&image)), image: None }).unwrap();
+    h.apply(Operation::SetTexture { material: walnut, texture: Some(texture(&image)), image: None, color: None }).unwrap();
     assert_eq!(h.document().asset(&image.id()), Some(&image));
 
     let doc = h.document();
@@ -4092,14 +4310,14 @@ fn textures_are_stored_once_and_saved() {
     // Refused: an image the document does not have, a size not positive.
     let other = png(2);
     let refused = |op| matches!(h.document().prepare(&op), Err(Error::Invalid(Refusal::BadTexture)));
-    assert!(refused(Operation::SetTexture { material: oak, texture: Some(texture(&other)), image: None }));
+    assert!(refused(Operation::SetTexture { material: oak, texture: Some(texture(&other)), image: None, color: None }));
     let flat = Texture { size: [0.0, 300.0], ..texture(&image) };
-    assert!(refused(Operation::SetTexture { material: oak, texture: Some(flat), image: None }));
+    assert!(refused(Operation::SetTexture { material: oak, texture: Some(flat), image: None, color: None }));
     assert!(Asset::new(b"GIF89a....".to_vec()).is_none());
     assert_eq!(Asset::new(b"\xFF\xD8\xFF\xE0rest".to_vec()).unwrap().kind, ImageKind::Jpeg);
 
     // Used by none, the image goes.
-    h.apply(Operation::SetTexture { material: oak, texture: None, image: None }).unwrap();
+    h.apply(Operation::SetTexture { material: oak, texture: None, image: None, color: None }).unwrap();
     assert!(h.document().asset(&image.id()).is_some());
     h.apply(Operation::DeleteMaterial { material: walnut }).unwrap();
     assert!(h.document().asset(&image.id()).is_none());
@@ -4109,15 +4327,24 @@ fn textures_are_stored_once_and_saved() {
 #[test]
 fn materials_files_export_and_import() {
     let mut src = History::new(Document::new());
-    let root = src.document().root();
-    let oak = src.apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90] }).unwrap().material.unwrap();
-    src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40] }).unwrap();
+    let oak = src
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .unwrap()
+        .material
+        .unwrap();
+    src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap();
     let image = png(7);
-    src.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()) }).unwrap();
+    src.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: None }).unwrap();
     src.apply(Operation::SetPropDef { key: "user.densite".into(), def: Some(PropDef::new(ValueKind::Real)) }).unwrap();
     src.apply(set_props(PropTarget::Material(oak), &[("user.densite", Some(Value::Real(0.7)))])).unwrap();
     let a = add(&mut src, cube(DVec3::ZERO, 10.0));
-    src.apply(Operation::PaintOccurrences { context: root, entities: vec![a], material: Some(oak) }).unwrap();
+    src.apply(Operation::PaintParts {
+        targets: vec![EntityPath::root(a)],
+        layer: Family::Coloration,
+        material: Some(oak),
+        scope: Scope::All,
+    })
+    .unwrap();
 
     // Oak alone: a document without geometry, its image and the definitions with it.
     let file = src.document().materials_file(&[oak]).unwrap();
@@ -4160,7 +4387,7 @@ fn materials_are_counted_per_placed_part_and_purged_when_nothing_refers_to_them(
     let mut h = History::new(Document::new());
     let root = h.document().root();
     let add = |h: &mut History, name: &str| {
-        h.apply(Operation::AddMaterial { name: name.into(), color: [1, 2, 3] }).unwrap();
+        h.apply(Operation::AddMaterial { name: name.into(), color: [1, 2, 3], kind: Default::default() }).unwrap();
         h.document().materials().find(|(_, m)| m.name == name).unwrap().0
     };
     let (oak, ash, free) = (add(&mut h, "oak"), add(&mut h, "ash"), add(&mut h, "free"));

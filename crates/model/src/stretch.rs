@@ -582,7 +582,7 @@ impl Document {
         let src = before.component(c)?.clone();
         let copy = self.insert_component(&src.name, src.named, src.kind);
         let c = self.component_mut(copy)?;
-        (c.guides, c.behavior, c.props) = (src.guides, src.behavior, src.props);
+        (c.guides, c.behavior, c.props, c.source) = (src.guides, src.behavior, src.props, src.source);
         Ok(copy)
     }
 

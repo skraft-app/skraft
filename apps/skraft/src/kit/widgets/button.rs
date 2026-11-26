@@ -201,10 +201,7 @@ impl IconButton {
                 let button = self.button(ui).frame(false);
                 ui.add_enabled(enabled, button)
             }
-            Look::Framed => {
-                let button = self.button(ui);
-                ui.add_enabled(enabled, button)
-            }
+            Look::Framed => self.framed(ui),
             Look::Veil => self.veiled(ui),
             Look::Bar => self.bar(ui),
         }
@@ -244,6 +241,21 @@ impl IconButton {
         }
         let image = if self.natural { egui::Image::new(self.icon) } else { egui::Image::new(self.icon).tint(ink) };
         image.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
+        response
+    }
+
+    /// egui's button frame, drawn here: egui's button aligns its image on the layout's (at the
+    /// top of a row laid out top-down), the icon here always in the middle.
+    fn framed(self, ui: &mut egui::Ui) -> egui::Response {
+        let sense = if self.enabled { egui::Sense::click() } else { egui::Sense::hover() };
+        let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(self.side), sense);
+        let visuals = if self.enabled { *ui.style().interact(&response) } else { ui.visuals().widgets.inactive };
+        ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+        let mut ink = self.ink.unwrap_or_else(|| ui.visuals().text_color());
+        if !self.enabled {
+            ink = ink.gamma_multiply(0.35);
+        }
+        egui::Image::new(self.icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(self.glyph)));
         response
     }
 

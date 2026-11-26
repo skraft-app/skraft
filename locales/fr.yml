@@ -46,7 +46,6 @@ common:
   model: "Modèle"
   part: "Pièce"
   assembly: "Assemblage"
-  material: "Matière"
   materials: "Matières"
 
 # Key names, in hints and shortcuts.
@@ -316,6 +315,14 @@ loading:
   finals: "Maillage"
   textures: "Textures"
   skip: "Continuer sans attendre"
+  cancel: "Annuler"
+
+# Deleting a coat that schemes lay (docs/decisions/0057).
+delete_coat:
+  title: "Supprimer la couche ?"
+  question: "« %{name} » est utilisée dans %{count} schéma : elle en sera retirée."
+  question_plural: "« %{name} » est utilisée dans %{count} schémas : elle en sera retirée."
+  delete: "Supprimer"
   cancel: "Annuler"
 
 save_prompt:
@@ -819,7 +826,7 @@ parts_list:
   title: "$t(ribbon.workspace.parts)"
   column:
     name: "Nom"
-    material: "Matière"
+    material: "Matériau"
     length: "Longueur"
     width: "Largeur"
     thickness: "Épaisseur"
@@ -910,7 +917,16 @@ panel:
     # A part without material (no blank, or a machining swallowing it), docs/model/bodies.md.
     empty: "vide, à corriger"
     position: "Position"
-    material: "$t(common.material)"
+    # What a part is made of: a material of a part's type (docs/render/look.md).
+    material: "Matériau"
+    # What colours a part, over its material.
+    coloration: "Coloration"
+    # Where a part or an assembly comes from: what the parts list counts of it
+    # (docs/ui/parts-list.md#rows).
+    source: "Provenance"
+    source_made: "Fabriqué"
+    source_bought: "Acheté"
+    source_existing: "Existant"
     # The model's: parts and assemblies as placed (one per occurrence, at any depth), its
     # materials.
     parts: "Pièces"
@@ -985,6 +1001,11 @@ panel:
     raw_tip: "Sans définition : la valeur est gardée telle quelle"
   materials:
     title: "$t(common.materials)"
+    # The card's three tabs (docs/ui/catalog.md#the-materials-card): what parts are made of,
+    # what covers a face, what colours it.
+    materials_tab: "Matériaux"
+    coverings_tab: "Revêtements"
+    colorations_tab: "Colorations"
     color: "Couleur"
     texture: "Texture"
     texture_width: "Largeur"
@@ -1000,17 +1021,46 @@ panel:
     count_tip_plural: "%{count} pièces du modèle la montrent"
     purge_tip: "Supprimer toutes les matières inutilisées"
     none: "Aucune"
-    new: "Nouvelle matière"
+    new: "Nouveau matériau"
+    new_covering: "Nouveau revêtement"
+    new_coloration: "Nouvelle coloration"
     paint_tip: "Peindre avec cette matière"
     unpaint_tip: "Dépeindre : le pot de peinture retire la matière"
     color_tip: "Couleur"
     delete_tip: "Supprimer (ce qui en est peint ne l'est plus)"
-    texture_tip: "Choisir une image de texture (PNG, JPEG)"
+    texture_tip: "Choisir une image de texture (PNG, JPEG), à la place de la couleur"
     texture_change_tip: "Changer l'image de la texture"
     texture_width_tip: "Largeur réelle de l'image, le long du fil"
     texture_height_tip: "Hauteur réelle de l'image"
     texture_rotation_tip: "Rotation de la texture"
-    texture_remove_tip: "Retirer la texture (la couleur reste)"
+    # A coat's blend (docs/decisions/0057): laid over what is under, or tinting it.
+    blend: "Mode"
+    blend_cover: "Couvrant"
+    blend_tint: "Teintant"
+    intensity: "Intensité"
+    intensity_tip: "Couvrant : son opacité ; teintant : la force de sa teinte (de 0 à 100 %)"
+    # A scheme's coats, from the bottom up.
+    coats: "Couches"
+    coat_add: "Ajouter une couche"
+    coat_remove_tip: "Retirer du schéma"
+    coat_up_tip: "Monter d'un cran"
+    coat_down_tip: "Descendre d'un cran"
+    # An item's family (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    family:
+      material: "Matériau"
+      covering: "Revêtement"
+      coloration: "Coloration"
+    # A material's or a covering's type: how it is counted and cut.
+    kind_label: "Catégorie"
+    kind:
+      coat: "Couche"
+      scheme: "Schéma"
+      solid: "Massif"
+      sheet: "Panneau"
+      profile: "Profilé"
+      veneer: "Placage"
+      edge: "Chant"
+    texture_remove_tip: "Retirer la texture (sa couleur moyenne reste, modifiable)"
     export_tip: "Exporter toutes les matières (.skraftmat)"
     import_tip: "Importer des matières (.skraftmat)"
     export_name: "Matières %{model}"
@@ -1441,10 +1491,17 @@ tool:
     option:
       target: "$t(common.paint)"
       target_tip: "Ce qu'un clic peint (Tab pour changer)"
-      occurrence: "L'exemplaire"
-      occurrence_tip: "L'exemplaire cliqué, ou toute la sélection s'il en fait partie"
+      part: "La pièce"
+      part_tip: "La pièce cliquée, toutes les pièces d'un assemblage, ou toute la sélection si elle en fait partie"
       face: "La face"
       face_tip: "La face cliquée, sur tous les exemplaires de sa pièce"
+      scope: "Portée"
+      scope_tip: "Les exemplaires que la matière change"
+      all: "Tous les exemplaires"
+      all_count: "Tous les exemplaires ×%{count}"
+      all_tip: "La pièce elle-même : tous ses exemplaires prennent la matière"
+      this: "Celui-ci"
+      this_tip: "Seulement les exemplaires peints : ils deviennent une pièce à part (et leur assemblage, s'il est copié)"
   # Takes the material shown under the cursor as the one the paint tool paints with (a
   # pipette).
   sample:
@@ -1773,6 +1830,7 @@ operation:
   paste_elements: "Coller sur la feuille"
   move_elements: "Déplacer vers la feuille"
   edit_material: "Modifier la matière"
+  set_material_kind: "Changer le type de la matière"
   delete_material: "Supprimer la matière"
   set_props: "Modifier les propriétés"
   set_prop_def: "Définir une propriété"
@@ -1781,6 +1839,7 @@ operation:
   paint: "$t(common.paint)"
   stretch: "Étirer"
   stretch_behavior: "Plans de coupe"
+  set_source: "Provenance"
   set_profile: "Modifier le profil"
   round: "Arrondir"
   chamfer: "Chanfreiner"
@@ -1818,7 +1877,9 @@ default_name:
   # A body node rounding or chamfering edges of its children (docs/decisions/0042).
   round: "Arrondi"
   chamfer: "Chanfrein"
-  material: "$t(common.material) %{number}"
+  material: "Matériau %{number}"
+  covering: "Revêtement %{number}"
+  coloration: "Coloration %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
   # An imported SketchUp definition holding both faces and components: its faces make
@@ -1907,6 +1968,7 @@ error:
     axes_not_direct: "de nouveaux axes sont un déplacement et une rotation, jamais une symétrie"
     array_count: "nombre de copies hors limites"
     root_renamed: "le modèle ne se renomme pas"
+    root_source: "le modèle n'a pas de provenance : ses pièces en ont une"
     name_taken: "une autre pièce ou un autre assemblage porte ce nom"
     empty_assembly: "rien à mettre dans l'assemblage"
     not_exploded: "seul un assemblage ou un groupe s'éclate"
@@ -1917,6 +1979,7 @@ error:
     union_targets: "une union joint ses outils à une seule cible"
     nothing_reached: "aucun outil n'atteint une cible"
     no_such_face: "pas de telle face"
+    material_layer: "cette matière ne se pose pas là"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne s'éclate pas"
     flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"

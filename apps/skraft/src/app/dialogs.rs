@@ -85,6 +85,39 @@ impl SkraftApp {
         }
     }
 
+    /// Deleting a coat that schemes lay: it leaves them, once confirmed (decision 0057).
+    pub(super) fn delete_coat_prompt(&mut self, ctx: &egui::Context) {
+        let Some((doc, coat, count)) = self.deleting_coat else { return };
+        let Some(name) = self.docs.by_id_mut(doc).and_then(|d| d.editor.document().material(coat).ok().map(|m| m.name.clone())) else {
+            self.deleting_coat = None;
+            return;
+        };
+        let mut chosen = None;
+        let modal = modal(ctx, egui::Id::unique("delete_coat"), 360.0, t!("delete_coat.title"), |ui| {
+            ui.label(skraft_i18n::tp!("delete_coat.question", count, name = name));
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                match crate::kit::widgets::confirm_buttons(ui, "delete_coat", t!("delete_coat.delete"), true, t!("delete_coat.cancel")) {
+                    Some(crate::kit::widgets::Confirm::Ok) => chosen = Some(true),
+                    Some(crate::kit::widgets::Confirm::Cancel) => chosen = Some(false),
+                    None => {}
+                }
+            });
+        });
+        if ui_key(ctx, egui::Key::Enter) {
+            chosen = chosen.or(Some(true));
+        }
+        if modal.should_close() {
+            chosen = chosen.or(Some(false));
+        }
+        if let Some(delete) = chosen {
+            self.deleting_coat = None;
+            if delete && let Some(d) = self.docs.by_id_mut(doc) {
+                let _ = d.editor.apply(skraft_model::Operation::DeleteMaterial { material: coat });
+            }
+        }
+    }
+
     /// « Enregistrer les modifications de « X » ? », while a modified document is closing.
     pub(super) fn save_prompt(&mut self, ctx: &egui::Context) {
         let Some(id) = self.closing.as_ref().and_then(|c| c.asking) else { return };

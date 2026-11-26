@@ -81,7 +81,7 @@ fn key_name(key: &str) -> &str {
 }
 
 /// A square button with an icon, as high as the fields: true when clicked.
-fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -> bool {
+pub(super) fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -> bool {
     IconButton::new(icon, OPTION_HEIGHT, 12.0).look(Look::Framed).show(ui).tip(tip).clicked()
 }
 
@@ -143,7 +143,7 @@ fn heading(ui: &mut egui::Ui, text: String) {
 
 /// A choice among `options` (none: « — »), framed as the fields, `width` wide: the one picked,
 /// when it changed.
-fn choice_field(ui: &mut egui::Ui, id: egui::Id, current: Option<&str>, options: &[String], width: f32) -> Option<String> {
+pub(super) fn choice_field(ui: &mut egui::Ui, id: egui::Id, current: Option<&str>, options: &[String], width: f32) -> Option<String> {
     ui.vertical(|ui| {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(width, OPTION_HEIGHT), egui::Sense::click());
         let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);

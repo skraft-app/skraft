@@ -111,7 +111,7 @@ pub fn open(e: &Editor, st: &mut SheetState, id: Id) -> Result<(), String> {
                 p.transform.transform_point3(c)
             }));
         }
-        by_part.entry(p.part).or_default().push((p.transform, p.material));
+        by_part.entry(p.part).or_default().push((p.transform, p.shown()));
     }
     let Some((lo, hi)) =
         corners.iter().fold(None, |b: Option<(DVec3, DVec3)>, c| Some(b.map_or((*c, *c), |(a, z)| (a.min(*c), z.max(*c)))))

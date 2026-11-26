@@ -318,7 +318,7 @@ fn translucent(c: [f32; 4], a: f32) -> [f32; 4] {
 fn tip(a: &Aim, cx: &Cx<'_>) -> Option<String> {
     let c = cx.doc.component(a.component).ok()?;
     let mut lines = vec![c.name.clone()];
-    if let Some(m) = cx.occurrence_material(&a.path).and_then(|m| cx.doc.material(m).ok()) {
+    if let Some(m) = cx.part_material(&a.path).and_then(|m| cx.doc.material(m).ok()) {
         lines.push(m.name.clone());
     }
     if let (true, Some((lo, hi))) = (c.is_part(), a.target.bounds) {

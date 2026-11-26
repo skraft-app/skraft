@@ -26,8 +26,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assets::Asset;
 use crate::clipboard::BodyFragment;
 use crate::document::{
-    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Guide, GuideShape, Id, Material, Occurrence, Part, Sign,
-    Texture, is_identity,
+    Assembly, Behavior, BlendMode, Body, BodyDef, ComponentKind, Document, EntityPath, Family, Guide, GuideShape, Id, Material,
+    MaterialKind, Occurrence, Part, Sign, Source, Texture, is_identity,
 };
 use crate::drawing::{Border, Container, ElementKind, FieldOn, Paper, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
@@ -80,7 +80,7 @@ pub enum Operation {
     /// A new part built from a primitive, and its first occurrence in `context`: its positive
     /// body in the part's own axes, the occurrence placed by the rigid `placement` (a box drawn on a
     /// wall, docs/tools/inferences.md; identity for an axis-aligned one) and where the primitive stood. The
-    /// occurrence painted with `material` (« Pipette », docs/tools/draw-options.md).
+    /// part painted with `material` (« Pipette », docs/tools/draw-options.md).
     AddPrimitive {
         context: Id,
         primitive: Primitive,
@@ -163,7 +163,7 @@ pub enum Operation {
     /// Places one more occurrence of a component in `context`.
     PlaceOccurrence { context: Id, component: Id, transform: DAffine3 },
     /// Makes the occurrences `entities` of `context` occurrences of `component`, each one
-    /// keeping its placement, its name, its material and its visibility (« Remplacer la
+    /// keeping its placement, its name and its visibility (« Remplacer la
     /// sélection », docs/ui/components-library.md#managing). The guides among them are left.
     ReplaceOccurrences { context: Id, entities: Vec<Id>, component: Id },
     /// Removes a part or an assembly and every occurrence of it, at any depth
@@ -429,12 +429,28 @@ pub enum Operation {
     /// ). Every occurrence shows it; no scope. Changes in a row to one component undo
     /// in one go.
     SetBehavior { component: Id, behavior: Behavior },
+    /// Where a part or an assembly comes from (docs/ui/parts-list.md#rows); never the model.
+    SetSource { component: Id, source: Source },
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
-    /// A new material (docs/render/look.md).
-    AddMaterial { name: String, color: [u8; 3] },
+    /// A new item of the catalog (docs/render/look.md): a material or a covering of `kind`, a
+    /// coloration without one.
+    AddMaterial {
+        name: String,
+        color: [u8; 3],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<MaterialKind>,
+    },
+    /// Changes the type of a material or a covering, within its family
+    /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    SetMaterialKind { material: Id, kind: MaterialKind },
     /// Renames or recolours a material.
     EditMaterial { material: Id, name: String, color: [u8; 3] },
+    /// Sets a coat's blend and intensity (0 to 1); changes in a row to one coat undo in one go
+    /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    SetCoat { material: Id, blend: BlendMode, intensity: f32 },
+    /// Sets the coats a scheme lays, from the bottom up: coats of the catalog, never schemes.
+    SetCoats { material: Id, coats: Vec<Id> },
     /// Removes a material: what was painted with it is not any more.
     DeleteMaterial { material: Id },
     /// Drops the materials nothing refers to (docs/ui/catalog.md).
@@ -446,6 +462,10 @@ pub enum Operation {
         texture: Option<Texture>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<Asset>,
+        /// The image's mean colour, the material's from then on (docs/render/look.md#textures):
+        /// given with a new image.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<[u8; 3]>,
     },
     /// Adds the materials of another document — a `.skraftmat` ([`Document::materials_fragment`])
     /// —, their images and properties' definitions: one equal to a material here is that one.
@@ -457,16 +477,26 @@ pub enum Operation {
     /// Defines the property `key` — the kind of its values, its label, choices, default and
     /// where it applies —, or removes its definition (`None`: its values are kept).
     SetPropDef { key: String, def: Option<PropDef> },
-    /// Paints occurrences of `context` (`None`: their material is removed).
-    PaintOccurrences { context: Id, entities: Vec<Id>, material: Option<Id> },
+    /// Paints the parts `targets` lead to from the root — an assembly's every part below it —
+    /// with `material` (`None`: removed). A material is a part's, on its definition: under
+    /// « only this one » (`scope`), the parts some of whose placements are not among the
+    /// targets are made unique first (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    PaintParts { targets: Vec<EntityPath>, layer: Family, material: Option<Id>, scope: Scope },
     /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
     /// is hidden in every occurrence of the assembly.
     SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
     /// Shows every occurrence hidden, in every assembly.
     ShowAll,
-    /// Paints faces of a part's shape, by their index in its record (every occurrence of the
-    /// part shows it; `None`: they take the occurrence's material again).
-    PaintFaces { part: Id, faces: Vec<u32>, material: Option<Id> },
+    /// Paints faces of a part's shape, by their index in its record, on `layer` — their veneer
+    /// or edge, or their coloration — (every occurrence of the part shows it; `None`: they show
+    /// what is under again).
+    PaintFaces {
+        part: Id,
+        faces: Vec<u32>,
+        #[serde(default)]
+        layer: Family,
+        material: Option<Id>,
+    },
     /// A construction guide added to `component` (a part or an assembly), in its axes
     /// (docs/tools/tape-measure.md). Every occurrence shows it; no scope.
     AddGuide { component: Id, shape: GuideShape },
@@ -516,7 +546,7 @@ pub enum Operation {
     /// copy reached by `parent` changes. Takes the operations on occurrences of a context
     /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
     /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
-    /// [`Operation::PaintOccurrences`], [`Operation::ReplaceOccurrences`]), and the one making a part there
+    /// [`Operation::ReplaceOccurrences`]), and the one making a part there
     /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
     /// A presentation added last (docs/ui/drawing.md), « Présentation n » when `name` is none,
@@ -656,13 +686,15 @@ impl Operation {
             Operation::MoveElements { .. } => t!("operation.move_elements"),
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
+            Operation::SetMaterialKind { .. } => t!("operation.set_material_kind"),
+            Operation::SetCoat { .. } | Operation::SetCoats { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
             Operation::PurgeMaterials => t!("operation.purge_materials"),
             Operation::SetProps { .. } => t!("operation.set_props"),
             Operation::SetTexture { .. } => t!("operation.set_texture"),
             Operation::ImportMaterials { .. } => t!("operation.import_materials"),
             Operation::SetPropDef { .. } => t!("operation.set_prop_def"),
-            Operation::PaintOccurrences { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
+            Operation::PaintParts { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
             Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
             Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
             Operation::ShowAll => t!("operation.show_all"),
@@ -699,6 +731,7 @@ impl Operation {
             }
             Operation::Stretch { .. } | Operation::StretchBodies { .. } => t!("operation.stretch"),
             Operation::SetBehavior { .. } => t!("operation.stretch_behavior"),
+            Operation::SetSource { .. } => t!("operation.set_source"),
             Operation::SetProfile { .. } => t!("operation.set_profile"),
             Operation::Blend { blend: Blend::Round, .. } => t!("operation.round"),
             Operation::Blend { blend: Blend::Chamfer, .. } => t!("operation.chamfer"),
@@ -718,7 +751,6 @@ impl Operation {
             | Operation::Copies { context, .. }
             | Operation::Delete { context, .. }
             | Operation::SetHidden { context, .. }
-            | Operation::PaintOccurrences { context, .. }
             | Operation::MakeAssembly { context, .. }
             | Operation::Explode { context, .. }
             | Operation::MakeUnique { context, .. }
@@ -760,6 +792,7 @@ impl Operation {
         match (self, prev) {
             (Operation::SetSettings(_), Operation::SetSettings(_)) => true,
             (Operation::EditMaterial { material: a, .. }, Operation::EditMaterial { material: b, .. }) => a == b,
+            (Operation::SetCoat { material: a, .. }, Operation::SetCoat { material: b, .. }) => a == b,
             (Operation::SetElement { element: a, .. }, Operation::SetElement { element: b, .. }) => a == b,
             (Operation::SetBehavior { component: a, .. }, Operation::SetBehavior { component: b, .. }) => a == b,
             (Operation::SetProps { target: a, props: pa }, Operation::SetProps { target: b, props: pb }) => {
@@ -1095,21 +1128,35 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::SetField { on, key, value } => self.set_field(*on, key, value.as_ref()).map(|_| Outcome::default()),
-            Operation::AddMaterial { name, color } => {
+            Operation::AddMaterial { name, color, kind } => {
                 let id = self.fresh_id();
-                self.materials.insert(id, Material::new(name.clone(), *color));
+                self.materials.insert(id, Material::of_kind(name.clone(), *color, *kind));
                 Ok(Outcome { material: Some(id), ..Outcome::default() })
+            }
+            Operation::SetMaterialKind { material, kind } => {
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                // Within its family only: an item never changes family.
+                if m.family() != kind.family() {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                m.kind = Some(*kind);
+                Ok(Outcome::default())
             }
             Operation::EditMaterial { material, name, color } => {
                 let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
-                (m.name, m.color) = (name.clone(), *color);
+                m.name = name.clone();
+                // A colour or a texture: a textured one's colour is its image's mean, not edited
+                // (docs/render/look.md#textures).
+                if m.texture.is_none() {
+                    m.color = *color;
+                }
                 Ok(Outcome::default())
             }
             Operation::SetProps { target, props } => {
                 self.set_props(target, props)?;
                 Ok(Outcome::default())
             }
-            Operation::SetTexture { material, texture, image } => {
+            Operation::SetTexture { material, texture, image, color } => {
                 self.material(*material)?;
                 if let Some(a) = image {
                     self.assets.insert(a.id(), a.clone());
@@ -1119,7 +1166,11 @@ impl Document {
                 {
                     return Err(Error::Invalid(Refusal::BadTexture));
                 }
-                self.materials.get_mut(material).ok_or(Error::NotFound(*material))?.texture = texture.clone();
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                m.texture = texture.clone();
+                if let (Some(_), Some(c)) = (texture, color) {
+                    m.color = *c;
+                }
                 self.prune_assets();
                 Ok(Outcome::default())
             }
@@ -1140,46 +1191,57 @@ impl Document {
                 self.prune_assets();
                 Ok(Outcome::default())
             }
+            Operation::SetCoat { material, blend, intensity } => {
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                if m.kind != Some(MaterialKind::Coat) || !(0.0..=1.0).contains(intensity) {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                (m.blend, m.intensity) = (*blend, *intensity);
+                Ok(Outcome::default())
+            }
+            Operation::SetCoats { material, coats } => {
+                let is_coat = |id: &Id| self.materials.get(id).is_some_and(|m| m.kind == Some(MaterialKind::Coat));
+                if !coats.iter().all(is_coat) {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                if !m.is_scheme() {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                m.coats = coats.clone();
+                Ok(Outcome::default())
+            }
             Operation::DeleteMaterial { material } => {
                 self.materials.remove(material).ok_or(Error::NotFound(*material))?;
-                // Unpaint what used it, copying only the components that did.
+                // A coat leaves the schemes laying it (the interface said how many first).
+                for scheme in self.schemes_with(*material) {
+                    if let Some(m) = self.materials.get_mut(&scheme) {
+                        m.coats.retain(|c| c != material);
+                    }
+                }
+                // Unpaint what used it, copying only the parts that did.
                 let users: Vec<Id> = self
                     .components
                     .values()
-                    .filter(|c| match &c.kind {
-                        ComponentKind::Part(p) => p.faces.values().any(|m| m == material),
-                        ComponentKind::Assembly(a) => a.occurrences().iter().any(|o| o.material == Some(*material)),
-                    })
+                    .filter(|c| c.as_part().is_some_and(|p| p.materials_held().any(|m| m == *material)))
                     .map(|c| c.id)
                     .collect();
                 for id in users {
-                    match &mut self.component_mut(id)?.kind {
-                        ComponentKind::Part(p) => p.faces.retain(|_, m| m != material),
-                        ComponentKind::Assembly(a) => {
-                            for o in a.occurrences_mut() {
-                                if o.material == Some(*material) {
-                                    o.material = None;
-                                }
-                            }
+                    let p = self.part_mut(id)?;
+                    p.faces.retain(|_, m| m != material);
+                    p.coverings.retain(|_, m| m != material);
+                    for slot in [&mut p.material, &mut p.coloration] {
+                        if *slot == Some(*material) {
+                            *slot = None;
                         }
                     }
                 }
                 self.prune_assets();
                 Ok(Outcome::default())
             }
-            Operation::PaintOccurrences { context, entities, material } => {
-                if let Some(m) = material {
-                    self.material(*m)?;
-                }
-                // Guides take no paint.
-                let (_, entities) = &self.split_guides(*context, entities)?;
-                self.occurrences_of(*context, entities)?;
-                let entities = id_set(entities);
-                for o in self.assembly_mut(*context)?.occurrences_mut() {
-                    if entities.contains(&o.id) {
-                        o.material = *material;
-                    }
-                }
+            Operation::PaintParts { targets, layer, material, scope } => {
+                self.check_layer(*material, *layer, Family::Covering)?;
+                self.paint_parts(targets, *layer, *material, *scope)?;
                 Ok(Outcome::default())
             }
             Operation::SetHidden { context, entities, hidden } => {
@@ -1211,19 +1273,17 @@ impl Document {
                 }
                 Ok(Outcome::default())
             }
-            Operation::PaintFaces { part, faces, material } => {
-                if let Some(m) = material {
-                    self.material(*m)?;
-                }
+            Operation::PaintFaces { part, faces, layer, material } => {
+                self.check_layer(*material, *layer, Family::Material)?;
                 let count = self.part(*part)?.shape().record().faces.len() as u32;
                 if faces.is_empty() || faces.iter().any(|f| *f >= count) {
                     return Err(Error::Invalid(Refusal::NoSuchFace));
                 }
-                let p = self.part_mut(*part)?;
+                let slots = self.part_mut(*part)?.faces_mut(*layer).ok_or(Error::Invalid(Refusal::MaterialLayer))?;
                 for f in faces {
                     match material {
-                        Some(m) => p.faces.insert(*f, *m),
-                        None => p.faces.remove(f),
+                        Some(m) => slots.insert(*f, *m),
+                        None => slots.remove(f),
                     };
                 }
                 Ok(Outcome::default())
@@ -1249,7 +1309,6 @@ impl Document {
                             name: String::new(),
                             component: assembly,
                             transform: *transform,
-                            material: None,
                             hidden: false,
                             props: Props::default(),
                         }
@@ -1317,7 +1376,16 @@ impl Document {
                     [b] => std::mem::take(&mut b.name),
                     _ => String::new(),
                 };
-                let part = Part { defs, bodies, shape: None, failed: Default::default(), faces: Default::default() };
+                let part = Part {
+                    defs,
+                    bodies,
+                    shape: None,
+                    failed: Default::default(),
+                    material: None,
+                    coloration: None,
+                    coverings: Default::default(),
+                    faces: Default::default(),
+                };
                 let part = self.insert_component(&base, false, ComponentKind::Part(part));
                 self.component_mut(part)?.guides = fragment.guides.iter().map(|g| Guide { id: self.fresh_id(), ..g.clone() }).collect();
                 self.recompute(part, None, solver)?;
@@ -1327,7 +1395,6 @@ impl Document {
                     name: occurrence_name,
                     component: part,
                     transform: *transform * fragment.world,
-                    material: None,
                     hidden: false,
                     props: Props::default(),
                 });
@@ -1347,15 +1414,20 @@ impl Document {
                 if !is_rigid(placement) {
                     return Err(Error::Invalid(Refusal::PlacementNotRigid));
                 }
-                if let Some(m) = material {
-                    self.material(*m)?;
-                }
+                // A material where its kind says, on the part (a face's, nowhere).
+                let layer = match material {
+                    Some(m) => Some(self.material(*m)?.family()),
+                    None => None,
+                };
                 let (local, at) = primitive.at_origin();
                 let solid = solver.primitive(&local)?;
                 // The shapes drawn keep their profile (docs/tools/prism.md, step 3).
                 let def = BodyDef { profile: crate::BodyProfile::of(&local), ..BodyDef::new(self.fresh_id(), solid) };
                 let body = Body::new(self.fresh_id(), def.id, Sign::Positive, DAffine3::IDENTITY);
-                let part = Part::of_body(def, body);
+                let mut part = Part::of_body(def, body);
+                if let Some(slot) = layer.and_then(|l| part.slot_mut(l)) {
+                    *slot = *material;
+                }
                 let part = self.insert_component(&t!("default_name.part"), false, ComponentKind::Part(part));
                 let id = self.fresh_id();
                 let transform = *placement * DAffine3::from_translation(at);
@@ -1364,7 +1436,6 @@ impl Document {
                     name: String::new(),
                     component: part,
                     transform,
-                    material: *material,
                     hidden: false,
                     props: Props::default(),
                 });
@@ -1530,7 +1601,6 @@ impl Document {
                         name: String::new(),
                         component: assembly,
                         transform: DAffine3::from_translation(corner),
-                        material: None,
                         hidden: false,
                         props: Props::default(),
                     },
@@ -1621,7 +1691,6 @@ impl Document {
                     name: String::new(),
                     component: *component,
                     transform: *transform,
-                    material: None,
                     hidden: false,
                     props: Props::default(),
                 });
@@ -2004,6 +2073,14 @@ impl Document {
                     d.group = Some(group);
                 }
                 self.recompute(part, None, solver)?;
+                Ok(Outcome::default())
+            }
+            Operation::SetSource { component, source } => {
+                if *component == self.root {
+                    return Err(Error::Invalid(Refusal::RootSource));
+                }
+                self.component(*component)?;
+                self.component_mut(*component)?.source = *source;
                 Ok(Outcome::default())
             }
             Operation::SetBehavior { component, behavior } => {
