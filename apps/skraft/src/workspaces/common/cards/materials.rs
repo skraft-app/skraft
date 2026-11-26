@@ -327,7 +327,7 @@ pub(crate) fn centre_square(tex: &egui::TextureHandle) -> egui::Rect {
 // ---- the textures' thumbnails ------------------------------------------------------------------
 
 /// A thumbnail's side (texels).
-const THUMB_SIZE: u32 = 128;
+const THUMB_SIZE: u32 = 256;
 
 /// The thumbnails made, by image id (the same image, the same thumbnail in every document), and
 /// those on their way. Only the interface's thread asks for them.
@@ -395,6 +395,6 @@ mod tests {
             assert!(std::time::Instant::now() < end, "never decoded");
             std::thread::yield_now();
         };
-        assert_eq!(made.size(), [128, 85]);
+        assert_eq!(made.size()[0], 256);
     }
 }

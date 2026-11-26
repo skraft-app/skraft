@@ -229,9 +229,11 @@ A material may have a **texture**: an image laid on the faces at its real size.
   section's `discard`.
 - **Interface**: in the entity info of the material chosen, a texture button (an image picked,
   PNG or JPEG: 600 mm wide, its height as the image's, or the size it had), showing the
-  texture's thumbnail once it has one — its middle, square; the whole image under the pointer;
+  texture's thumbnail once it has one — as wide as the field, the remove button beside it (the coats'
+  small ✕), 64 points high whatever the panel's width (the rows below stay put), the image's
+  middle filling it — a material without texture shows its colour in a box of that size; the whole image under the pointer;
   a textured material shows its width, height (typed as lengths), rotation in degrees and a
-  button to remove it (its mean colour stays); no colour row while it has one. Thumbnails: 128 texels, made once per image, decoded
+  button to remove it (its mean colour stays); no colour row while it has one. Thumbnails: 256 texels, made once per image, decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why

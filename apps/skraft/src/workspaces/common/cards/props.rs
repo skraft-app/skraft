@@ -81,7 +81,7 @@ fn key_name(key: &str) -> &str {
 }
 
 /// A square button with an icon, as high as the fields: true when clicked.
-fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -> bool {
+pub(super) fn icon_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: &str) -> bool {
     IconButton::new(icon, OPTION_HEIGHT, 12.0).look(Look::Framed).show(ui).tip(tip).clicked()
 }
 

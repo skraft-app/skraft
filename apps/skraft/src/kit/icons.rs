@@ -95,6 +95,7 @@ icon!(GUIDES_DELETE, "guides_delete");
 icon!(CLOSE, "close");
 icon!(ADD, "add");
 icon!(TEXTURE, "texture");
+icon!(IMAGE, "image");
 icon!(EXPORT, "export");
 icon!(IMPORT, "import");
 icon!(OPEN, "open");

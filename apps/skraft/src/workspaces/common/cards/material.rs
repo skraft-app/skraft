@@ -1,6 +1,7 @@
 //! A material in the entity info: its swatch, its choice, its fields.
 
 use super::*;
+use crate::kit::widgets::IconButton;
 
 /// Colours new materials take in turn (woods, then panels).
 pub(crate) const NEW_COLORS: [[u8; 3]; 6] = [[196, 152, 98], [120, 78, 48], [222, 196, 150], [160, 110, 70], [235, 235, 228], [90, 92, 96]];
@@ -163,11 +164,6 @@ fn coat_rows(ui: &mut egui::Ui, id: Id, m: &skraft_model::Material, width: f32, 
 /// they lie, the top one first, each moved up or down or taken out.
 fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Material, width: f32, actions: &mut Vec<Action>) {
     let set = |coats: Vec<Id>| Action::Apply(Operation::SetCoats { material: id, coats });
-    let ink = ui.visuals().text_color();
-    let small = |ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: String, enabled: bool| {
-        let image = egui::Image::new(icon).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ink);
-        ui.add_enabled(enabled, egui::Button::image(image).frame(false)).tip(tip).clicked()
-    };
     field_label(ui, t!("panel.materials.coats"));
     let is_coat = |x: &skraft_model::Material| x.kind == Some(MaterialKind::Coat);
     if let Some(Some(coat)) = material_choice_titled(ui, doc, ("scheme_add", id), t!("panel.materials.coat_add"), width, is_coat) {
@@ -185,17 +181,17 @@ fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Mate
             swatch(ui, c.map(|c| c.color), 12.0);
             ui.label(c.map_or("?", |c| c.name.as_str()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if small(ui, icons::CLOSE, t!("panel.materials.coat_remove_tip"), true) {
+                if small(ui, icons::CLOSE, t!("panel.materials.coat_remove_tip"), true).clicked() {
                     let mut coats = m.coats.clone();
                     coats.remove(k);
                     actions.push(set(coats));
                 }
-                if small(ui, icons::ARROW_DOWN, t!("panel.materials.coat_down_tip"), k > 0) {
+                if small(ui, icons::ARROW_DOWN, t!("panel.materials.coat_down_tip"), k > 0).clicked() {
                     let mut coats = m.coats.clone();
                     coats.swap(k, k - 1);
                     actions.push(set(coats));
                 }
-                if small(ui, icons::ARROW_UP, t!("panel.materials.coat_up_tip"), k + 1 < m.coats.len()) {
+                if small(ui, icons::ARROW_UP, t!("panel.materials.coat_up_tip"), k + 1 < m.coats.len()).clicked() {
                     let mut coats = m.coats.clone();
                     coats.swap(k, k + 1);
                     actions.push(set(coats));
@@ -206,8 +202,37 @@ fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Mate
     }
 }
 
+/// The small unframed button of the material's rows (a coat moved or taken out, a texture
+/// removed).
+fn small(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, tip: String, enabled: bool) -> egui::Response {
+    IconButton::new(icon, SMALL_ICON, SMALL_ICON).enabled(enabled).show(ui).tip(tip)
+}
+
+/// A [`small`] button's icon (points).
+const SMALL_ICON: f32 = 12.0;
+
+/// The height of a material's colour or texture box in the entity info (points).
+const TEXTURE_HEIGHT: f32 = 64.0;
+
+/// The size of a material's colour or texture box: the field's width, a [`small`] button's room
+/// left beside it, at a fixed height (a height following the width would move the rows below as
+/// the panel is widened).
+fn look_box(ui: &egui::Ui, width: f32) -> egui::Vec2 {
+    // An unframed button is its icon's width, no padding.
+    let room = SMALL_ICON + ui.spacing().item_spacing.x;
+    egui::vec2((width - room).max(OPTION_HEIGHT), TEXTURE_HEIGHT)
+}
+
+/// The UVs of `tex`'s middle filling `size`, its proportions kept.
+fn cover(tex: &egui::TextureHandle, size: egui::Vec2) -> egui::Rect {
+    let [tw, th] = tex.size().map(|v| v.max(1) as f32);
+    let (image, room) = (tw / th, size.x / size.y.max(1.0));
+    let (du, dv) = if image > room { ((1.0 - room / image) / 2.0, 0.0) } else { (0.0, (1.0 - image / room) / 2.0) };
+    egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv))
+}
+
 /// A texture's preview (points) under the pointer.
-const THUMB_PREVIEW: f32 = 160.0;
+const THUMB_PREVIEW: f32 = 256.0;
 
 /// The material chosen in its card: its family and type, name, colour, texture (its image, real
 /// size, rotation), its properties (docs/ui/catalog.md); how many parts show it is the card's.
@@ -262,48 +287,68 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             if m.texture.is_none() {
                 field_label(ui, t!("panel.materials.color"));
                 let mut c = m.color;
-                if ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed() {
+                // The texture's box: the same size, top-down as it (see below).
+                let size = look_box(ui, width);
+                let changed = ui
+                    .vertical(|ui| {
+                        ui.spacing_mut().interact_size = size;
+                        ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed()
+                    })
+                    .inner;
+                if changed {
                     actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
                 }
                 ui.end_row();
             }
             field_label(ui, t!("panel.materials.texture"));
-            ui.horizontal(|ui| {
-                let h = OPTION_HEIGHT;
-                let ink = ui.visuals().text_color();
-                let thumb =
-                    m.texture.as_ref().and_then(|t| crate::workspaces::common::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
-                let clicked = match &thumb {
-                    Some(tex) => {
-                        let img = egui::Image::new(tex)
-                            .uv(crate::workspaces::common::cards::materials::centre_square(tex))
-                            .maintain_aspect_ratio(false)
-                            .fit_to_exact_size(egui::vec2(h, h))
-                            .corner_radius(3.0);
-                        let r = ui.add(egui::Button::image(img).frame(false).min_size(egui::vec2(h, h)));
-                        r.tip_ui(|ui| {
-                            ui.label(t!("panel.materials.texture_change_tip"));
-                            ui.add(egui::Image::new(tex).max_size(egui::vec2(THUMB_PREVIEW, THUMB_PREVIEW)).corner_radius(4.0));
+            // Top-down, as the fields: a grid centres a cell on the row's height of the frame
+            // before, which a cell taller than a row would make drift.
+            ui.vertical(|ui| {
+                ui.horizontal_top(|ui| {
+                    ui.set_max_width(width);
+                    let thumb =
+                        m.texture.as_ref().and_then(|t| crate::workspaces::common::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
+                    let clicked = match &thumb {
+                        Some(tex) => {
+                            // The image's middle filling its box.
+                            let size = look_box(ui, width);
+                            let uv = cover(tex, size);
+                            let img = egui::Image::new(tex).uv(uv).maintain_aspect_ratio(false).fit_to_exact_size(size).corner_radius(3.0);
+                            // The image itself clicked: a button would pad it past its row.
+                            let r = ui.add(img.sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
+                            r.tip_ui(|ui| {
+                                ui.label(t!("panel.materials.texture_change_tip"));
+                                ui.add(egui::Image::new(tex).max_size(egui::vec2(THUMB_PREVIEW, THUMB_PREVIEW)).corner_radius(4.0));
+                            })
+                            .clicked()
+                        }
+                        None => {
+                            // The entity info's square button (a property's), an image on it.
+                            let tip = if m.texture.is_some() {
+                                t!("panel.materials.texture_change_tip")
+                            } else {
+                                t!("panel.materials.texture_tip")
+                            };
+                            super::props::icon_button(ui, icons::IMAGE, &tip)
+                        }
+                    };
+                    if clicked {
+                        actions.push(Action::PickTexture(id));
+                    }
+                    // At the field's right edge, whatever the room left.
+                    let remove = m.texture.is_some().then(|| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            small(ui, icons::CLOSE, t!("panel.materials.texture_remove_tip"), true)
                         })
-                        .clicked()
+                        .inner
+                    });
+                    if let Some(r) = &remove {
+                        crate::kit::handles::publish(|| "info:texture_remove".to_owned(), r.rect);
                     }
-                    None => {
-                        let icon = egui::Image::new(icons::TEXTURE).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
-                        let tip =
-                            if m.texture.is_some() { t!("panel.materials.texture_change_tip") } else { t!("panel.materials.texture_tip") };
-                        ui.add(egui::Button::image(icon).selected(m.texture.is_some()).min_size(egui::vec2(h, h))).tip(tip).clicked()
-                    }
-                };
-                if clicked {
-                    actions.push(Action::PickTexture(id));
-                }
-                if m.texture.is_some() {
-                    let close = egui::Image::new(icons::CLOSE).fit_to_exact_size(egui::vec2(12.0, 12.0)).tint(ink);
-                    if ui.add(egui::Button::image(close).min_size(egui::vec2(h, h))).tip(t!("panel.materials.texture_remove_tip")).clicked()
-                    {
+                    if remove.is_some_and(|r| r.clicked()) {
                         actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None, color: None }));
                     }
-                }
+                });
             });
             ui.end_row();
             if let Some(texture) = &m.texture {
