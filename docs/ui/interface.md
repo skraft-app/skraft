@@ -268,7 +268,9 @@ A window under 320 pt either way (`window::too_small::MIN_SIDE`, an iPhone SE's 
 only the app's mark over the start page's grid and one line: « Tournez l'appareil » on a touch
 screen on its side, « Pas assez de place pour Skraft » otherwise. The documents stay open
 behind it, the kernel and the control channel run on; the app comes back as soon as the room
-does.
+does. On a phone on its side in Safari, the page's body takes the height that shows (`100dvh`,
+`web/index.html`): Safari's window runs on under its bottom toolbar, and the app would measure
+more room than it has.
 
 *Why*: the compact arrangement's bars leave nothing of the view below that; a phone on its side
 in Safari, the address bar showing, is there.
