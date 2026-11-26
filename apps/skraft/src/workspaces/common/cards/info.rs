@@ -45,7 +45,6 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.materials",
         "panel.entity_info.dimensions",
         "panel.entity_info.position",
-        "panel.entity_info.in_model",
         "panel.entity_info.parts",
         "panel.entity_info.assemblies",
         "panel.entity_info.shape",
@@ -90,7 +89,13 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
 /// An entity info's grid: label and value columns, the labels' as wide whatever the entity
 /// ([`info_label_width`]; the value column is always wider).
 pub(crate) fn info_grid(ui: &egui::Ui) -> egui::Grid {
-    egui::Grid::new("info").num_columns(2).spacing(INFO_SPACING).min_col_width(info_label_width(ui))
+    info_grid_salted(ui, "info")
+}
+
+/// An [`info_grid`] of its own id, for a second grid under a first one: the two kept apart
+/// by a separator, their label columns as wide.
+fn info_grid_salted(ui: &egui::Ui, salt: &str) -> egui::Grid {
+    egui::Grid::new(salt).num_columns(2).spacing(INFO_SPACING).min_col_width(info_label_width(ui))
 }
 
 /// The width of a field in an entity info's value column: the room left by the labels.
@@ -197,12 +202,6 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                     actions.push(Action::Apply(Operation::RenameComponent { component: c.id, name }));
                 }
                 ui.end_row();
-                field_label(ui, t!("panel.entity_info.occurrence"));
-                // Emptied, cleared: the occurrence shown by its component's name alone.
-                if let Some(name) = name_field(ui, (o.id, 0), &o.name, field, true) {
-                    actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
-                }
-                ui.end_row();
                 source_row(ui, c, field, actions);
                 if let ComponentKind::Part(p) = &c.kind {
                     // What the part is made of and what it looks like: every copy of it shows
@@ -236,6 +235,16 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                         ui.end_row();
                     }
                 }
+            });
+            // The definition's rows above, the occurrence's own below.
+            ui.separator();
+            info_grid_salted(ui, "info_occurrence").show(ui, |ui| {
+                field_label(ui, t!("panel.entity_info.occurrence"));
+                // Emptied, cleared: the occurrence shown by its component's name alone.
+                if let Some(name) = name_field(ui, (o.id, 0), &o.name, field, true) {
+                    actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
+                }
+                ui.end_row();
                 // At the top of its three fields, level with the first.
                 field_label(ui, t!("panel.entity_info.position"));
                 // Each after its axis' letter, in its colour. Typed like in the measurements
@@ -311,14 +320,13 @@ fn source_row(ui: &mut egui::Ui, c: &skraft_model::Component, width: f32, action
 }
 
 /// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
-/// (edited there), how many times it is in the model, a part's dimensions, the materials it and
-/// its faces carry.
+/// (edited there), its source, a part's material (edited there too), its dimensions, the
+/// materials it and its faces carry.
 fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(c) = doc.component(id) else { return };
     let units = &doc.settings().units;
     let field = info_field_width(ui);
-    let count = doc.counts_in_model().get(&id).copied().unwrap_or(0);
     // Its materials and colorations, the part's and its faces'; in the order of the document's.
     let mut used: FastSet<Id> = FastSet::default();
     if let ComponentKind::Part(p) = &c.kind {
@@ -334,11 +342,15 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
             actions.push(Action::Apply(Operation::RenameComponent { component: c.id, name }));
         }
         ui.end_row();
-        ui.label(t!("panel.entity_info.in_model"));
-        ui.label(count.to_string());
-        ui.end_row();
         source_row(ui, c, field, actions);
         if let ComponentKind::Part(p) = &c.kind {
+            // The part's own, placed or not: every occurrence of it shows it.
+            field_label(ui, t!("panel.entity_info.material"));
+            let on_part = |m: &skraft_model::Material| m.family() == Family::Material;
+            if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part) {
+                actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Material, material: m }));
+            }
+            ui.end_row();
             if let Some(error) = pieces_error(p.pieces()) {
                 ui.label(t!("panel.entity_info.dimensions"));
                 cut_label(ui, egui::RichText::new(error).color(ui.visuals().error_fg_color), field);

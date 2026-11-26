@@ -36,9 +36,9 @@ colours, picture, interaction, section headers.
   so does its menu, which also renames, exports and deletes it. The key B paints with the
   material chosen.
 - **The entity info edits it** (how many parts show it is the item's tip in the card, not
-  repeated there): its family shown (« Type »), a material's or a covering's
+  repeated there): its family shown (« Type »), its name, a material's or a covering's
   « Catégorie » among its family's (« Massif », « Panneau », « Profilé »; « Placage »,
-  « Chant »; « Couche », « Schéma »), name; a coat's « Mode » (« Couvrant », « Teintant ») and
+  « Chant »; « Couche », « Schéma »); a coat's « Mode » (« Couvrant », « Teintant ») and
   « Intensité » (%); a scheme's « Couches »: « Ajouter une couche » (among the coats, laid on top),
   then its coats as they lie, the top one first, each moved up or down or taken out; colour but for a scheme; a material's
   or a covering's texture (image, width, height, rotation); its [properties](../model/properties.md). A scheme's tile shows

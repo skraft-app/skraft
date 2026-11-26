@@ -126,9 +126,10 @@ stay, to look into an assembly or a part without entering it.
 
 ## Entity info
 
-The entity info shows the selection, whatever it is: an assembly or a part (its name,
-occurrence, source — « Provenance »: « Fabriqué », « Acheté », « Existant »,
-[Parts list](parts-list.md#rows) —, material, dimensions, position…), a guide, and a part open, the body or group
+The entity info shows the selection, whatever it is: an assembly or a part — first its
+definition's rows (name, source — « Provenance »: « Fabriqué », « Acheté », « Existant »,
+[Parts list](parts-list.md#rows) —, material, coloration, dimensions), then under a separator
+the occurrence's own (« Exemplaire », position) —, a guide, and a part open, the body or group
 selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or machining (read
 only: the sign is toggled in the navigator), failed or empty, its solid's size, how many bodies
 share it —; the model when its navigator row is clicked; nothing selected, « Aucune

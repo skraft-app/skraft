@@ -843,8 +843,6 @@ panel:
     materials: "$t(common.materials)"
     selected: "%{count} selected"
     selected_plural: "%{count} selected"
-    # A component chosen in the Components card: how many times it is in the model.
-    in_model: "In model"
   # The library card: the workspace's definitions, the components or, on a sheet, the
   # compositions (docs/ui/components-library.md).
   library:
