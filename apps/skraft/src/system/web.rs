@@ -72,7 +72,7 @@ pub fn call(method: String, params: JsValue) -> js_sys::Promise {
 
 /// The page's colours around the app (`web/index.html`): the title bar's above it, the panels'
 /// below and beside it, under the home indicator — and the bars' of the browser or of the phone,
-/// through the theme colour and the edges' strips (docs/ui/touch.md#safe-areas).
+/// through the theme colour and the edges (docs/ui/touch.md#safe-areas).
 /// They are kept, with the text's colour `ink`, for the loading screen to take at the next launch
 /// (`skraft.page_colors`, read before the page shows).
 pub fn set_page_colors(top: egui::Color32, bottom: egui::Color32, ink: egui::Color32) {
@@ -92,7 +92,7 @@ pub fn set_page_colors(top: egui::Color32, bottom: egui::Color32, ink: egui::Col
     let _ = style.set_property("--skraft-top", &hex(top));
     let _ = style.set_property("--skraft-bottom", &hex(bottom));
     let _ = style.set_property("--skraft-ink", &hex(ink));
-    // Safari reads its bars' colours from the edges' strips only as they appear: the page's
+    // Safari reads its bars' colours from the edges only as they appear: the page's
     // `skraftEdges` (web/index.html) puts them out and back.
     if let Some(edges) = web_sys::window()
         .and_then(|w| js_sys::Reflect::get(&w, &"skraftEdges".into()).ok())
