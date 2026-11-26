@@ -542,6 +542,21 @@ impl eframe::App for SkraftApp {
         if let Some(note) = self.updates.poll(&mut self.prefs.updates) {
             self.toasts.push(note);
         }
+        // A window too small for the app shows only that, the documents open behind
+        // (docs/ui/interface.md#too-small).
+        let room = ctx.content_rect().size();
+        if crate::window::too_small::too_small(room) {
+            let sideways = self.probe.coarse && room.x > room.y;
+            egui::CentralPanel::default().show(ui, |ui| crate::window::too_small::show(ui, sideways));
+            for a in actions {
+                self.act(a);
+            }
+            self.take_notices(&ctx);
+            self.follow_documents();
+            self.store_preferences(&ctx);
+            crate::kit::cursors::apply(&ctx);
+            return;
+        }
         let bar_room = self.show_title_bar(ui, &ctx, &views, &mut actions);
         // The start page has no status bar: the toasts stand above the window's bottom.
         let compact = self.form == crate::window::form::Form::Compact;

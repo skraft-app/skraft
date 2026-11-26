@@ -17,8 +17,8 @@ use crate::system::images::{Decoder, Size};
 
 /// The app's mark, its tile as wide (as in the title bar): the icon's tile fills 824 of its
 /// 1024 units, the icon is drawn larger.
-const MARK: f32 = 72.0;
-const MARK_TILE: f32 = 824.0 / 1024.0;
+pub(crate) const MARK: f32 = 72.0;
+pub(crate) const MARK_TILE: f32 = 824.0 / 1024.0;
 const TITLE_SIZE: f32 = 30.0;
 const TAGLINE_SIZE: f32 = 15.0;
 const BUTTON_HEIGHT: f32 = 40.0;
@@ -258,7 +258,7 @@ fn buttons(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
 
 /// The drafting grid over `rect`, as one mesh: each line cut at the grid's steps, its pieces'
 /// ends taking the fade's alpha.
-fn grid(ui: &egui::Ui, rect: egui::Rect) {
+pub(crate) fn grid(ui: &egui::Ui, rect: egui::Rect) {
     let accent = ui.visuals().selection.stroke.color;
     let middle = egui::pos2(rect.center().x, rect.top() + rect.height() * GRID_MIDDLE);
     let radii = rect.size() * GRID_RADII;
