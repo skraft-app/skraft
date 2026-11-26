@@ -79,7 +79,8 @@ type** of it when it has one (`ladb_opencutlist` › `type`, `SketchUpMaterial::
 
 | Type (OCL) | On an instance | On a face |
 |---|---|---|
-| none, 1 solid wood, 5 hardware (bought, later) | material « Massif » | coloration |
+| none, 5 hardware (bought, later) | material « Générique » | coloration |
+| 1 solid wood | material « Bois massif » | coloration |
 | 2 sheet good | material « Panneau » | coloration |
 | 3 dimensional | material « Profilé » | coloration |
 | 4 edge | coloration (its look) | covering « Chant » |

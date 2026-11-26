@@ -6,7 +6,7 @@
 //! products, is an assembly holding one part per body (a component made of several solids — a
 //! cabinet of boards, a frame of tubes — is several parts); a product of products is an assembly. A
 //! body's colour becomes a coloration (one per colour) of its part; a product's material
-//! designation a material (solid, one per name) of its parts; a product bought a component
+//! designation a material (generic, one per name) of its parts; a product bought a component
 //! bought (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
 
 use std::collections::HashMap;
@@ -56,7 +56,7 @@ impl Document {
             name.as_ref().map(|n| {
                 *materials.entry(n.clone()).or_insert_with(|| {
                     let id = doc.fresh_id();
-                    doc.materials.insert(id, Material::of_kind(n.clone(), MATERIAL_COLOR, Some(MaterialKind::Solid)));
+                    doc.materials.insert(id, Material::of_kind(n.clone(), MATERIAL_COLOR, Some(MaterialKind::Generic)));
                     id
                 })
             })

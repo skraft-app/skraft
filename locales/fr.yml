@@ -1065,7 +1065,9 @@ panel:
     kind:
       coat: "Couche"
       scheme: "Schéma"
-      solid: "Massif"
+      generic: "Générique"
+      generic_covering: "Générique"
+      solid: "Bois massif"
       sheet: "Panneau"
       profile: "Profilé"
       veneer: "Placage"

@@ -34,15 +34,16 @@ enum Laid {
 /// The type a SketchUp material takes where it is laid (none: a coloration), by OpenCutList's
 /// type when it has one (docs/io/sketchup-import.md#materials): a material on an instance, a
 /// covering on a face where its type is one; else, a coloration for what only colours or does
-/// not go there, a solid material on an instance, a coloration on a face.
+/// not go there, a generic material on an instance, a coloration on a face.
 fn kind_of(ocl: Option<u8>, laid: Laid) -> Option<MaterialKind> {
     match (laid, ocl) {
         (Laid::Instance, Some(2)) => Some(MaterialKind::Sheet),
         (Laid::Instance, Some(3)) => Some(MaterialKind::Profile),
         // An edge, a veneer on a whole instance, a machining: their look.
         (Laid::Instance, Some(4 | 6 | 7)) => None,
-        // Solid wood, hardware (bought, later), none.
-        (Laid::Instance, _) => Some(MaterialKind::Solid),
+        (Laid::Instance, Some(1)) => Some(MaterialKind::Solid),
+        // Hardware (bought, later), none.
+        (Laid::Instance, _) => Some(MaterialKind::Generic),
         (Laid::Face, Some(4)) => Some(MaterialKind::Edge),
         (Laid::Face, Some(6)) => Some(MaterialKind::Veneer),
         (Laid::Face, _) => None,

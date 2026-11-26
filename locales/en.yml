@@ -968,7 +968,9 @@ panel:
     kind:
       coat: "Coat"
       scheme: "Scheme"
-      solid: "Solid"
+      generic: "Generic"
+      generic_covering: "Generic"
+      solid: "Solid Wood"
       sheet: "Sheet"
       profile: "Profile"
       veneer: "Veneer"

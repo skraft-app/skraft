@@ -58,7 +58,7 @@ fn a_product_bought_and_its_material_designation_are_read() {
     let board = frag.components().find(|c| c.name == "Planche é").unwrap();
     assert_eq!(board.source, Source::Bought);
     let oak = frag.material(board.as_part().unwrap().material.unwrap()).unwrap();
-    assert_eq!((oak.name.as_str(), oak.kind), ("Chêne", Some(MaterialKind::Solid)));
+    assert_eq!((oak.name.as_str(), oak.kind), ("Chêne", Some(MaterialKind::Generic)));
     assert!(board.as_part().unwrap().coloration.is_some(), "its colour still a coloration over it");
     let cabinet = frag.components().find(|c| c.name == "Caisson").unwrap();
     assert_eq!(cabinet.source, Source::Made);

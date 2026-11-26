@@ -110,10 +110,11 @@ symbols the code writes, and of Greek.
   the file's `catalog`), every item a `Material { name, kind, color, texture, props }` (sRGB; a
   texture: [Textures](#textures); properties: [Properties](../model/properties.md); ids unique
   across the tables) — [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md):
-  - **materials**, what a part is made of, counted and cut; their type (`kind`): « Massif »
-    (`Solid`, a new one's), « Panneau » (`Sheet`), « Profilé » (`Profile`);
-  - **coverings**, what covers a face; their type: « Placage » (`Veneer`, a new one's),
-    « Chant » (`Edge`);
+  - **materials**, what a part is made of, counted and cut; their type (`kind`): « Générique »
+    (`Generic`, a new one's: listed, not cut from a stock), « Bois massif » (`Solid`),
+    « Panneau » (`Sheet`), « Profilé » (`Profile`);
+  - **coverings**, what covers a face; their type: « Générique » (`GenericCovering`, a new
+    one's), « Placage » (`Veneer`), « Chant » (`Edge`);
   - **colorations**, what colours a part or a face, never counted; the colours of imports are
     colorations. A **coat** (« Couche », `Coat`, a new one's) has a `blend` — « Couvrant »
     (`Cover`: laid over what is under, its `intensity` its opacity) or « Teintant » (`Tint`:
