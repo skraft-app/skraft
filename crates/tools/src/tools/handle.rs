@@ -258,7 +258,7 @@ impl Target {
         let moved = cx.moved_deep(paths, cx.deep_guides);
         let Moved::Deep { groups, .. } = &moved else { return None };
         let frame = match (axes, paths) {
-            (Axes::Entity, [p]) => cx.doc.transform_of(&p.instances).ok()? * cx.doc.resolve(p).ok()?.transform,
+            (Axes::Entity, [p]) => cx.doc.transform_of(&p.occurrences).ok()? * cx.doc.resolve(p).ok()?.transform,
             (Axes::Active, _) => DAffine3::IDENTITY,
             _ => cx.context_transform,
         };
@@ -274,7 +274,7 @@ impl Target {
         let filled = match paths {
             [p] => (|| {
                 let o = cx.doc.resolve(p).ok()?;
-                let to_world = cx.doc.transform_of(&p.instances).ok()? * o.transform;
+                let to_world = cx.doc.transform_of(&p.occurrences).ok()? * o.transform;
                 Some(fills(cx.doc.part(o.component).ok()?.shape(), frame.inverse() * to_world))
             })()
             .unwrap_or(false),

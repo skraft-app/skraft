@@ -6,12 +6,12 @@ fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static>
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
 }
 
-/// The name of an instance — an occurrence, a body — in its navigator row, its colour `color`,
-/// on `back`, as [`crate::workspaces::common::instance_name`] writes it (own name, then the definition's — `def`:
+/// The name of an occurrence — of a component, of a body — in its navigator row, its colour `color`,
+/// on `back`, as [`crate::workspaces::common::occurrence_name`] writes it (own name, then the definition's — `def`:
 /// its component's, its body definition's — between brackets; automatic, `auto`, attenuated
 /// unless the row is selected). Its response, and where its own name ends and the
 /// definition's starts (halfway across the space between them) where it has one.
-fn instance_label(
+fn occurrence_label(
     ui: &mut egui::Ui,
     own: &str,
     def: &str,
@@ -22,14 +22,14 @@ fn instance_label(
 ) -> (egui::Response, Option<f32>) {
     let weak = if selected { color } else { color.lerp_to_gamma(back, weak_share(ui.visuals())) };
     let size = egui::TextStyle::Body.resolve(ui.style()).size;
-    let job = crate::workspaces::common::instance_name::job(
+    let job = crate::workspaces::common::occurrence_name::job(
         own,
         def,
         auto,
-        crate::workspaces::common::instance_name::NameInk { size, ink: color, weak },
+        crate::workspaces::common::occurrence_name::NameInk { size, ink: color, weak },
     );
     let r = ui.add(egui::Label::new(job).selectable(false).truncate());
-    let split = (!own.is_empty()).then(|| r.rect.min.x + crate::workspaces::common::instance_name::split(ui, own, size));
+    let split = (!own.is_empty()).then(|| r.rect.min.x + crate::workspaces::common::occurrence_name::split(ui, own, size));
     (r, split)
 }
 
@@ -311,7 +311,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &NavigatorRow<'_>, errors
     let open = open_here && editor.open_group().is_empty() && selection.is_empty() && editing.is_none();
     let on_path = open_here && !editor.open_group().is_empty();
     let selected = (editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open))
-        || editor.deep_selection().iter().any(|p| p.instances == row.path && p.entity == o.id);
+        || editor.deep_selection().iter().any(|p| p.occurrences == row.path && p.entity == o.id);
     // Hidden, itself or by an assembly above: greyed.
     let greyed = o.hidden || row.hidden_above;
     let tint = if selected || on_path {
@@ -335,7 +335,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &NavigatorRow<'_>, errors
     let link_below = editor.link_status().holds(o.component) || editor.link_overlaps().holds(o.component);
     // A name edited in place, from a double-click, or F2 while it is the one occurrence
     // selected: the occurrence's own, shown first, where it has one and the double-click
-    // is on it (F2: where it has one), else its component's (« Instance <Composant> »).
+    // is on it (F2: where it has one), else its component's (« Occurrence <Composant> »).
     let rename = ui.make_persistent_id(("navigator_rename", &row.path, o.id));
     let rename_occurrence = rename.with("occurrence");
     let renaming = match ui.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(RENAMING))) {
@@ -396,7 +396,7 @@ fn occurrence_line(
         }
         let auto = doc.component(o.component).is_ok_and(|c| !c.named);
         let back = ui.visuals().window_fill;
-        let (_, split) = instance_label(ui, &o.name, name, auto, color, selected, back);
+        let (_, split) = occurrence_label(ui, &o.name, name, auto, color, selected, back);
         (None, split)
     };
     let (response, (eye, (renamed, split))) = tree_line(ui, line, (salt, folds), eye, label);
@@ -423,7 +423,7 @@ fn drop_on_occurrence(
                 drag.to(same, path, Vec::new()).map(|to| (Mark::Into, Box::new(move |copy| drag.op(editor, to, copy)) as Box<_>))
             }
             (Some(drag), _) => {
-                let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
+                let inside: Vec<Id> = path.occurrences.iter().copied().chain([o.id]).collect();
                 Some((Mark::Into, Box::new(move |copy| drag.op(editor, BodiesTo::NewPart(inside), copy)) as Box<_>))
             }
             (None, Some(drag)) if is_part => {
@@ -432,7 +432,7 @@ fn drop_on_occurrence(
                     .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_part(doc, &at, Vec::new(), copy).expect("checked")) as Box<_>))
             }
             (None, Some(drag)) => {
-                let inside: Vec<Id> = path.instances.iter().copied().chain([o.id]).collect();
+                let inside: Vec<Id> = path.occurrences.iter().copied().chain([o.id]).collect();
                 drag.onto_assembly(doc, inside.clone(), false)
                     .map(|_| (Mark::Into, Box::new(move |copy| drag.onto_assembly(doc, inside, copy).expect("checked")) as Box<_>))
             }
@@ -454,11 +454,11 @@ fn occurrence_menu(
 ) {
     let doc = editor.document();
     // A source off its seat (docs/model/bodies.md#links): put back from here.
-    let here = doc.context_of(&path.instances).unwrap_or(doc.root());
+    let here = doc.context_of(&path.occurrences).unwrap_or(doc.root());
     let off = editor.link_status().is_off(here, o.id).then_some(skraft_model::LinkSource { assembly: here, occurrence: o.id });
     let part = doc.part(o.component).ok();
-    let in_selection = (editor.open_part().is_none() && editor.context() == path.instances.as_slice() && selection.contains(&o.id))
-        || editor.deep_selection().iter().any(|p| p.instances == path.instances && p.entity == o.id);
+    let in_selection = (editor.open_part().is_none() && editor.context() == path.occurrences.as_slice() && selection.contains(&o.id))
+        || editor.deep_selection().iter().any(|p| p.occurrences == path.occurrences && p.entity == o.id);
     let select = (!in_selection).then(|| Action::SelectPath(path.clone(), false));
     let own = (!o.name.is_empty()).then_some(rename_occurrence);
     // « Aplatir » on a part with a tree: the parts selected with it, when it is.
@@ -483,7 +483,7 @@ fn occurrence_menu(
                 let targets: Vec<EntityPath> = match in_selection {
                     true => selection
                         .iter()
-                        .map(|id| EntityPath::new(path.instances.clone(), *id))
+                        .map(|id| EntityPath::new(path.occurrences.clone(), *id))
                         .chain(editor.deep_selection().iter().cloned())
                         .filter(|q| doc.resolve_part(q).is_ok_and(|(_, p, _)| p.has_tree()))
                         .collect(),
@@ -545,9 +545,9 @@ fn occurrence_row(
     // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
     // makes a part of bodies.
     let response = response.interact(egui::Sense::click_and_drag());
-    let with: Vec<Id> = match selected && editor.context() == path.instances.as_slice() {
+    let with: Vec<Id> = match selected && editor.context() == path.occurrences.as_slice() {
         true => doc
-            .context_of(&path.instances)
+            .context_of(&path.occurrences)
             .and_then(|c| doc.assembly(c))
             .map(|a| a.occurrences().iter().map(|x| x.id).filter(|id| selection.contains(id)).collect())
             .unwrap_or_default(),
@@ -557,7 +557,7 @@ fn occurrence_row(
         let shown = if o.name.is_empty() { name.clone() } else { o.name.to_string() };
         set_drag_ghost(ui.ctx(), occurrence_icon(doc, o), shown, with.len());
     }
-    response.dnd_set_drag_payload(PartsDrag { instances: path.instances.clone(), occurrences: with });
+    response.dnd_set_drag_payload(PartsDrag { from: path.occurrences.clone(), occurrences: with });
     drop_on_occurrence(ui, editor, o, &path, &response, actions);
     // A component's name is never empty, and unique: an emptied one is kept, one taken
     // refused (the failure told); an occurrence's emptied is cleared.
@@ -569,7 +569,7 @@ fn occurrence_row(
     let key = if on_occurrence { rename_occurrence } else { rename };
     match (renaming, start_rename(ui, &response, renaming.is_some(), alone, key, renamed)) {
         (Some(true), Some(Some(name))) => {
-            let context = doc.context_of(&path.instances).unwrap_or(doc.root());
+            let context = doc.context_of(&path.occurrences).unwrap_or(doc.root());
             actions.push(Action::Apply(Operation::RenameOccurrence { context, occurrence: o.id, name }));
         }
         (_, Some(Some(name))) if !name.is_empty() => {
@@ -1070,7 +1070,7 @@ pub(super) type DropTarget<'a> = Option<(Mark, DropOperation<'a>)>;
 /// occurrences leading to it), which of its occurrences.
 #[derive(Clone, Debug)]
 pub(super) struct PartsDrag {
-    pub(super) instances: Vec<Id>,
+    pub(super) from: Vec<Id>,
     pub(super) occurrences: Vec<Id>,
 }
 
@@ -1078,15 +1078,16 @@ impl PartsDrag {
     /// Into the part `part` places, at its level `level`, as its bodies: not a part they place,
     /// nor one inside them (an assembly dragged), nor themselves.
     fn onto_part(&self, doc: &Document, part: &EntityPath, level: Vec<Id>, copy: bool) -> Option<Operation> {
-        let n = self.instances.len();
-        let inside = part.instances.len() > n && part.instances[..n] == self.instances[..] && self.occurrences.contains(&part.instances[n]);
-        let itself = part.instances == self.instances && self.occurrences.contains(&part.entity);
+        let n = self.from.len();
+        let inside =
+            part.occurrences.len() > n && part.occurrences[..n] == self.from[..] && self.occurrences.contains(&part.occurrences[n]);
+        let itself = part.occurrences == self.from && self.occurrences.contains(&part.entity);
         let component = doc.resolve(part).ok()?.component;
-        let context = doc.context_of(&self.instances).ok()?;
+        let context = doc.context_of(&self.from).ok()?;
         let placed =
             doc.assembly(context).ok()?.occurrences().iter().filter(|o| self.occurrences.contains(&o.id)).any(|o| o.component == component);
         (!inside && !itself && !placed).then(|| Operation::MoveParts {
-            instances: self.instances.clone(),
+            from: self.from.clone(),
             occurrences: self.occurrences.clone(),
             to: part.clone().in_group(level),
             copy,
@@ -1098,7 +1099,7 @@ impl PartsDrag {
     /// Into the assembly `to` leads to (empty: the model): not the one they lie in, nor one of
     /// them or one they hold (decision 0044).
     fn onto_assembly(&self, doc: &Document, to: Vec<Id>, copy: bool) -> Option<Operation> {
-        let (from, into) = (doc.context_of(&self.instances).ok()?, doc.context_of(&to).ok()?);
+        let (from, into) = (doc.context_of(&self.from).ok()?, doc.context_of(&to).ok()?);
         let holds = doc
             .assembly(from)
             .ok()?
@@ -1107,7 +1108,7 @@ impl PartsDrag {
             .filter(|o| self.occurrences.contains(&o.id))
             .any(|o| doc.contains_component(o.component, into));
         (from != into && !holds).then(|| Operation::MoveOccurrences {
-            instances: self.instances.clone(),
+            from: self.from.clone(),
             occurrences: self.occurrences.clone(),
             to,
             copy,
@@ -1324,7 +1325,7 @@ fn body_line(
         }
         let color = if failed { ui.visuals().error_fg_color } else { tint };
         let back = band_color(ui.visuals());
-        let (_, split) = instance_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
+        let (_, split) = occurrence_label(ui, &b.body.name, &b.label(), !def.named, color, selected, back);
         // A body node's size after its name (docs/tools/rounds.md).
         if let Some(op) = def.op().and_then(|o| o.blend()) {
             let size = editor.document().settings().units.format(op.size);
@@ -1422,7 +1423,7 @@ fn body_menu(
         if !linked {
             let (label, to) = match b.group.split_last() {
                 Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
-                None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.instances.clone())),
+                None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.occurrences.clone())),
             };
             let button = ui.button(label);
             crate::kit::handles::publish(|| "navigator:menu:move_out".into(), button.rect);
@@ -1521,7 +1522,7 @@ fn flatten_button(ui: &mut egui::Ui) -> bool {
 }
 
 /// A navigator row's right-click menu: « Renommer » (the field a double-click opens, under the
-/// key `rename`; with an instance name, under `own`, one entry for each name), what `move_out`
+/// key `rename`; with an occurrence name, under `own`, one entry for each name), what `move_out`
 /// adds (with its own separator), then « Aplatir » (`flatten`), « Éclater » where the row can be
 /// (`explodable`), « Effacer ». Opening it changes nothing; the commands act on the selection
 /// when the row is in it, else on the row alone, `select` choosing it first (docs/ui/interface.md).
@@ -1537,7 +1538,7 @@ fn row_menu(
     egui::Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
         let names = match own {
             Some(own) => vec![
-                (t!("panel.navigator.rename_instance"), own, "rename_instance"),
+                (t!("panel.navigator.rename_occurrence"), own, "rename_occurrence"),
                 (t!("panel.navigator.rename_definition"), rename, "rename"),
             ],
             None => vec![(t!("panel.navigator.rename"), rename, "rename")],

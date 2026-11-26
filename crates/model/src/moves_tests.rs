@@ -276,7 +276,7 @@ fn a_part_moved_into_another_becomes_its_body_and_not_into_itself() {
     let (target, part, _, _) = drilled(&mut h, &[20.0]);
     let above = block(&mut h, 20.0);
     let before = volume(h.document(), part);
-    let op = Operation::MoveParts { instances: Vec::new(), occurrences: vec![above], to: target.clone(), copy: false };
+    let op = Operation::MoveParts { from: Vec::new(), occurrences: vec![above], to: target.clone(), copy: false };
     let out = h.apply(op).unwrap();
     let root = h.document().root();
     assert_eq!(h.document().assembly(root).unwrap().occurrences().len(), 1, "the block's occurrence gone");
@@ -288,7 +288,7 @@ fn a_part_moved_into_another_becomes_its_body_and_not_into_itself() {
     // A part into itself.
     let root = h.document().root();
     let own = h.document().assembly(root).unwrap().occurrences()[0].id;
-    let into_itself = Operation::MoveParts { instances: Vec::new(), occurrences: vec![own], to: target.clone(), copy: false };
+    let into_itself = Operation::MoveParts { from: Vec::new(), occurrences: vec![own], to: target.clone(), copy: false };
     assert!(matches!(h.apply(into_itself), Err(Error::Cycle)));
 }
 
@@ -308,15 +308,15 @@ fn an_occurrence_moved_into_another_assembly_keeps_its_world_place() {
         doc.transform_of(path).unwrap() * o.transform
     };
     let before = world(&h, &[], a);
-    let out = h.apply(Operation::MoveOccurrences { instances: Vec::new(), occurrences: vec![a], to: vec![s], copy: false }).unwrap();
+    let out = h.apply(Operation::MoveOccurrences { from: Vec::new(), occurrences: vec![a], to: vec![s], copy: false }).unwrap();
     assert_eq!(out.created, vec![a], "its id kept");
     assert!(world(&h, &[s], a).abs_diff_eq(before, 1e-9), "where it was");
     assert_eq!(h.document().assembly(root).unwrap().occurrences().len(), 1, "out of the model's root");
     // Back out, a copy: the one in the assembly left.
-    let out = h.apply(Operation::MoveOccurrences { instances: vec![s], occurrences: vec![a], to: Vec::new(), copy: true }).unwrap();
+    let out = h.apply(Operation::MoveOccurrences { from: vec![s], occurrences: vec![a], to: Vec::new(), copy: true }).unwrap();
     assert!(world(&h, &[], out.created[0]).abs_diff_eq(before, 1e-9));
     assert_eq!(h.document().assembly(h.document().context_of(&[s]).unwrap()).unwrap().occurrences().len(), 2);
     // The assembly into itself.
-    let into_itself = Operation::MoveOccurrences { instances: Vec::new(), occurrences: vec![s], to: vec![s], copy: false };
+    let into_itself = Operation::MoveOccurrences { from: Vec::new(), occurrences: vec![s], to: vec![s], copy: false };
     assert!(matches!(h.apply(into_itself), Err(Error::Cycle)));
 }

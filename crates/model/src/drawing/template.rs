@@ -7,7 +7,7 @@ use std::sync::Arc;
 use glam::DVec2;
 use skraft_i18n::t;
 
-use super::{Border, Composition, Corner, Drawing, Element, ElementKind, Instance, Paper, Place, Presentation, Sheet};
+use super::{Border, Composition, Corner, Drawing, Element, ElementKind, Occurrence, Paper, Place, Presentation, Sheet};
 use crate::{Document, Error, Id, Result};
 
 /// The composition of the template Skraft comes with, whatever the language it was made in.
@@ -28,20 +28,21 @@ fn source_of(b: &Composition) -> Option<String> {
 impl Document {
     /// Presentation `id` as a template: a document holding only a drawing — its sheets, the
     /// compositions they place, all without views (a composition left empty by that goes, with its
-    /// instances), the images they show. Each composition is given the name of its source, by which
+    /// occurrences), the images they show. Each composition is given the name of its source, by which
     /// it is brought into a document once.
     pub fn template_of(&self, presentation: Id) -> Result<Document> {
         let p = self.drawing.presentation(presentation).ok_or(Error::NotFound(presentation))?;
         let mut sheets: Vec<Sheet> = p.sheets.iter().map(|s| Sheet { elements: without_views(&s.elements), ..s.clone() }).collect();
         let mut compositions: BTreeMap<Id, Composition> = BTreeMap::new();
-        let mut todo: Vec<Id> = sheets.iter().flat_map(|s| &s.elements).filter_map(|e| e.kind.instance().map(|i| i.composition)).collect();
+        let mut todo: Vec<Id> =
+            sheets.iter().flat_map(|s| &s.elements).filter_map(|e| e.kind.occurrence().map(|i| i.composition)).collect();
         while let Some(id) = todo.pop() {
             if compositions.contains_key(&id) {
                 continue;
             }
             let b = self.drawing.composition(id).ok_or(Error::NotFound(id))?;
             let mut kept = Composition { elements: without_views(&b.elements), ..b.clone() };
-            todo.extend(kept.elements.iter().filter_map(|e| e.kind.instance().map(|i| i.composition)));
+            todo.extend(kept.elements.iter().filter_map(|e| e.kind.occurrence().map(|i| i.composition)));
             if kept.source.is_none() {
                 kept.source = source_of(b);
             }
@@ -54,7 +55,7 @@ impl Document {
                 break;
             }
             compositions.retain(|id, _| !empty.contains(id));
-            let keep = |e: &Element| !e.kind.instance().is_some_and(|i| empty.contains(&i.composition));
+            let keep = |e: &Element| !e.kind.occurrence().is_some_and(|i| empty.contains(&i.composition));
             compositions.values_mut().for_each(|b| b.elements.retain(keep));
             sheets.iter_mut().for_each(|s| s.elements.retain(keep));
         }
@@ -86,7 +87,7 @@ impl Document {
             text(v(-67.0, 3.5), t!("drawing.template.number"), 2.5),
         ];
         let elements: Vec<Element> = kinds.into_iter().map(|kind| Element::new(t.fresh_id(), kind)).collect();
-        let (composition, instance, sheet, presentation) = (t.fresh_id(), t.fresh_id(), t.fresh_id(), t.fresh_id());
+        let (composition, occurrence, sheet, presentation) = (t.fresh_id(), t.fresh_id(), t.fresh_id(), t.fresh_id());
         let d = t.drawing_mut();
         d.compositions.insert(
             composition,
@@ -108,7 +109,10 @@ impl Document {
                 id: sheet,
                 name: t!("drawing.sheet_name", n = 1),
                 paper: Paper::A3,
-                elements: vec![Element::new(instance, ElementKind::Instance(Instance { composition, place, props: Default::default() }))],
+                elements: vec![Element::new(
+                    occurrence,
+                    ElementKind::Occurrence(Occurrence { composition, place, props: Default::default() }),
+                )],
                 grid: 0.0,
                 border: Some(Border { margin: 10.0, width: 0.25 }),
                 props: Default::default(),
@@ -155,7 +159,7 @@ impl Document {
         let mut copies = self.fresh_copies(elements);
         for c in &mut copies {
             match &mut c.kind {
-                ElementKind::Instance(i) => i.composition = self.bring_composition(template, i.composition, brought)?,
+                ElementKind::Occurrence(i) => i.composition = self.bring_composition(template, i.composition, brought)?,
                 ElementKind::Image { asset, .. } => {
                     if let Some(a) = template.assets.get(asset) {
                         self.assets.insert(asset.clone(), a.clone());

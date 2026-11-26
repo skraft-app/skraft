@@ -214,7 +214,7 @@ fn exact_in_a_moved_group_and_far_away() {
         let i = at(&e, corner + DVec3::new(4.0, 4.0, 0.0));
         assert_eq!(i.kind, InferKind::Endpoint);
         assert!((i.point - corner).length() < 1e-6, "{} {}", i.point, corner);
-        assert_eq!(i.path.unwrap().instances, vec![g]);
+        assert_eq!(i.path.unwrap().occurrences, vec![g]);
     }
 }
 

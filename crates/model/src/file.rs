@@ -418,7 +418,7 @@ impl Document {
             }
         }
         // The drawing (docs/ui/drawing.md): ids fresh, images present, views resolved, what
-        // hangs on a view beside it, instances of known compositions, no composition holding itself, a
+        // hangs on a view beside it, occurrences of known compositions, no composition holding itself, a
         // paper's corner only on a sheet.
         let d = &self.drawing;
         for p in &d.presentations {
@@ -441,7 +441,7 @@ impl Document {
                     && match &e.kind {
                         crate::ElementKind::Image { asset, .. } => self.assets.contains_key(asset),
                         crate::ElementKind::View(_) => d.resolve(e.id).is_some(),
-                        crate::ElementKind::Instance(i) => {
+                        crate::ElementKind::Occurrence(i) => {
                             d.composition(i.composition).is_some()
                                 && match container {
                                     crate::Container::Sheet(_) => true,

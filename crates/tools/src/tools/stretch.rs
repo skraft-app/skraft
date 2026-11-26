@@ -287,7 +287,7 @@ impl Target {
         let (lo, hi) = super::handle::bodies_bounds(cx, &part, &bodies, in_part)?;
         let fixed = fixed_axes(&turned_bodies(cx, &part, in_part.inverse(), Some(&ids)), lo, hi);
         let filled = matches!(&bodies[..], [b] if fills(part.solid_of(b), in_part.inverse() * b.placement));
-        let (context, occurrences) = (path.instances.clone(), vec![path.entity]);
+        let (context, occurrences) = (path.occurrences.clone(), vec![path.entity]);
         let group = path.group.clone();
         Some(Target { context, occurrences, bodies: Some(ids), group, keep, in_context: in_part, frame, lo, hi, fixed, filled })
     }
@@ -661,7 +661,7 @@ impl StretchTool {
                 (cx.context.to_vec(), selected, None)
             } else {
                 let p = self.picked.as_ref()?;
-                (p.instances.clone(), vec![p.entity], None)
+                (p.occurrences.clone(), vec![p.entity], None)
             }
         };
         let key = TargetKey { generation: cx.scene.generation(), context, occurrences, bodies, axes: axes(cx) };
@@ -690,8 +690,8 @@ impl StretchTool {
     /// The parts selected at any depth, when they are all in one assembly: its path, and
     /// their occurrences in it.
     fn one_assembly(cx: &Cx<'_>) -> Option<(Vec<Id>, Vec<Id>)> {
-        let parent = &cx.deep.first()?.instances;
-        cx.deep.iter().all(|p| p.instances == *parent).then(|| (parent.clone(), cx.deep.iter().map(|p| p.entity).collect()))
+        let parent = &cx.deep.first()?.occurrences;
+        cx.deep.iter().all(|p| p.occurrences == *parent).then(|| (parent.clone(), cx.deep.iter().map(|p| p.entity).collect()))
     }
 
     /// The bodies of the open part selected, while they show (docs/model/bodies.md); none when none is.

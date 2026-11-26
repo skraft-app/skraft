@@ -98,7 +98,7 @@ impl SkraftApp {
             "drawing.project_view" => crate::workspaces::drawing::sheet::can_project(e, &d.sheet),
             "drawing.make_composition" => !crate::workspaces::drawing::sheet::selection(e, &d.sheet).is_empty(),
             "drawing.explode" | "drawing.make_unique" | "drawing.edit_composition" => {
-                !crate::workspaces::drawing::sheet::selected_instances(e, &d.sheet).is_empty()
+                !crate::workspaces::drawing::sheet::selected_occurrences(e, &d.sheet).is_empty()
             }
             id if crate::workspaces::drawing::sheet::style_of(id).is_some() => {
                 !crate::workspaces::drawing::sheet::selected_views(e, &d.sheet).is_empty()

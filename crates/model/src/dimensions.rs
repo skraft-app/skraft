@@ -87,7 +87,7 @@ impl Found {
 
 /// A placed part's chain of occurrences.
 fn chain(p: &PlacedPart) -> Vec<Id> {
-    p.path.instances.iter().copied().chain([p.path.entity]).collect()
+    p.path.occurrences.iter().copied().chain([p.path.entity]).collect()
 }
 
 /// The names of `part`'s faces by record index, when its shape has them: a single positive

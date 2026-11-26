@@ -215,7 +215,7 @@ fn library_state(e: &Editor) -> Answer {
     let deep: Vec<Value> = e
         .deep_selection()
         .iter()
-        .map(|p| json!({ "instances": p.instances.iter().map(|i| i.0).collect::<Vec<_>>(), "entity": p.entity.0 }))
+        .map(|p| json!({ "occurrences": p.occurrences.iter().map(|i| i.0).collect::<Vec<_>>(), "entity": p.entity.0 }))
         .collect();
     Answer::Json(json!({
         "revision": e.history().revision(),
@@ -295,7 +295,7 @@ fn geometry(e: &Editor, p: &GeometryParams) -> Outcome {
     let placed: Vec<PlacedPart> = doc
         .placed_parts()
         .into_iter()
-        .filter(|pp| filter.as_ref().is_none_or(|ids| pp.path.instances.iter().chain([&pp.path.entity]).any(|i| ids.contains(i))))
+        .filter(|pp| filter.as_ref().is_none_or(|ids| pp.path.occurrences.iter().chain([&pp.path.entity]).any(|i| ids.contains(i))))
         .collect();
     let mut volumes = HashMap::new();
     let parts: Vec<Value> = placed.iter().skip(p.offset).take(p.limit()).map(|pp| part(e, pp, p, &mut volumes)).collect();

@@ -3,7 +3,7 @@
 use super::*;
 
 /// Sheet millimetres (y up) to screen points, and back; drawing in the axes of what `place`
-/// puts on the sheet (an instance's content).
+/// puts on the sheet (an occurrence's content).
 #[derive(Clone, Copy)]
 pub(super) struct Paperview {
     pub(super) centre: egui::Pos2,
@@ -233,7 +233,7 @@ fn stroke_box(painter: &egui::Painter, pv: &Paperview, quad: [egui::Pos2; 4], st
     }
 }
 
-/// The level edited: the instances entered, what takes their last composition's axes to the sheet.
+/// The level edited: the occurrences entered, what takes their last composition's axes to the sheet.
 #[derive(Clone, Copy)]
 pub(super) struct Level<'a> {
     pub(super) open: &'a [Id],
@@ -258,10 +258,10 @@ pub(super) struct Drawn {
 /// How far the box of the composition edited stands off what it shows (paper millimetres).
 const LEVEL_MARGIN: f64 = 2.0;
 
-/// What a sheet shows through its instances (docs/ui/drawing.md#compositions), bottom first: views as
+/// What a sheet shows through its occurrences (docs/ui/drawing.md#compositions), bottom first: views as
 /// their frames, named; texts, lines, rectangles; images as their frames for now. With a composition
 /// entered, what lies outside it first, faded under a veil of the paper's white, then what it
-/// shows in its grey box. A press lands on what is right in the level, an instance whole by the
+/// shows in its grey box. A press lands on what is right in the level, an occurrence whole by the
 /// box of what it shows.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_elements(
@@ -309,13 +309,13 @@ pub(super) fn draw_elements(
             }
             continue;
         };
-        // Hidden, itself or by an instance above it.
+        // Hidden, itself or by an occurrence above it.
         if shown.hidden {
             continue;
         }
         let el = shown.element;
         let under = shown.under(level.open);
-        // Picked: only what is right in the level (an instance is outlined whole, below).
+        // Picked: only what is right in the level (an occurrence is outlined whole, below).
         let alone = !level.printed && under.is_some() && shown.path.len() == level.open.len();
         let picked = alone && selected.contains(&el.id);
         let pv = pv.placed(shown.transform);
@@ -324,12 +324,12 @@ pub(super) fn draw_elements(
             ElementKind::View(v) => draw_view(&ink, &mut pictures, &pv, shown, v, mark),
             ElementKind::Dimension(dim) => draw_dimension(&ink, pictures.views, &pv, shown, dim, mark),
             // `placed` goes through them.
-            ElementKind::Instance(_) => None,
+            ElementKind::Occurrence(_) => None,
             other => Some(draw_figure(&ink, &pv, shown, other, mark)),
         };
         let Some((rect, (lo, hi))) = drawn else { continue };
         let Some(top) = under else { continue };
-        // What one instance shows comes in a row.
+        // What one occurrence shows comes in a row.
         match boxes.last_mut() {
             Some((id, r)) if *id == top => *r = r.union(rect),
             _ => boxes.push((top, rect)),
@@ -346,8 +346,8 @@ pub(super) fn draw_elements(
     out
 }
 
-/// After the elements, from the boxes of what the level's instances show (`boxes`): those
-/// instances picked and named by them, the composition edited in its grey box; what a press
+/// After the elements, from the boxes of what the level's occurrences show (`boxes`): those
+/// occurrences picked and named by them, the composition edited in its grey box; what a press
 /// lands on, but the locked ones (drawn, not picked).
 fn close_level(
     k: &Ink<'_>,
@@ -359,7 +359,7 @@ fn close_level(
 ) {
     let Ink { painter, level, accent, .. } = *k;
     for (id, r) in &boxes {
-        if !level.printed && tops.get(id).is_some_and(|el| el.kind.instance().is_some()) {
+        if !level.printed && tops.get(id).is_some_and(|el| el.kind.occurrence().is_some()) {
             if selected.contains(id) {
                 painter.rect_stroke(*r, 0.0, accent, egui::StrokeKind::Middle);
             }
@@ -533,7 +533,7 @@ fn draw_figure(
             painter.line_segment([quad[3], quad[1]], thin);
             (egui::Rect::from_points(&quad), (*min, *max))
         }
-        ElementKind::View(_) | ElementKind::Dimension(_) | ElementKind::Instance(_) => unreachable!(),
+        ElementKind::View(_) | ElementKind::Dimension(_) | ElementKind::Occurrence(_) => unreachable!(),
     };
     if picked {
         stroke_box(painter, pv, pv.quad(b.0, b.1), accent);

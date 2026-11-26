@@ -354,7 +354,7 @@ impl Editor {
         }
         // The parts selected at any depth (« Parts », docs/tools/selection.md): each from its own assembly.
         for p in &self.deep {
-            let Some(index) = ContextIndex::new(doc, &p.instances) else { continue };
+            let Some(index) = ContextIndex::new(doc, &p.occurrences) else { continue };
             let Some(o) = index.occurrence(p.entity) else { continue };
             let (from_mark, from_box) = (marks.len(), boxes.len());
             let under = index.solids_under(p.entity);
@@ -372,11 +372,11 @@ impl Editor {
                 ghost: key.4,
                 face: None,
             }));
-            let chain = p.instances.iter().copied().chain([p.entity]).collect();
+            let chain = p.occurrences.iter().copied().chain([p.entity]).collect();
             owners.push(SelectionOwner { chain, marks: from_mark..marks.len(), boxes: from_box..boxes.len() });
         }
         let set = self.selection.iter().copied().collect();
-        let deep = self.deep.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
+        let deep = self.deep.iter().map(|p| p.occurrences.iter().copied().chain([p.entity]).collect()).collect();
         SelectionDrawing { key, marks, boxes, owners, set, deep }
     }
 
@@ -441,7 +441,7 @@ impl Editor {
             Some(m) => {
                 let hits = m.hits.iter().map(|h| self.context.iter().copied().chain([*h]).collect());
                 let taken: skraft_model::FastSet<Vec<Id>> =
-                    hits.chain(m.paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect())).collect();
+                    hits.chain(m.paths.iter().map(|p| p.occurrences.iter().copied().chain([p.entity]).collect())).collect();
                 drawing.owners.iter().filter(|o| taken.contains(&o.chain) == toggle).collect()
             }
             None => Vec::new(),
@@ -471,7 +471,7 @@ impl Editor {
         // or the open part's machinings, drawn as ghosts, in batches of their own.
         let erasing: skraft_model::FastSet<Id> = preview.erasing.iter().copied().collect();
         let erasing_deep: skraft_model::FastSet<Vec<Id>> =
-            preview.erasing_paths.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
+            preview.erasing_paths.iter().map(|p| p.occurrences.iter().copied().chain([p.entity]).collect()).collect();
         let erased = |p: &crate::scene::Placement| {
             (!erasing.is_empty()
                 && open.is_none()
@@ -483,7 +483,7 @@ impl Editor {
         // The parts picked that make a change (the solid tools' tools): see-through, as the
         // bodies they become (docs/tools/solid-tools.md).
         let acting: skraft_model::FastSet<Vec<Id>> =
-            preview.picked_tools.iter().map(|p| p.instances.iter().copied().chain([p.entity]).collect()).collect();
+            preview.picked_tools.iter().map(|p| p.occurrences.iter().copied().chain([p.entity]).collect()).collect();
         let acting_look = match preview.picked_sign {
             Some(skraft_model::Sign::Negative) => Look::Tool,
             Some(skraft_model::Sign::Intersect) => Look::Intersect,
@@ -784,11 +784,11 @@ impl Editor {
         // unless open (already marked so) —, still faded outside the active path.
         if let Some(p) = &self.navigator_hover
             && open.as_ref() != Some(p)
-            && let hovered = p.instances.iter().copied().chain([p.entity]).collect::<Vec<Id>>()
+            && let hovered = p.occurrences.iter().copied().chain([p.entity]).collect::<Vec<Id>>()
             // Hidden (it or an assembly above it, out of the active path): not marked, unless
             // the hidden are shown. What is hidden below it, `solids_under` leaves out.
             && (show_hidden || !crate::scene::is_chain_hidden(doc, &hovered, &active))
-            && let Some(index) = ContextIndex::new(doc, &p.instances)
+            && let Some(index) = ContextIndex::new(doc, &p.occurrences)
         {
             // An assembly holding the active path: only the solids under it are not faded.
             let inside = match active.split_last() {
@@ -820,16 +820,16 @@ impl Editor {
         }
         // The row hovered in the tree drop-up (docs/tools/selection.md).
         if let Some(p) = self.tree_hovered() {
-            mark(&mut v.highlights, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &p.occurrences, p.entity, Mark::Hover, DAffine3::IDENTITY);
         }
         // The parts at any depth it would take (« Parts », docs/tools/selection.md).
         for p in preview.marquee.iter().flat_map(|m| &m.paths).filter(|p| !self.deep.contains(p)) {
-            mark(&mut v.highlights, &p.instances, p.entity, taking, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &p.occurrences, p.entity, taking, DAffine3::IDENTITY);
         }
         let picked = preview.picked_solids.iter().map(|p| (p, Mark::Picked));
         for (p, m) in preview.hover_solid.iter().map(|p| (p, Mark::Hover)).chain(picked) {
             let from = v.highlights.len();
-            mark(&mut v.highlights, &p.instances, p.entity, m, DAffine3::IDENTITY);
+            mark(&mut v.highlights, &p.occurrences, p.entity, m, DAffine3::IDENTITY);
             // A part picked as a tool stays see-through under the cursor.
             if preview.picked_tools.contains(p) {
                 v.highlights[from..].iter_mut().for_each(|h| h.ghost = true);
@@ -875,7 +875,7 @@ impl Editor {
                 mark(&mut gone, &self.context, *id, Mark::Hover, DAffine3::IDENTITY);
             }
             for p in &preview.erasing_paths {
-                mark(&mut gone, &p.instances, p.entity, Mark::Hover, DAffine3::IDENTITY);
+                mark(&mut gone, &p.occurrences, p.entity, Mark::Hover, DAffine3::IDENTITY);
             }
             v.highlights.retain(|h| !gone.iter().any(|g| g.definition == h.definition && g.transform.abs_diff_eq(h.transform, 1e-9)));
         }
@@ -981,7 +981,7 @@ impl Editor {
             }
             tools::PaintTarget::Paths(paths) => {
                 for p in paths {
-                    mark(ContextIndex::new(doc, &p.instances), p.entity);
+                    mark(ContextIndex::new(doc, &p.occurrences), p.entity);
                 }
             }
             tools::PaintTarget::Face { path, face } => {

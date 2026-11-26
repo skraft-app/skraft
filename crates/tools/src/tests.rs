@@ -1138,7 +1138,7 @@ fn a_selection_shows_its_content_box() {
 }
 
 #[test]
-fn component_instances_and_scene_caches() {
+fn component_occurrences_and_scene_caches() {
     let doc = Document::new();
     let root = doc.root();
     let (d, out) = doc
@@ -1163,12 +1163,12 @@ fn component_instances_and_scene_caches() {
     assert_eq!(e.scene().definition_meshes().count(), 1);
     let (_, places) = e.scene().placements().next().unwrap();
     assert_eq!(places.len(), 2);
-    // Picking tells the instances apart.
+    // Picking tells the occurrences apart.
     let hit = e.scene().pick(&e.camera.ray(px(&e, DVec3::new(550.0, 50.0, 100.0)), e.viewport_size()), |_| true).unwrap();
-    assert_eq!(hit.path.instances, vec![i2]);
+    assert_eq!(hit.path.occurrences, vec![i2]);
     assert!((hit.point.z - 100.0).abs() < 1e-6);
 
-    // Moving an instance changes no mesh: same revision, same Arc.
+    // Moving an occurrence changes no mesh: same revision, same Arc.
     let mesh = e.scene().definition_mesh(def).unwrap().parts[0].mesh.clone();
     let rev = e.scene().definition_mesh(def).unwrap().revision;
     e.apply(Operation::Transform { context: root, entities: vec![i1], transform: t }).unwrap();
@@ -6680,7 +6680,7 @@ fn a_part_selected_at_any_depth_is_made_unique_alone() {
     let revision = e.history().revision();
     e.make_unique();
 
-    // This instance only: its assembly and its part are its own, the other copy as it was.
+    // This occurrence only: its assembly and its part are its own, the other copy as it was.
     let made = component(&e, &[g], a);
     assert_ne!(made, part);
     assert_ne!(component(&e, &[], g), assembly);
@@ -6725,7 +6725,7 @@ fn an_assembly_selected_at_any_depth_explodes() {
     let model = e.document().assembly(root).unwrap();
     assert!(model.occurrence(g).is_none() && model.occurrence(g2).is_some());
     assert_eq!(e.deep_selection().len(), 2, "what it held selected");
-    assert!(e.deep_selection().iter().all(|p| p.instances.is_empty() && model.occurrence(p.entity).is_some()));
+    assert!(e.deep_selection().iter().all(|p| p.occurrences.is_empty() && model.occurrence(p.entity).is_some()));
     e.undo();
     assert!(e.document().assembly(root).unwrap().occurrence(g).is_some());
 
@@ -6746,7 +6746,7 @@ fn an_assembly_selected_at_any_depth_explodes() {
     e.select_paths(vec![EntityPath::root(outer), EntityPath::new(vec![outer], g)]);
     e.explode();
     assert!(e.document().assembly(root).unwrap().occurrence(outer).is_none());
-    assert!(e.deep_selection().iter().all(|p| p.instances.is_empty()));
+    assert!(e.deep_selection().iter().all(|p| p.occurrences.is_empty()));
 }
 
 #[test]

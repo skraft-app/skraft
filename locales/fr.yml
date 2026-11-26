@@ -768,7 +768,7 @@ drawing:
     change_tip: "Choisir ce que montre la vue"
   subject:
     model: "Le modèle"
-    occurrences: "%{count} occurrences"
+    occurrences: "%{count} exemplaires"
   direction:
     front: "Face"
     back: "Arrière"
@@ -869,7 +869,7 @@ panel:
     type_line: "Trait"
     type_rect: "Rectangle"
     type_circle: "Cercle"
-    type_instance: "Composition"
+    type_occurrence: "Composition"
     type_presentation: "Présentation"
     type_document: "Document"
     anchor: "Ancrage"
@@ -892,7 +892,6 @@ panel:
     guide_circle: "Cercle · rayon %{radius}"
     name: "Nom"
     occurrence: "Exemplaire"
-    occurrences: "Exemplaires"
     # A body: blank (adds material) or machining (takes it away), toggled in the navigator.
     role: "Rôle"
     linked_to: "Lié à"
@@ -959,9 +958,9 @@ panel:
     unused: "Inutilisées"
     unused_tip: "Sur aucune feuille : gardée jusqu'à la purge"
     purge_tip: "Supprimer toutes les compositions inutilisées"
-    count_tip: "%{count} instance sur les feuilles"
-    count_tip_plural: "%{count} instances sur les feuilles"
-    delete_tip: "Supprimer cette composition et toutes ses instances"
+    count_tip: "%{count} exemplaire sur les feuilles"
+    count_tip_plural: "%{count} exemplaires sur les feuilles"
+    delete_tip: "Supprimer cette composition et tous ses exemplaires"
     none: "Aucune composition"
   # The entity info's properties (docs/model/properties.md): an entity's values, the
   # model's definitions.
@@ -1047,9 +1046,9 @@ panel:
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
-    # A row's right-click menu; the two names of a row with an instance name.
+    # A row's right-click menu; the two names of a row with an occurrence name.
     rename: "Renommer"
-    rename_instance: "Renommer l'exemplaire"
+    rename_occurrence: "Renommer l'exemplaire"
     rename_definition: "Renommer la définition"
     # A body's sign toggle, at the right end of its row (a linked body's tip is `linked`).
     sign_positive: "Brut : ajoute de la matière à la pièce. Cliquer pour en faire un usinage"
@@ -1181,7 +1180,7 @@ status:
   op_failed: "%{op} : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
-  # « Sélectionner les occurrences » of a component placed nowhere under the context (docs/ui/components-library.md).
+  # « Sélectionner les exemplaires » of a component placed nowhere under the context (docs/ui/components-library.md).
   no_occurrence_here: "Aucun exemplaire de ce composant ici"
   # « Créer un assemblage » under « Pièces » (docs/tools/selection.md).
   group_one_assembly: "Les éléments à regrouper doivent être dans un même assemblage"
@@ -1764,8 +1763,8 @@ operation:
   set_presentation: "Modifier la présentation"
   delete_presentation: "Supprimer la présentation"
   make_composition: "Créer une composition"
-  explode_instance: "Éclater"
-  make_instance_unique: "Rendre unique"
+  explode_occurrence: "Éclater"
+  make_occurrence_unique: "Rendre unique"
   rename_composition: "Renommer la composition"
   delete_composition: "Supprimer la composition"
   purge_compositions: "Purger les compositions"
@@ -1949,7 +1948,7 @@ error:
     composition_loop: "une composition ne peut pas se contenir elle-même"
     nothing_to_paste: "rien à coller : les vues et les cotes restent dans leur document"
     split_view: "une vue, ses projections et ses cotes restent ensemble"
-    turned_instance: "une instance tournée ne s'éclate pas : ses textes, rectangles, images ou vues ne tournent pas"
+    turned_occurrence: "un exemplaire tourné ne s'éclate pas : ses textes, rectangles, images ou vues ne tournent pas"
     blend_lost: "%{count} arête n'existe plus"
     blend_lost_plural: "%{count} arêtes n'existent plus"
     blend_no_edge: "aucune arête à cet endroit"

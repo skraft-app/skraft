@@ -2,8 +2,8 @@
 
 use skraft_i18n::{t, tp};
 use skraft_model::{
-    Border, Corner, Direction, Drawing, Element, ElementKind, Instance, Look, Paper, Place, Sheet, Side, Subject, Value, View, ViewKind,
-    ViewStyle,
+    Border, Corner, Direction, Drawing, Element, ElementKind, Look, Paper, Place, Sheet, Side, Subject, Value, View, ViewKind, ViewStyle,
+    drawing::Occurrence,
 };
 use skraft_model::{Document, Id, Operation, Units};
 use skraft_tools::Editor;
@@ -66,7 +66,7 @@ pub fn drawing_info(
         return;
     };
     let cx = DrawingCx { editor, doc, d, units: &doc.settings().units, field };
-    // A free element picked: its kind; a text its words and size; an instance its place.
+    // A free element picked: its kind; a text its words and size; an occurrence its place.
     if let Some(el) = crate::workspaces::drawing::sheet::selected_element(editor, st).filter(|el| !matches!(el.kind, ElementKind::View(_)))
     {
         info_grid(ui).show(ui, |ui| element_rows(ui, cx, el, sheet, &st.open, actions));
@@ -94,12 +94,12 @@ fn element_type(kind: &ElementKind) -> String {
             skraft_model::DimKind::Radius { .. } => t!("drawing.dim.diameter"),
             skraft_model::DimKind::Angle { .. } => t!("drawing.dim.angle"),
         },
-        ElementKind::Instance(_) => t!("panel.entity_info.type_instance"),
+        ElementKind::Occurrence(_) => t!("panel.entity_info.type_occurrence"),
         _ => t!("panel.entity_info.type_image"),
     }
 }
 
-/// The rows of a free element picked (`open`: the instances entered).
+/// The rows of a free element picked (`open`: the occurrences entered).
 fn element_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, el: &Element, sheet: &Sheet, open: &[Id], actions: &mut Vec<Action>) {
     let DrawingCx { editor, d, .. } = cx;
     let id = el.id;
@@ -121,9 +121,9 @@ fn element_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, el: &Element, sheet: &Shee
     if let ElementKind::Text { at, text, size } = &el.kind {
         text_rows(ui, cx, id, (at, text, size), actions);
     }
-    // An instance: its definition, its place, its values.
-    if let ElementKind::Instance(i) = &el.kind {
-        instance_rows(ui, cx, id, i, sheet, open, actions);
+    // An occurrence: its definition, its place, its values.
+    if let ElementKind::Occurrence(i) = &el.kind {
+        occurrence_rows(ui, cx, id, i, sheet, open, actions);
     }
 }
 
@@ -193,11 +193,12 @@ fn field_menu(ui: &mut egui::Ui, d: &Drawing, id: Id, append: &dyn Fn(&str) -> A
     });
 }
 
-/// An instance's definition, place and values.
-fn instance_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, id: Id, i: &Instance, sheet: &Sheet, open: &[Id], actions: &mut Vec<Action>) {
+/// An occurrence's definition, place and values.
+fn occurrence_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, id: Id, i: &Occurrence, sheet: &Sheet, open: &[Id], actions: &mut Vec<Action>) {
     let DrawingCx { doc, d, units, field, .. } = cx;
-    let set_place =
-        |place: Place| Action::Apply(Operation::SetElement { element: id, kind: ElementKind::Instance(Instance { place, ..i.clone() }) });
+    let set_place = |place: Place| {
+        Action::Apply(Operation::SetElement { element: id, kind: ElementKind::Occurrence(Occurrence { place, ..i.clone() }) })
+    };
     let composition = d.composition(i.composition);
     if let Some(b) = composition {
         field_label(ui, t!("panel.entity_info.name"));
@@ -238,7 +239,7 @@ fn instance_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, id: Id, i: &Instance, she
     }
     if let Some(b) = composition {
         let names = field_rows(d.field_names(&b.elements), Some(&i.props));
-        let on = ValuesOn::Instance { id, instance: i, sheet: sheet.id, above: open };
+        let on = ValuesOn::Occurrence { id, occurrence: i, sheet: sheet.id, above: open };
         value_rows(ui, doc, &on, names, field, actions);
     }
 }
@@ -548,10 +549,10 @@ pub(super) enum ValuesOn<'a> {
     Document,
     Presentation(&'a skraft_model::Presentation),
     Sheet(&'a skraft_model::Sheet),
-    /// An instance on `sheet` under the instances `above`.
-    Instance {
+    /// An occurrence on `sheet` under the occurrences `above`.
+    Occurrence {
         id: Id,
-        instance: &'a skraft_model::Instance,
+        occurrence: &'a skraft_model::drawing::Occurrence,
         sheet: Id,
         above: &'a [Id],
     },
@@ -582,7 +583,7 @@ fn value_rows(ui: &mut egui::Ui, doc: &Document, on: &ValuesOn<'_>, names: Vec<S
         ValuesOn::Document => doc.root().0,
         ValuesOn::Presentation(p) => p.id.0,
         ValuesOn::Sheet(s) => s.id.0,
-        ValuesOn::Instance { id, .. } => id.0,
+        ValuesOn::Occurrence { id, .. } => id.0,
     };
     let label_width = info_label_width(ui);
     for name in names {
@@ -592,7 +593,7 @@ fn value_rows(ui: &mut egui::Ui, doc: &Document, on: &ValuesOn<'_>, names: Vec<S
             ValuesOn::Document => (in_root, None),
             ValuesOn::Presentation(p) => (p.props.get(&key), in_root),
             ValuesOn::Sheet(s) => (s.props.get(&key), d.presentation_of(s.id).and_then(|p| p.props.get(&key)).or(in_root)),
-            ValuesOn::Instance { instance, sheet, above, .. } => (instance.props.get(&key), doc.field(*sheet, above, &key)),
+            ValuesOn::Occurrence { occurrence, sheet, above, .. } => (occurrence.props.get(&key), doc.field(*sheet, above, &key)),
         };
         ui.vertical(|ui| {
             let size = egui::vec2(label_width, OPTION_HEIGHT);
@@ -630,7 +631,7 @@ fn value_rows(ui: &mut egui::Ui, doc: &Document, on: &ValuesOn<'_>, names: Vec<S
             },
             ValuesOn::Presentation(p) => Operation::SetField { on: FieldOn::Presentation(p.id), key, value },
             ValuesOn::Sheet(s) => Operation::SetField { on: FieldOn::Sheet(s.id), key, value },
-            ValuesOn::Instance { id, .. } => Operation::SetField { on: FieldOn::Instance(*id), key, value },
+            ValuesOn::Occurrence { id, .. } => Operation::SetField { on: FieldOn::Occurrence(*id), key, value },
         }));
     }
 }

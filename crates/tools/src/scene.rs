@@ -398,7 +398,7 @@ impl DisplayScene {
 
         self.placements.clear();
         for p in doc.placed_parts() {
-            let mut path = p.path.instances;
+            let mut path = p.path.occurrences;
             path.push(p.path.entity);
             let hidden = hidden_off(&path, p.hidden_at, &self.active);
             self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material: p.material, hidden });
@@ -419,7 +419,7 @@ impl DisplayScene {
         // Where the recipe shown stands: at its occurrence.
         self.recipe_places.clear();
         if let (Some(r), Some(path), true) = (&self.recipe, &self.recipe_path, true) {
-            let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+            let chain: Vec<Id> = path.occurrences.iter().copied().chain([path.entity]).collect();
             if let Some(open) = self.placements.get(&r.part).and_then(|ps| ps.iter().find(|p| p.path == chain)).cloned() {
                 for b in &r.blanks {
                     let place = Placement { transform: open.transform * r.within * b.placement, ..open.clone() };
@@ -548,7 +548,7 @@ impl DisplayScene {
     /// The geometry inferences see on the occurrence `path` (its shape's meshes, or the
     /// recipe's while it is the open one).
     pub fn inferable_of(&self, path: &EntityPath) -> Vec<(&Placement, &PartMesh, Piece)> {
-        let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+        let chain: Vec<Id> = path.occurrences.iter().copied().chain([path.entity]).collect();
         if self.recipe_open() == Some(chain.as_slice()) {
             return self.recipe_pieces().collect();
         }
@@ -818,7 +818,7 @@ impl DisplayScene {
 
     /// The occurrence `path` names: its part-to-world transform and its mesh.
     pub fn part_at(&self, path: &EntityPath) -> Option<(DAffine3, &PartMesh)> {
-        let chain: Vec<Id> = path.instances.iter().copied().chain([path.entity]).collect();
+        let chain: Vec<Id> = path.occurrences.iter().copied().chain([path.entity]).collect();
         self.entries_under(&chain).iter().map(|i| self.entry(*i)).find(|(p, _)| p.path == chain).map(|(p, part)| (p.transform, part))
     }
 

@@ -1,4 +1,4 @@
-//! The name of an instance — an occurrence, a body —, written the same wherever it shows (the
+//! The name of an occurrence — of a component, of a body —, written the same wherever it shows (the
 //! navigator's rows, the tree drop-up, docs/tools/selection.md): its own name, if it
 //! has one, in semibold, then its definition's between angle brackets (« Gauche <Pied> »,
 //! « <Pied> »). The brackets faint, well apart from the names; the definition's name, automatic
@@ -21,7 +21,7 @@ pub struct NameInk {
 /// How much of the weak ink the brackets keep (the ribbon's unpinned pin's).
 const FAINT: f32 = 0.55;
 
-/// The name of an instance whose own name is `own` (empty: none) and whose definition is
+/// The name of an occurrence whose own name is `own` (empty: none) and whose definition is
 /// named `def`, automatically when `auto`.
 pub fn job(own: &str, def: &str, auto: bool, ink: NameInk) -> LayoutJob {
     let regular = |color: Color32| TextFormat { font_id: egui::FontId::proportional(ink.size), color, ..Default::default() };

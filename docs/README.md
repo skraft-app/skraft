@@ -34,7 +34,7 @@ decision replaced. What is not built yet is not described here.
 | Word | Meaning |
 |---|---|
 | **Component** | A definition: a **part** (solids) or an **assembly** (occurrences). |
-| **Occurrence** | A placed instance of a component; copies of a component change together until made unique. |
+| **Occurrence** | A component placed; copies of a component change together until made unique. |
 | **Body** | A solid of a part, **positive** (added) or **negative** (removed, a *machining*); a part is ∪ positives − ∪ negatives. |
 | **Body definition / group** | A body's shape, shared by its copies; a group nests bodies (a CSG tree without history). |
 | **Recipe** | What a body is built from (a primitive, a profile, a boolean), kept to edit it again. |

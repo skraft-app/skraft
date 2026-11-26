@@ -227,22 +227,22 @@ pub enum Operation {
         #[serde(default)]
         scope: Scope,
     },
-    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `instances` leads
+    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `from` leads
     /// to into the part `to` (at the level its path names), as bodies — parts pasted into a part
     /// (docs/tools/copy-paste.md, decision 0044) —, their world place kept.
     MoveParts {
-        instances: Vec<Id>,
+        from: Vec<Id>,
         occurrences: Vec<Id>,
         to: EntityPath,
         #[serde(default, skip_serializing_if = "is_false")]
         copy: bool,
     },
-    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `instances` leads
+    /// Moves (or copies, `copy`) the occurrences `occurrences` of the assembly `from` leads
     /// to into the assembly `to` leads to (empty: the model), their world place kept (decision
     /// 0044): that assembly's definition changes, every copy of it. Into itself, or into an
     /// assembly one of them holds, refused.
     MoveOccurrences {
-        instances: Vec<Id>,
+        from: Vec<Id>,
         occurrences: Vec<Id>,
         to: Vec<Id>,
         #[serde(default, skip_serializing_if = "is_false")]
@@ -571,17 +571,17 @@ pub enum Operation {
     PasteElements { fragment: Arc<Document>, to: Container, offset: glam::DVec2, linked: bool },
     /// Elements of a sheet, with what hangs on them, moved (or copied) onto sheet `to`.
     MoveElements { elements: Vec<Id>, to: Id, offset: glam::DVec2, copy: bool },
-    /// An instance replaced by copies of what its composition holds.
-    ExplodeInstance { instance: Id },
-    /// An instance given a composition of its own, a copy of the one it shares.
-    MakeInstanceUnique { instance: Id },
+    /// An occurrence replaced by copies of what its composition holds.
+    ExplodeOccurrence { occurrence: Id },
+    /// An occurrence given a composition of its own, a copy of the one it shares.
+    MakeOccurrenceUnique { occurrence: Id },
     /// A composition named.
     RenameComposition { composition: Id, name: String },
-    /// A composition deleted, with its instances.
+    /// A composition deleted, with its occurrences.
     DeleteComposition { composition: Id },
     /// The compositions shown on no sheet deleted.
     PurgeCompositions,
-    /// A field's value set on a presentation, a sheet or an instance, or cleared.
+    /// A field's value set on a presentation, a sheet or an occurrence, or cleared.
     SetField { on: FieldOn, key: String, value: Option<crate::Value> },
     /// Several operations in one step, applied in order: their outcomes put together.
     Batch(Vec<Operation>),
@@ -646,8 +646,8 @@ impl Operation {
             Operation::DeletePresentation { .. } => t!("operation.delete_presentation"),
             Operation::SetElementState { .. } | Operation::MoveElement { .. } => t!("operation.set_element"),
             Operation::MakeComposition { .. } => t!("operation.make_composition"),
-            Operation::ExplodeInstance { .. } => t!("operation.explode_instance"),
-            Operation::MakeInstanceUnique { .. } => t!("operation.make_instance_unique"),
+            Operation::ExplodeOccurrence { .. } => t!("operation.explode_occurrence"),
+            Operation::MakeOccurrenceUnique { .. } => t!("operation.make_occurrence_unique"),
             Operation::RenameComposition { .. } => t!("operation.rename_composition"),
             Operation::DeleteComposition { .. } => t!("operation.delete_composition"),
             Operation::PurgeCompositions => t!("operation.purge_compositions"),
@@ -777,7 +777,7 @@ pub enum BodiesTo {
     /// A level of the same part: a group or body node, by the bodies leading to it from the
     /// part's root (empty: its root).
     Level(Vec<Id>),
-    /// Out of the part: a new part in the assembly the occurrences `instances` lead to (empty:
+    /// Out of the part: a new part in the assembly the occurrences `occurrences` lead to (empty:
     /// the model; the part's own context: « Sortir de la pièce »), as bodies pasted out of a
     /// part (docs/tools/copy-paste.md).
     NewPart(Vec<Id>),
@@ -813,13 +813,13 @@ pub struct Outcome {
     pub relocated: Vec<(Vec<Id>, Vec<Id>)>,
     /// The sheet added (docs/ui/drawing.md).
     pub sheet: Option<Id>,
-    /// The element added to a sheet or a composition, or the instance a group became.
+    /// The element added to a sheet or a composition, or the occurrence a group became.
     pub element: Option<Id>,
     /// The presentation added.
     pub presentation: Option<Id>,
-    /// The composition an instance was given.
+    /// The composition an occurrence was given.
     pub composition: Option<Id>,
-    /// The elements an instance exploded into.
+    /// The elements an occurrence exploded into.
     pub elements: Vec<Id>,
     /// What the linked bodies did after it (docs/decisions/0055-linked-bodies-through-imprints.md).
     pub links: crate::Followed,
@@ -1080,12 +1080,12 @@ impl Document {
                 let elements = self.move_elements(elements, *to, *offset, *copy)?;
                 Ok(Outcome { elements, ..Outcome::default() })
             }
-            Operation::ExplodeInstance { instance } => {
-                let elements = self.explode_instance(*instance)?;
+            Operation::ExplodeOccurrence { occurrence } => {
+                let elements = self.explode_occurrence(*occurrence)?;
                 Ok(Outcome { elements, ..Outcome::default() })
             }
-            Operation::MakeInstanceUnique { instance } => {
-                let composition = self.make_instance_unique(*instance)?;
+            Operation::MakeOccurrenceUnique { occurrence } => {
+                let composition = self.make_occurrence_unique(*occurrence)?;
                 Ok(Outcome { composition: Some(composition), ..Outcome::default() })
             }
             Operation::RenameComposition { composition, name } => self.rename_composition(*composition, name).map(|_| Outcome::default()),
@@ -1719,8 +1719,8 @@ impl Document {
                 let bodies = if *copy { bodies.clone() } else { self.editable(self.resolve_part(from)?.0, bodies.clone())? };
                 self.move_bodies(from, &bodies, to, *copy, *scope, solver)
             }
-            Operation::MoveParts { instances, occurrences, to, copy } => self.move_parts(instances, occurrences, to, *copy, solver),
-            Operation::MoveOccurrences { instances, occurrences, to, copy } => self.move_occurrences(instances, occurrences, to, *copy),
+            Operation::MoveParts { from, occurrences, to, copy } => self.move_parts(from, occurrences, to, *copy, solver),
+            Operation::MoveOccurrences { from, occurrences, to, copy } => self.move_occurrences(from, occurrences, to, *copy),
             Operation::GroupBodies { target, bodies, scope } => {
                 let (part, _, bodies) = self.bodies_of(target, bodies, *scope)?;
                 let bodies = self.editable(part, bodies)?;
@@ -2788,7 +2788,7 @@ impl Document {
     /// assembly, docs/model/data-model.md): `path` stays valid, and names the same thing.
     pub(crate) fn separate(&mut self, path: &EntityPath) -> Result<()> {
         let mut at = self.root;
-        for &i in path.instances.iter().chain(std::iter::once(&path.entity)) {
+        for &i in path.occurrences.iter().chain(std::iter::once(&path.entity)) {
             let o = self.assembly(at)?.occurrence(i).ok_or(Error::NotFound(i))?.component;
             let own = if self.occurrence_count(o) > 1 {
                 let copy = self.copy_component(o)?;

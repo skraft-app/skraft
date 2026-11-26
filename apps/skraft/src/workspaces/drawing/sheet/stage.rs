@@ -382,7 +382,7 @@ fn open_level(e: &mut Editor, st: &mut SheetState, id: Id) -> (Container, DAffin
         (to, place, st.projection(d))
     };
     let compositions: Vec<Id> =
-        st.open.iter().filter_map(|i| e.document().drawing().element(*i)?.kind.instance().map(|i| i.composition)).collect();
+        st.open.iter().filter_map(|i| e.document().drawing().element(*i)?.kind.occurrence().map(|i| i.composition)).collect();
     for b in std::mem::replace(&mut st.was_open, compositions.clone()) {
         if !compositions.contains(&b) && e.document().drawing().composition(b).is_some_and(|x| x.elements.is_empty()) {
             let _ = e.apply(Operation::DeleteComposition { composition: b });
@@ -762,11 +762,11 @@ fn select_tool(e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_>, preview: &O
     let drawing = shown_drawing(preview, e);
     let at = response.interact_pointer_pos();
     let hit = at.and_then(|p| st.frames.iter().rev().find(|(_, r)| r.contains(p)).map(|(v, _)| *v));
-    // A double click enters an instance; on the sheet's void it frames the sheet, off
+    // A double click enters an occurrence; on the sheet's void it frames the sheet, off
     // its paper the whole board.
     if double {
-        let instance = hit.filter(|v| drawing.element(*v).is_some_and(|el| el.kind.instance().is_some()));
-        match (instance, hit) {
+        let occurrence = hit.filter(|v| drawing.element(*v).is_some_and(|el| el.kind.occurrence().is_some()));
+        match (occurrence, hit) {
             (Some(i), _) => st.enter(i),
             // A view: its point of view (decision 0051).
             (None, Some(v)) if drawing.element(v).is_some_and(|el| matches!(el.kind, ElementKind::View(_))) => {

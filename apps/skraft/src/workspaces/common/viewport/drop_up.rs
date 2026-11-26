@@ -7,7 +7,7 @@ use egui::{Rect, vec2};
 use skraft_tools::{Tree, TreeRow};
 
 use crate::commands::Action;
-use crate::workspaces::common::instance_name::{self, NameInk};
+use crate::workspaces::common::occurrence_name::{self, NameInk};
 
 /// The indent per level of the path (points).
 const INDENT: f32 = 6.0;
@@ -16,7 +16,7 @@ const ROW_HEIGHT: f32 = 22.0;
 const ROW_PAD: f32 = 8.0;
 
 /// The list, its bottom right corner on `at` (the cursor, screen points), kept inside `view`.
-/// Every row as wide as the list (the ribbon's menus), its name as [`instance_name`] writes it,
+/// Every row as wide as the list (the ribbon's menus), its name as [`occurrence_name`] writes it,
 /// in the strong ink — greyed for the levels that cannot be chosen.
 pub fn show(ctx: &egui::Context, view: Rect, at: egui::Pos2, tree: &Tree, actions: &mut Vec<Action>) {
     let mut hovered = None;
@@ -35,7 +35,7 @@ pub fn show(ctx: &egui::Context, view: Rect, at: egui::Pos2, tree: &Tree, action
                     .rows
                     .iter()
                     .map(|r| {
-                        ui.painter().layout_job(instance_name::job(&r.name, &r.component, r.auto, NameInk { size, ink: ink(r), weak }))
+                        ui.painter().layout_job(occurrence_name::job(&r.name, &r.component, r.auto, NameInk { size, ink: ink(r), weak }))
                     })
                     .collect();
                 let width =

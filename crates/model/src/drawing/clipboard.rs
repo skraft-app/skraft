@@ -1,5 +1,5 @@
 //! Copying a drawing's elements (docs/ui/drawing.md#copy-and-paste) and moving them between
-//! sheets: what hangs on a view goes with it, an instance stays an instance of its composition.
+//! sheets: what hangs on a view goes with it, an occurrence stays an occurrence of its composition.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -43,13 +43,13 @@ impl Document {
         let list = self.drawing.elements_in(container).ok_or(Error::Invalid(Refusal::BadElement))?;
         let elements: Vec<Element> = list.iter().filter(|e| members.contains(&e.id)).cloned().collect();
         let mut compositions: BTreeMap<Id, Composition> = BTreeMap::new();
-        let mut todo: Vec<Id> = elements.iter().filter_map(|e| e.kind.instance().map(|i| i.composition)).collect();
+        let mut todo: Vec<Id> = elements.iter().filter_map(|e| e.kind.occurrence().map(|i| i.composition)).collect();
         while let Some(id) = todo.pop() {
             if compositions.contains_key(&id) {
                 continue;
             }
             let c = self.drawing.composition(id).ok_or(Error::NotFound(id))?;
-            todo.extend(c.elements.iter().filter_map(|e| e.kind.instance().map(|i| i.composition)));
+            todo.extend(c.elements.iter().filter_map(|e| e.kind.occurrence().map(|i| i.composition)));
             compositions.insert(id, c.clone());
         }
         let paper = match container {
@@ -82,7 +82,7 @@ impl Document {
     }
 
     /// Composition `id` of `fragment`, copied from this document, back if it went since (its
-    /// last instance cut): under its id, which the state copied from keeps from being reused,
+    /// last occurrence cut): under its id, which the state copied from keeps from being reused,
     /// so that every paste places the same one.
     fn restore_composition(&mut self, fragment: &Document, id: Id) -> Result<()> {
         if self.drawing.composition(id).is_some() {
@@ -90,7 +90,7 @@ impl Document {
         }
         let c = fragment.drawing.composition(id).ok_or(Error::NotFound(id))?;
         for e in &c.elements {
-            if let Some(i) = e.kind.instance() {
+            if let Some(i) = e.kind.occurrence() {
                 self.restore_composition(fragment, i.composition)?;
             }
         }
@@ -102,7 +102,7 @@ impl Document {
     }
 
     /// `fragment` pasted on top of `to`, moved by `offset`. `linked`: copied from this document
-    /// in a state it still knows, so its instances stay those of the same compositions and its
+    /// in a state it still knows, so its occurrences stay those of the same compositions and its
     /// views keep showing the model. Else as a template's: no view nor dimension, the
     /// compositions brought once. Gives what was added.
     pub(crate) fn paste_elements(&mut self, fragment: &Document, to: Container, offset: DVec2, linked: bool) -> Result<Vec<Id>> {
@@ -119,7 +119,7 @@ impl Document {
                 self.assets.insert(id.clone(), asset.clone());
             }
             for e in &source.elements {
-                if let Some(i) = e.kind.instance() {
+                if let Some(i) = e.kind.occurrence() {
                     self.restore_composition(fragment, i.composition)?;
                 }
             }
@@ -134,7 +134,7 @@ impl Document {
         }
         let t = DAffine2::from_translation(offset);
         for c in &mut copies {
-            if let ElementKind::Instance(i) = &mut c.kind
+            if let ElementKind::Occurrence(i) = &mut c.kind
                 && let Container::Composition(b) = to
             {
                 if self.drawing.reaches(i.composition, b) {
@@ -151,7 +151,7 @@ impl Document {
     }
 
     /// The elements `ids` of a sheet, with their families, moved (or copied, `copy`) on top of
-    /// sheet `to`, by `offset` — an instance anchored to the paper keeps its corner and offset.
+    /// sheet `to`, by `offset` — an occurrence anchored to the paper keeps its corner and offset.
     /// Gives them as they are there.
     pub(crate) fn move_elements(&mut self, ids: &[Id], to: Id, offset: DVec2, copy: bool) -> Result<Vec<Id>> {
         let first = *ids.first().ok_or(Error::Invalid(Refusal::BadElement))?;
@@ -170,7 +170,7 @@ impl Document {
         let mut moved = if copy { self.fresh_copies(&taken) } else { taken };
         let t = DAffine2::from_translation(offset);
         for e in &mut moved {
-            if !e.kind.instance().is_some_and(|i| i.place.corner.is_some()) {
+            if !e.kind.occurrence().is_some_and(|i| i.place.corner.is_some()) {
                 e.kind = e.kind.placed_by(t, 0.0);
             }
         }

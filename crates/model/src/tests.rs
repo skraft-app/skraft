@@ -147,7 +147,7 @@ fn assemblies_make_explode_and_share() {
     h.apply(Operation::Transform { context: root, entities: vec![g], transform: t }).unwrap();
     let placed = h.document().placed_parts();
     assert_eq!(placed.len(), 2);
-    assert!(placed.iter().all(|p| p.path.instances == vec![g]));
+    assert!(placed.iter().all(|p| p.path.occurrences == vec![g]));
     assert!(close(world_bounds(h.document(), &EntityPath::new(vec![g], a)).0, DVec3::new(100.0, 0.0, 0.0)));
 
     // A copy of the assembly shares it: two paths to each part.
@@ -1128,7 +1128,7 @@ fn a_part_s_guides_go_with_its_machinings() {
 fn stretch(doc: &Document, target: &EntityPath, axis: DVec3, cuts: Vec<f64>, moves: Vec<f64>, scope: Scope) -> Operation {
     let frame = doc.resolve(target).unwrap().transform;
     Operation::Stretch {
-        context: target.instances.clone(),
+        context: target.occurrences.clone(),
         occurrences: vec![target.entity],
         frame,
         axis,

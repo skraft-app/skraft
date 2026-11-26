@@ -44,7 +44,7 @@ fn near_polyline(line: &[DVec2], p: DVec2) -> (f64, usize, f64) {
 /// What a dimension's tool picks at `p` (sheet millimetres) within `reach`: a vertex
 /// (linear) or an edge (a circle's: radius, diameter; a straight one: angle) of a view right
 /// in `list`, what is edited (`only`: that view's; a dimension stays beside its view, so one in
-/// an instance is dimensioned once in its composition), `p` in its axes; its view, its anchor, and
+/// an occurrence is dimensioned once in its composition), `p` in its axes; its view, its anchor, and
 /// where it is.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn pick_at(

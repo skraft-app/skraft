@@ -153,7 +153,9 @@ impl BlendTool {
     fn keeps(cx: &Cx<'_>, o: &Owner<'_>) -> bool {
         match cx.open_part_path() {
             Some(open) => {
-                matches!(o.piece, Piece::Blank(_) | Piece::Tool(_)) && o.path.instances == open.instances && o.path.entity == open.entity
+                matches!(o.piece, Piece::Blank(_) | Piece::Tool(_))
+                    && o.path.occurrences == open.occurrences
+                    && o.path.entity == open.entity
             }
             None => o.piece == Piece::Shape,
         }

@@ -59,7 +59,7 @@ pub struct ViewPicker {
 
 /// A path's occurrences from the root, its own last.
 fn chain(p: &EntityPath) -> Vec<Id> {
-    p.instances.iter().copied().chain([p.entity]).collect()
+    p.occurrences.iter().copied().chain([p.entity]).collect()
 }
 
 /// The first place component `target` stands under `component`.
@@ -125,8 +125,8 @@ impl ViewPicker {
         };
         let mut unfolded = HashSet::new();
         for p in &checked {
-            for n in 1..=p.instances.len() {
-                unfolded.insert(p.instances[..n].to_vec());
+            for n in 1..=p.occurrences.len() {
+                unfolded.insert(p.occurrences[..n].to_vec());
             }
         }
         ViewPicker { purpose, original: subject, checked, touched: false, search: String::new(), unfolded, rows: None }

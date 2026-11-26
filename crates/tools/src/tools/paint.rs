@@ -42,7 +42,7 @@ pub struct PaintTool {
 impl PaintTool {
     /// The part `hit` is on, under the active context (« Parts »).
     fn part(hit: &Hit, cx: &Cx<'_>) -> Option<EntityPath> {
-        Some(hit.path.part_path()).filter(|p| p.instances.starts_with(cx.context))
+        Some(hit.path.part_path()).filter(|p| p.occurrences.starts_with(cx.context))
     }
 
     /// Painting the parts (or assemblies) `paths` at any depth, each in its own assembly.

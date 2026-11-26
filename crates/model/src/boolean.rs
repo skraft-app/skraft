@@ -129,7 +129,7 @@ impl Document {
             tools.iter().enumerate().filter(|(i, _)| reached.iter().any(|r| r.contains(i))).map(|(_, t)| t).collect();
         if !keep.tools {
             for t in &used {
-                let ctx = self.context_of(&t.path.instances)?;
+                let ctx = self.context_of(&t.path.occurrences)?;
                 self.assembly_mut(ctx)?.occurrences_mut().retain(|o| o.id != t.path.entity);
             }
         }
@@ -175,9 +175,9 @@ impl Document {
             };
             let o = self.resolve(&targets[k])?.clone();
             let id = self.fresh_id();
-            let ctx = self.context_of(&targets[k].instances)?;
+            let ctx = self.context_of(&targets[k].occurrences)?;
             self.assembly_mut(ctx)?.occurrences_mut().push(Occurrence { id, component: copy, hidden: false, ..o });
-            targets[k] = EntityPath::new(targets[k].instances.clone(), id);
+            targets[k] = EntityPath::new(targets[k].occurrences.clone(), id);
         }
         Ok(())
     }
@@ -237,10 +237,13 @@ impl Document {
     /// Makes the assemblies on `path`'s way its own, as [`Document::separate`], then points its
     /// occurrence at `part`.
     fn separate_onto(&mut self, path: &EntityPath, part: Id) -> Result<()> {
-        if !path.instances.is_empty() {
-            self.separate(&EntityPath::new(path.instances[..path.instances.len() - 1].to_vec(), path.instances[path.instances.len() - 1]))?;
+        if !path.occurrences.is_empty() {
+            self.separate(&EntityPath::new(
+                path.occurrences[..path.occurrences.len() - 1].to_vec(),
+                path.occurrences[path.occurrences.len() - 1],
+            ))?;
         }
-        let ctx = self.context_of(&path.instances)?;
+        let ctx = self.context_of(&path.occurrences)?;
         if let Some(o) = self.assembly_mut(ctx)?.occurrence_mut(path.entity) {
             o.component = part;
         }
