@@ -310,7 +310,8 @@ fn source_row(ui: &mut egui::Ui, c: &skraft_model::Component, width: f32, action
 }
 
 /// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
-/// (edited there), its source, a part's dimensions, the materials it and its faces carry.
+/// (edited there), its source, a part's material (edited there too), its dimensions, the
+/// materials it and its faces carry.
 fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(c) = doc.component(id) else { return };
@@ -333,6 +334,13 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
         ui.end_row();
         source_row(ui, c, field, actions);
         if let ComponentKind::Part(p) = &c.kind {
+            // The part's own, placed or not: every occurrence of it shows it.
+            field_label(ui, t!("panel.entity_info.material"));
+            let on_part = |m: &skraft_model::Material| m.family() == Family::Material;
+            if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part) {
+                actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Material, material: m }));
+            }
+            ui.end_row();
             if let Some(error) = pieces_error(p.pieces()) {
                 ui.label(t!("panel.entity_info.dimensions"));
                 cut_label(ui, egui::RichText::new(error).color(ui.visuals().error_fg_color), field);

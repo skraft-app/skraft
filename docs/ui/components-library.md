@@ -138,9 +138,11 @@ Decision [0038](../decisions/0038-components-library-card.md).
 
 - **Choosing**: a click chooses the component (marked in the card; `Editor::choose_component`,
   the selection let go); the entity info then shows it as it shows the model
-  ([The model row](interface.md#the-model-row)): its nature, its name (edited there), its
-  source, a part's dimensions, the materials it and its faces carry (`component_info`). Not its
-  count in the model: the card's section says whether it is placed, the cut list counts it. It stays chosen until anything else is (a click or Esc in the view, a
+  ([The model row](interface.md#the-model-row)): its nature, its name, its source, a part's
+  material (all three edited there; the material by `Operation::PaintPart`, on the definition
+  whether placed or not), its dimensions, the materials it and its faces carry
+  (`component_info`). Not its count in the model: the card's section says whether it is
+  placed, the cut list counts it. It stays chosen until anything else is (a click or Esc in the view, a
   selection, a part opened: `Editor::chosen_component`).
 - **Context menu** (right click), on the component under it. A right click **does not choose
   it**: choosing lets the selection go, which « Remplacer la sélection » takes.
