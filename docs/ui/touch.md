@@ -178,7 +178,9 @@ halves of the screen under the app's canvas: `#edge-top` in the title bar's colo
 body's padding, `--edge`: 5 px, the least Safari takes — tried on an iPhone, 4 px was not; thin
 strips needed 11 px). Without its line, the bottom half is not seen: the bar then keeps the
 body's colour, and no longer follows a change of theme. Beside the canvas, the halves stop at
-the safe areas: the panels' colour shows there, whole. The loading screen hides them — the bars
+the safe areas: the panels' colour shows there, whole. A phone on its side has neither halves
+nor lines (`orientation: landscape` up to 500 px high): Safari's bars and the status bar are
+out of the way there, and the canvas takes the whole height. The loading screen hides them — the bars
 then take its ground, one colour — and they are taken out and put back (the page's
 `skraftEdges`) once it is gone, and when the app's theme changes: the app gives the page those
 two colours (`system::web::set_page_colors`: CSS variables `--skraft-top`, `--skraft-bottom`),
