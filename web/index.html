@@ -32,6 +32,9 @@
     // name themselves in the user agent, and go without them (see .edge).
     if (/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|GSA\//.test(navigator.userAgent))
       document.documentElement.classList.add("no-edges");
+    // `?webgpu=off` in the address: a browser without WebGPU, to try what it is shown.
+    if (new URLSearchParams(location.search).get("webgpu") === "off")
+      Object.defineProperty(navigator, "gpu", { value: undefined });
   </script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -100,6 +103,9 @@
     #loader p { margin: 0; max-width: 300px; font: 12px ui-monospace, monospace;
                 color: color-mix(in srgb, var(--skraft-ink, #111) 55%, var(--skraft-bottom, #fbfaf6));
                 text-align: center; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+    /* The app's own words for why it cannot run (the browser lacks WebGPU…), from its catalogs. */
+    #loader p.said { max-width: 320px; font: 15px/1.5 system-ui, sans-serif; color: var(--skraft-ink, #111);
+                     overflow-wrap: normal; }
   </style>
 </head>
 <body>
@@ -152,6 +158,22 @@
       }
     };
 
+    const loader = document.getElementById("loader");
+    // The loading screen, failed: `text` under its red bar, the browser's words or (`said`) the
+    // app's. Put back if it was gone — before the edges, which it keeps hidden (see .edge).
+    let failed = false;
+    const fail = (text, said) => {
+      failed = true;
+      loader.classList.add("failed");
+      const why = document.createElement("p");
+      if (said) why.className = "said";
+      why.textContent = text;
+      loader.append(why);
+      if (!loader.isConnected) document.body.insertBefore(loader, document.querySelector(".edge"));
+    };
+    // The app cannot run (no WebGPU, no adapter): it says why (apps/skraft/src/lib.rs).
+    window.skraftFailed = (text) => fail(text, true);
+
     // The loading screen, without text but the app's name drawn: the catalogs are in the wasm
     // it waits for. Progress
     // counts decompressed bytes against the sizes `scripts/build-web.sh` writes here, since a
@@ -161,7 +183,6 @@
     let hidden = document.hidden;
     document.addEventListener("visibilitychange", () => { hidden ||= document.hidden; });
 
-    const loader = document.getElementById("loader");
     const bar = loader.querySelector("i");
     const sizes = { ui: Number("__UI_WASM_BYTES__") };
     const loaded = { ui: 0, kernel: 0 };
@@ -196,8 +217,10 @@
       await init({ module_or_path: counted("./pkg/skraft_bg.wasm", "ui") });
       await kernel;
       await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame)));
-      loader.remove();
-      window.skraftEdges();
+      if (!failed) {
+        loader.remove();
+        window.skraftEdges();
+      }
     } catch (err) {
       console.error("Skraft failed to load", err);
       if (hidden) {
@@ -205,10 +228,7 @@
         document.addEventListener("visibilitychange", again);
         again();
       } else {
-        loader.classList.add("failed");
-        const why = document.createElement("p");
-        why.textContent = String(err?.message ?? err);
-        loader.append(why);
+        fail(String(err?.message ?? err), false);
       }
     }
   </script>

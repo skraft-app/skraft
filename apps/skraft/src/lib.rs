@@ -117,9 +117,18 @@ fn has_webgpu() -> bool {
         .is_ok_and(|gpu| !gpu.is_undefined() && !gpu.is_null())
 }
 
-/// `text` in place of the app's canvas, centred on the page.
+/// `text` on the page's loading screen, failed (`skraftFailed`, web/index.html:
+/// docs/ui/loading.md); a page without it gets it in place of the app's canvas.
 #[cfg(target_arch = "wasm32")]
 fn show_failure(canvas: &web_sys::HtmlCanvasElement, text: &str) {
+    use wasm_bindgen::JsCast;
+    if let Some(failed) = web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"skraftFailed".into()).ok())
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+    {
+        let _ = failed.call1(&wasm_bindgen::JsValue::NULL, &text.into());
+        return;
+    }
     let (Some(document), Some(parent)) = (canvas.owner_document(), canvas.parent_node()) else { return };
     let Ok(message) = document.create_element("div") else { return };
     message.set_text_content(Some(text));
