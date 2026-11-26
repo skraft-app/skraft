@@ -4,6 +4,7 @@
 use crate::kit::icons;
 
 mod button;
+pub(crate) mod color;
 mod field;
 mod form;
 mod keypad;
@@ -85,7 +86,46 @@ pub fn linked_mark(ui: &egui::Ui, ink: egui::Color32) -> egui::Image<'static> {
 pub fn linked_badge(ui: &egui::Ui, on: egui::Rect, ink: egui::Color32, ground: egui::Color32) {
     const SIDE: f32 = 9.0;
     let center = on.right_bottom() - egui::vec2(SIDE / 2.0 - 2.0, SIDE / 2.0 - 2.0);
-    ui.painter().circle_filled(center, SIDE / 2.0 + 1.0, ground);
-    let rect = egui::Rect::from_center_size(center, egui::vec2(SIDE, SIDE));
-    egui::Image::new(icons::LINKED).tint(ink).paint_at(ui, rect);
+    badge(ui, egui::Rect::from_center_size(center, egui::Vec2::splat(SIDE + 2.0)), icons::LINKED, SIDE, ink, ground);
+}
+
+/// A badge: `icon`, `glyph` points wide, in `ink`, on a disc of `ground` filling `disc`, which
+/// cuts what is under it (a linked body's sign, a locked colour).
+pub fn badge(ui: &egui::Ui, disc: egui::Rect, icon: egui::ImageSource<'static>, glyph: f32, ink: egui::Color32, ground: egui::Color32) {
+    ui.painter().circle_filled(disc.center(), disc.width() / 2.0, ground);
+    egui::Image::new(icon).tint(ink).paint_at(ui, egui::Rect::from_center_size(disc.center(), egui::Vec2::splat(glyph)));
+}
+
+/// The side of a badge over a picture: a colour box's, a texture's (points).
+pub const BADGE: f32 = 18.0;
+
+/// A [`BADGE`] square in `on`'s corner `corner`, a little inside it.
+pub fn badge_rect(on: egui::Rect, corner: egui::Align2) -> egui::Rect {
+    corner.align_size_within_rect(egui::Vec2::splat(BADGE), on.shrink(3.0))
+}
+
+/// A badge's ground over a picture: the panel's, a little see-through, readable over any colour
+/// or image.
+pub fn picture_ground(ui: &egui::Ui) -> egui::Color32 {
+    ui.visuals().panel_fill.gamma_multiply(0.85)
+}
+
+/// A badge in `on`'s corner `corner` showing `icon` (a lock).
+pub fn picture_badge(ui: &egui::Ui, on: egui::Rect, corner: egui::Align2, icon: egui::ImageSource<'static>, glyph: f32) {
+    badge(ui, badge_rect(on, corner), icon, glyph, ui.visuals().text_color(), picture_ground(ui));
+}
+
+/// A button as a badge in `on`'s corner `corner`, on its disc (a texture's ✕ and ↻), under the
+/// key `id`.
+pub fn badge_button(
+    ui: &mut egui::Ui,
+    on: egui::Rect,
+    corner: egui::Align2,
+    icon: egui::ImageSource<'static>,
+    glyph: f32,
+    id: egui::Id,
+) -> egui::Response {
+    let rect = badge_rect(on, corner);
+    ui.painter().circle_filled(rect.center(), BADGE / 2.0, picture_ground(ui));
+    IconButton::new(icon, BADGE, glyph).show_at(ui, rect, id)
 }

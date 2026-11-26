@@ -58,6 +58,8 @@ pub struct Preferences {
     pub compositions_list: bool,
     /// The « Matières » card as a list.
     pub materials_list: bool,
+    /// The colours kept in the colour panels' « Favorites » (docs/ui/interface.md#colours).
+    pub favorite_colors: Vec<[u8; 3]>,
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
     /// open again).
     pub recent_files: Vec<String>,
@@ -113,6 +115,7 @@ impl Default for Preferences {
             components_list: false,
             compositions_list: false,
             materials_list: false,
+            favorite_colors: Vec::new(),
             recent_files: Vec::new(),
             reopen_documents: true,
             open_files: Vec::new(),

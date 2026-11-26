@@ -378,6 +378,14 @@ keypad:
   enter: "Valider"
 
 # Shown instead of the app in a window too small for it (docs/ui/interface.md#too-small).
+# A colour box and its panel (docs/ui/interface.md#colours).
+color:
+  copy: "Copier la couleur"
+  paste: "Coller la couleur"
+  hex_tip: "Une couleur : C49862, 196 152 98 ou rgb(196, 152, 98)"
+  favorites: "Favorites"
+  favorite_add_tip: "Ajouter la couleur aux favorites"
+  favorite_remove: "Retirer des favorites"
 too_small:
   # A touch screen on its side.
   rotate: "Tournez l'appareil"
@@ -1005,10 +1013,14 @@ panel:
     coverings_tab: "Revêtements"
     colorations_tab: "Colorations"
     color: "Couleur"
+    # A material's colour and texture side by side, the texture winning (docs/render/look.md#textures).
+    look: "Aspect"
+    color_mean: "Couleur moyenne"
+    color_locked_tip: "Couleur moyenne de l'image, celle des vues sans texture : retirer l'image pour la modifier"
     texture: "Texture"
+    texture_add: "Ajouter"
     texture_width: "Largeur"
     texture_height: "Hauteur"
-    texture_rotation: "Rotation"
     paint: "Peindre"
     export_one: "Exporter"
     in_use: "Utilisées"
@@ -1030,7 +1042,7 @@ panel:
     texture_change_tip: "Changer l'image de la texture"
     texture_width_tip: "Largeur réelle de l'image, le long du fil"
     texture_height_tip: "Hauteur réelle de l'image"
-    texture_rotation_tip: "Rotation de la texture"
+    texture_rotate_tip: "Tourner d'un quart de tour : le fil dans l'autre sens"
     # A coat's blend (docs/decisions/0057): laid over what is under, or tinting it.
     blend: "Mode"
     blend_cover: "Couvrant"
@@ -1058,7 +1070,7 @@ panel:
       profile: "Profilé"
       veneer: "Placage"
       edge: "Chant"
-    texture_remove_tip: "Retirer la texture (sa couleur moyenne reste, modifiable)"
+    texture_remove_tip: "Retirer l'image : la couleur redevient modifiable"
     export_tip: "Exporter toutes les matières (.skraftmat)"
     import_tip: "Importer des matières (.skraftmat)"
     export_name: "Matières %{model}"

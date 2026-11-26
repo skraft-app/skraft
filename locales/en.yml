@@ -334,6 +334,14 @@ keypad:
   enter: "Enter"
 
 # Shown instead of the app in a window too small for it (docs/ui/interface.md#too-small).
+# A colour box and its panel (docs/ui/interface.md#colours).
+color:
+  copy: "Copy color"
+  paste: "Paste color"
+  hex_tip: "A color: C49862, 196 152 98 or rgb(196, 152, 98)"
+  favorites: "Favorites"
+  favorite_add_tip: "Add the color to the favorites"
+  favorite_remove: "Remove from the favorites"
 too_small:
   # A touch screen on its side.
   rotate: "Turn the device"
@@ -912,10 +920,14 @@ panel:
     coverings_tab: "Coverings"
     colorations_tab: "Colorations"
     color: "Color"
+    # A material's colour and texture side by side, the texture winning (docs/render/look.md#textures).
+    look: "Look"
+    color_mean: "Mean color"
+    color_locked_tip: "The image's mean color, the one of views without textures: remove the image to change it"
     texture: "Texture"
+    texture_add: "Add"
     texture_width: "Width"
     texture_height: "Height"
-    texture_rotation: "Rotation"
     paint: "Paint"
     export_one: "Export"
     in_use: "In Use"
@@ -937,7 +949,7 @@ panel:
     texture_change_tip: "Change the texture's image"
     texture_width_tip: "Real width of the image, along the grain"
     texture_height_tip: "Real height of the image"
-    texture_rotation_tip: "Texture rotation"
+    texture_rotate_tip: "Turn a quarter turn: the grain the other way"
     blend: "Mode"
     blend_cover: "Covering"
     blend_tint: "Tinting"
@@ -961,7 +973,7 @@ panel:
       profile: "Profile"
       veneer: "Veneer"
       edge: "Edge Banding"
-    texture_remove_tip: "Remove the texture (its mean color stays, editable)"
+    texture_remove_tip: "Remove the image: the color can be changed again"
     export_tip: "Export all materials (.skraftmat)"
     import_tip: "Import materials (.skraftmat)"
     export_name: "Materials %{model}"

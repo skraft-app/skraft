@@ -1,25 +1,12 @@
 //! A material in the entity info: its swatch, its choice, its fields.
 
 use super::*;
-use crate::kit::widgets::IconButton;
+use crate::kit::widgets::color::{BOX_RADIUS, color32};
+use crate::kit::widgets::{self, IconButton};
+use crate::workspaces::common::cards::materials;
 
 /// Colours new materials take in turn (woods, then panels).
 pub(crate) const NEW_COLORS: [[u8; 3]; 6] = [[196, 152, 98], [120, 78, 48], [222, 196, 150], [160, 110, 70], [235, 235, 228], [90, 92, 96]];
-
-/// A swatch of `color`, `size` points square.
-pub(crate) fn swatch(ui: &mut egui::Ui, color: Option<[u8; 3]>, size: f32) {
-    let (r, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
-    let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color);
-    match color {
-        Some([red, g, b]) => {
-            ui.painter().rect(r, 2.0, egui::Color32::from_rgb(red, g, b), stroke, egui::StrokeKind::Inside);
-        }
-        None => {
-            ui.painter().rect_stroke(r, 2.0, stroke, egui::StrokeKind::Inside);
-            ui.painter().line_segment([r.left_bottom(), r.right_top()], stroke);
-        }
-    }
-}
 
 /// A family of the catalog, as the interface names one of its items.
 pub(crate) fn family_label(family: Family) -> String {
@@ -114,7 +101,7 @@ fn item_choice(
             }
             for (id, m) in doc.materials().filter(|(_, m)| keep(m)) {
                 ui.horizontal(|ui| {
-                    swatch(ui, Some(m.color), 12.0);
+                    widgets::color::swatch(ui, Some(m.color), 12.0);
                     ui.selectable_value(&mut picked, Some(id), &m.name);
                 });
             }
@@ -178,7 +165,7 @@ fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Mate
         ui.horizontal(|ui| {
             ui.set_width(width);
             let c = doc.material(*coat).ok();
-            swatch(ui, c.map(|c| c.color), 12.0);
+            widgets::color::swatch(ui, c.map(|c| c.color), 12.0);
             ui.label(c.map_or("?", |c| c.name.as_str()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if small(ui, icons::CLOSE, t!("panel.materials.coat_remove_tip"), true).clicked() {
@@ -214,28 +201,96 @@ const SMALL_ICON: f32 = 12.0;
 /// The height of a material's colour or texture box in the entity info (points).
 const TEXTURE_HEIGHT: f32 = 64.0;
 
-/// The size of a material's colour or texture box: the field's width, a [`small`] button's room
-/// left beside it, at a fixed height (a height following the width would move the rows below as
-/// the panel is widened).
-fn look_box(ui: &egui::Ui, width: f32) -> egui::Vec2 {
-    // An unframed button is its icon's width, no padding.
-    let room = SMALL_ICON + ui.spacing().item_spacing.x;
-    egui::vec2((width - room).max(OPTION_HEIGHT), TEXTURE_HEIGHT)
+/// One half of the look row, `width` wide: its box, its caption under it, centred.
+fn look_half(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(egui::vec2(width, TEXTURE_HEIGHT * 2.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+        ui.set_width(width);
+        ui.spacing_mut().item_spacing.y = 2.0;
+        add(ui)
+    });
 }
 
-/// The UVs of `tex`'s middle filling `size`, its proportions kept.
-fn cover(tex: &egui::TextureHandle, size: egui::Vec2) -> egui::Rect {
-    let [tw, th] = tex.size().map(|v| v.max(1) as f32);
-    let (image, room) = (tw / th, size.x / size.y.max(1.0));
-    let (du, dv) = if image > room { ((1.0 - room / image) / 2.0, 0.0) } else { (0.0, (1.0 - image / room) / 2.0) };
-    egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv))
+/// The caption under a box of the look row.
+fn caption(ui: &mut egui::Ui, text: String) {
+    ui.label(crate::kit::style::caption(text));
+}
+
+/// An editable colour box of `size` (docs/ui/interface.md#colours): the colour picked, when
+/// changed.
+fn color_box(ui: &mut egui::Ui, id: Id, color: [u8; 3], size: egui::Vec2) -> Option<[u8; 3]> {
+    let (r, picked) = crate::kit::widgets::color::color_box(ui, ("material_color", id), color, size, true);
+    r.tip(t!("panel.materials.color_tip"));
+    picked
+}
+
+/// A textured material's colour, its image's mean: shown, locked, copied only.
+fn locked_color_box(ui: &mut egui::Ui, id: Id, color: [u8; 3], size: egui::Vec2) {
+    let (r, _) = crate::kit::widgets::color::color_box(ui, ("material_color", id), color, size, false);
+    widgets::picture_badge(ui, r.rect, egui::Align2::RIGHT_BOTTOM, icons::LOCK, SMALL_ICON);
+    r.on_hover_cursor(egui::CursorIcon::NotAllowed).tip(t!("panel.materials.color_locked_tip"));
+}
+
+/// A texture's image of `size`, its middle filling it, the whole image under the pointer: its
+/// rect, and whether it was clicked (to change it).
+fn texture_box(ui: &mut egui::Ui, tex: &egui::TextureHandle, quarter: u8, size: egui::Vec2) -> (egui::Rect, bool) {
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
+    materials::paint_texture(ui, tex, quarter, rect, true, BOX_RADIUS);
+    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
+    crate::kit::handles::publish(|| "info:texture".to_owned(), rect);
+    let clicked = r
+        .tip_ui(|ui| {
+            ui.label(t!("panel.materials.texture_change_tip"));
+            // The whole image, turned as on the parts.
+            let [w, h] = materials::turned_size(tex, quarter);
+            let scale = (THUMB_PREVIEW / w.max(h)).min(1.0);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h) * scale, egui::Sense::hover());
+            materials::paint_texture(ui, tex, quarter, rect, false, 4.0);
+        })
+        .clicked();
+    (rect, clicked)
+}
+
+/// The texture's box without an image: a dashed frame offering to add one; its rect, and whether
+/// it was clicked.
+fn empty_texture_box(ui: &mut egui::Ui, size: egui::Vec2) -> (egui::Rect, bool) {
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
+    crate::kit::handles::publish(|| "info:texture".to_owned(), rect);
+    let visuals = ui.visuals();
+    let ink = if r.hovered() { visuals.text_color() } else { visuals.weak_text_color() };
+    let painter = ui.painter();
+    painter.rect_filled(rect, BOX_RADIUS, visuals.extreme_bg_color);
+    crate::kit::overlay::dashed_rect(painter, rect.shrink(0.5), egui::Stroke::new(1.0, ink), crate::kit::overlay::GHOST);
+    let icon = egui::Rect::from_center_size(rect.center() - egui::vec2(0.0, 8.0), egui::Vec2::splat(20.0));
+    egui::Image::new(icons::IMAGE).tint(ink).paint_at(ui, icon);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    ui.painter().text(rect.center() + egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, t!("panel.materials.texture_add"), font, ink);
+    let clicked = r.on_hover_cursor(egui::CursorIcon::PointingHand).tip(t!("panel.materials.texture_tip")).clicked();
+    (rect, clicked)
+}
+
+/// The texture's remove button, over its box's top right corner: whether it was clicked.
+fn remove_badge(ui: &mut egui::Ui, rect: egui::Rect, id: Id) -> bool {
+    let key = ui.make_persistent_id(("texture_remove", id));
+    let r = widgets::badge_button(ui, rect, egui::Align2::RIGHT_TOP, icons::CLOSE, SMALL_ICON - 2.0, key)
+        .tip(t!("panel.materials.texture_remove_tip"));
+    crate::kit::handles::publish(|| "info:texture_remove".to_owned(), r.rect);
+    r.clicked()
+}
+
+/// The texture's quarter turn button, over its box's bottom left corner: whether it was clicked.
+fn rotate_badge(ui: &mut egui::Ui, rect: egui::Rect, id: Id) -> bool {
+    let key = ui.make_persistent_id(("texture_rotate", id));
+    let r = widgets::badge_button(ui, rect, egui::Align2::LEFT_BOTTOM, icons::ROTATE, SMALL_ICON, key)
+        .tip(t!("panel.materials.texture_rotate_tip"));
+    crate::kit::handles::publish(|| "info:texture_rotate".to_owned(), r.rect);
+    r.clicked()
 }
 
 /// A texture's preview (points) under the pointer.
 const THUMB_PREVIEW: f32 = 256.0;
 
-/// The material chosen in its card: its family and type, name, colour, texture (its image, real
-/// size, rotation), its properties (docs/ui/catalog.md); how many parts show it is the card's.
+/// The material chosen in its card: its family and type, name, colour, texture (its image turned
+/// by quarter turns, its real size), its properties (docs/ui/catalog.md); how many parts show it is the card's.
 pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(m) = doc.material(id) else { return };
@@ -283,76 +338,66 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             if m.kind == Some(MaterialKind::Coat) {
                 coat_rows(ui, id, m, width, actions);
             }
-            // A colour or a texture: a textured one's colour is its image's mean, not edited
-            // (docs/render/look.md#textures).
-            if m.texture.is_none() {
+            // A coloration has its colour alone (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+            if m.family() == Family::Coloration {
                 field_label(ui, t!("panel.materials.color"));
-                let mut c = m.color;
-                // The texture's box: the same size, top-down as it (see below).
-                let size = look_box(ui, width);
-                let changed = ui
-                    .vertical(|ui| {
-                        ui.spacing_mut().interact_size = size;
-                        ui.color_edit_button_srgb(&mut c).tip(t!("panel.materials.color_tip")).changed()
-                    })
-                    .inner;
-                if changed {
+                if let Some(c) = ui.vertical(|ui| color_box(ui, id, m.color, egui::vec2(width, TEXTURE_HEIGHT))).inner {
                     actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
                 }
                 ui.end_row();
-            }
-            // A coloration has its colour alone (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
-            if m.family() == Family::Coloration {
                 return;
             }
-            field_label(ui, t!("panel.materials.texture"));
+            // Its colour and its texture side by side, the texture winning: a textured material's
+            // colour is its image's mean, locked until the image is removed (docs/render/look.md#textures).
+            field_label(ui, t!("panel.materials.look"));
             // Top-down, as the fields: a grid centres a cell on the row's height of the frame
             // before, which a cell taller than a row would make drift.
             ui.vertical(|ui| {
+                let gap = ui.spacing().item_spacing.x;
+                let half = egui::vec2(((width - gap) / 2.0).max(OPTION_HEIGHT), TEXTURE_HEIGHT);
                 ui.horizontal_top(|ui| {
-                    ui.set_max_width(width);
-                    let thumb =
-                        m.texture.as_ref().and_then(|t| crate::workspaces::common::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
-                    let clicked = match &thumb {
-                        Some(tex) => {
-                            // The image's middle filling its box.
-                            let size = look_box(ui, width);
-                            let uv = cover(tex, size);
-                            let img = egui::Image::new(tex).uv(uv).maintain_aspect_ratio(false).fit_to_exact_size(size).corner_radius(3.0);
-                            // The image itself clicked: a button would pad it past its row.
-                            let r = ui.add(img.sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
-                            r.tip_ui(|ui| {
-                                ui.label(t!("panel.materials.texture_change_tip"));
-                                ui.add(egui::Image::new(tex).max_size(egui::vec2(THUMB_PREVIEW, THUMB_PREVIEW)).corner_radius(4.0));
-                            })
-                            .clicked()
+                    look_half(ui, half.x, |ui| {
+                        if m.texture.is_some() {
+                            locked_color_box(ui, id, m.color, half);
+                            caption(ui, t!("panel.materials.color_mean"));
+                        } else {
+                            if let Some(c) = color_box(ui, id, m.color, half) {
+                                actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));
+                            }
+                            caption(ui, t!("panel.materials.color"));
                         }
-                        None => {
-                            // The entity info's square button (a property's), an image on it.
-                            let tip = if m.texture.is_some() {
-                                t!("panel.materials.texture_change_tip")
-                            } else {
-                                t!("panel.materials.texture_tip")
-                            };
-                            super::props::icon_button(ui, icons::IMAGE, &tip)
-                        }
-                    };
-                    if clicked {
-                        actions.push(Action::PickTexture(id));
-                    }
-                    // At the field's right edge, whatever the room left.
-                    let remove = m.texture.is_some().then(|| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                            small(ui, icons::CLOSE, t!("panel.materials.texture_remove_tip"), true)
-                        })
-                        .inner
                     });
-                    if let Some(r) = &remove {
-                        crate::kit::handles::publish(|| "info:texture_remove".to_owned(), r.rect);
-                    }
-                    if remove.is_some_and(|r| r.clicked()) {
-                        actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None, color: None }));
-                    }
+                    look_half(ui, half.x, |ui| {
+                        let thumb = m
+                            .texture
+                            .as_ref()
+                            .and_then(|t| crate::workspaces::common::cards::materials::thumbnail(ui.ctx(), doc, &t.image));
+                        let (rect, change) = match (&m.texture, &thumb) {
+                            (Some(t), Some(tex)) => texture_box(ui, tex, materials::quarters(t.rotation), half),
+                            // Its image not decoded yet: its colour meanwhile, as the 3D view.
+                            (Some(_), None) => {
+                                let (rect, r) = ui.allocate_exact_size(half, egui::Sense::click());
+                                ui.painter().rect_filled(rect, BOX_RADIUS, color32(m.color));
+                                (rect, r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked())
+                            }
+                            (None, _) => empty_texture_box(ui, half),
+                        };
+                        if change {
+                            actions.push(Action::PickTexture(id));
+                        }
+                        if m.texture.is_some() && remove_badge(ui, rect, id) {
+                            actions.push(Action::Apply(Operation::SetTexture { material: id, texture: None, image: None, color: None }));
+                        }
+                        // A quarter turn more at each click: the grain the other way.
+                        if let Some(t) = &m.texture
+                            && rotate_badge(ui, rect, id)
+                        {
+                            let rotation = f64::from((materials::quarters(t.rotation) + 1) % 4) * std::f64::consts::FRAC_PI_2;
+                            let texture = Some(skraft_model::Texture { rotation, ..t.clone() });
+                            actions.push(Action::Apply(Operation::SetTexture { material: id, texture, image: None, color: None }));
+                        }
+                        caption(ui, t!("panel.materials.texture"));
+                    });
                 });
             });
             ui.end_row();
@@ -379,17 +424,6 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
                     }
                     ui.end_row();
                 }
-                field_label(ui, t!("panel.materials.texture_rotation"));
-                let deg = texture.rotation.to_degrees();
-                let shown = format!("{}°", skraft_i18n::number(&format!("{}", (deg * 100.0).round() / 100.0)));
-                let tip = t!("panel.materials.texture_rotation_tip");
-                let fid = ui.make_persistent_id(("texture_rotation", id));
-                if let Some(text) = ui.vertical(|ui| framed_field(ui, fid, &shown, &shown, number(width, &tip))).inner
-                    && let Ok(d) = measure::angle(&text, deg)
-                {
-                    actions.push(set(skraft_model::Texture { rotation: d.to_radians(), ..texture.clone() }));
-                }
-                ui.end_row();
             }
         }
     });
