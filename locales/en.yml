@@ -690,7 +690,7 @@ drawing:
     change_tip: "Choose what the view shows"
   subject:
     model: "The model"
-    occurrences: "%{count} occurrences"
+    occurrences: "%{count} instances"
   direction:
     front: "Front"
     back: "Back"
@@ -846,13 +846,13 @@ panel:
     unused_tip: "Placed nowhere: kept until purged"
     purge: "Purge"
     purge_tip: "Delete every unused component"
-    count_tip: "%{count} occurrence in the model"
-    count_tip_plural: "%{count} occurrences in the model"
-    select: "Select Occurrences"
+    count_tip: "%{count} instance in the model"
+    count_tip_plural: "%{count} instances in the model"
+    select: "Select Instances"
     replace: "Replace Selection"
     rename: "Rename"
     delete: "Delete"
-    delete_tip: "Delete this component and all its occurrences"
+    delete_tip: "Delete this component and all its instances"
     # The assembly edited, or one above it: not placed into itself, not deleted.
     on_path: "Being edited"
     # A part open: the library waits for it to be closed.
@@ -1068,8 +1068,8 @@ status:
   op_failed: "%{op}: %{error}"
   unexpected_reply: "unexpected reply from the kernel"
   nothing_to_group: "First select what to group"
-  # « Sélectionner les occurrences » of a component placed nowhere under the context (docs/ui/components-library.md).
-  no_occurrence_here: "No occurrence of this component here"
+  # « Sélectionner les exemplaires » of a component placed nowhere under the context (docs/ui/components-library.md).
+  no_occurrence_here: "No instance of this component here"
   group_one_assembly: "The items to group must be in the same assembly"
   no_guides: "No guides here"
   copy_not_last: "The last step is no longer this copy"

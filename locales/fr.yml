@@ -768,7 +768,7 @@ drawing:
     change_tip: "Choisir ce que montre la vue"
   subject:
     model: "Le modèle"
-    occurrences: "%{count} occurrences"
+    occurrences: "%{count} exemplaires"
   direction:
     front: "Face"
     back: "Arrière"
@@ -958,9 +958,9 @@ panel:
     unused: "Inutilisées"
     unused_tip: "Sur aucune feuille : gardée jusqu'à la purge"
     purge_tip: "Supprimer toutes les compositions inutilisées"
-    count_tip: "%{count} instance sur les feuilles"
-    count_tip_plural: "%{count} instances sur les feuilles"
-    delete_tip: "Supprimer cette composition et toutes ses instances"
+    count_tip: "%{count} exemplaire sur les feuilles"
+    count_tip_plural: "%{count} exemplaires sur les feuilles"
+    delete_tip: "Supprimer cette composition et tous ses exemplaires"
     none: "Aucune composition"
   # The entity info's properties (docs/model/properties.md): an entity's values, the
   # model's definitions.
@@ -1180,7 +1180,7 @@ status:
   op_failed: "%{op} : %{error}"
   unexpected_reply: "réponse inattendue du noyau"
   nothing_to_group: "Sélectionner d'abord ce qu'il faut regrouper"
-  # « Sélectionner les occurrences » of a component placed nowhere under the context (docs/ui/components-library.md).
+  # « Sélectionner les exemplaires » of a component placed nowhere under the context (docs/ui/components-library.md).
   no_occurrence_here: "Aucun exemplaire de ce composant ici"
   # « Créer un assemblage » under « Pièces » (docs/tools/selection.md).
   group_one_assembly: "Les éléments à regrouper doivent être dans un même assemblage"
@@ -1948,7 +1948,7 @@ error:
     composition_loop: "une composition ne peut pas se contenir elle-même"
     nothing_to_paste: "rien à coller : les vues et les cotes restent dans leur document"
     split_view: "une vue, ses projections et ses cotes restent ensemble"
-    turned_instance: "une instance tournée ne s'éclate pas : ses textes, rectangles, images ou vues ne tournent pas"
+    turned_instance: "un exemplaire tourné ne s'éclate pas : ses textes, rectangles, images ou vues ne tournent pas"
     blend_lost: "%{count} arête n'existe plus"
     blend_lost_plural: "%{count} arêtes n'existent plus"
     blend_no_edge: "aucune arête à cet endroit"
