@@ -1,6 +1,6 @@
 # Every object is an occurrence of a part or an assembly
 
-- Status: accepted (2026-11-10)
+- Status: accepted (2026-11-10; the material on the definition since [0057](0057-materials-on-the-definition-typed-sources.md))
 - Design: [Data model: parts, assemblies, machinings](../model/data-model.md)
 
 ## Context

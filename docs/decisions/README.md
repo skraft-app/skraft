@@ -11,7 +11,7 @@ state and link the records behind it.
 | 0002 | [One inference engine, on the exact B-rep](0002-central-inference-engine.md) | accepted (2026-11-09) |
 | 0003 | [Two levels of settings: the document's, the user's](0003-document-settings-and-user-preferences.md) | accepted (2026-11-09; the view's background out of the document 2026-11-13) |
 | 0004 | [Render a part's final B-rep as one instanced mesh](0004-part-mesh-as-instanced-rendering-unit.md) | accepted (2026-11-09) |
-| 0005 | [Every object is an occurrence of a part or an assembly](0005-parts-assemblies-occurrences.md) | accepted (2026-11-10) |
+| 0005 | [Every object is an occurrence of a part or an assembly](0005-parts-assemblies-occurrences.md) | accepted (2026-11-10; the material on the definition since 0057) |
 | 0006 | [A title bar instead of a menu strip; native menus hold File only](0006-title-bar-instead-of-menus.md) | accepted (2026-11-10; File-only menus 2026-11-13; view commands out 2026-11-17) |
 | 0007 | [Procedural parts: a parametric blank and machinings anchored on it](0007-procedural-parts.md) | proposed (discussed on 2026-11-11, set aside: nothing decided nor built) |
 | 0008 | [The Stretch tool is OpenCutList's Smart Reshape stretch](0008-stretch-after-ocl-smart-reshape.md) | accepted (2026-11-11) |
@@ -63,3 +63,4 @@ state and link the records behind it.
 | 0054 | [Changing a component's axes: one operation, dimensions read on the axes](0054-changing-a-components-axes.md) | accepted (2026-11-23; « Retourner » dropped as designed, 2026-11-24) |
 | 0055 | [Linked bodies: a part imprints its final solid in the parts it enters](0055-linked-bodies-through-imprints.md) | accepted (2026-11-23; steps 1 to 4 built) |
 | 0056 | [Touch screens: a phone looks at a model, a tablet models](0056-touch-screens-phone-views-tablet-models.md) | accepted (2026-11-25; step 1 built) |
+| 0057 | [Materials: a part's material on its definition, a type saying where a material goes](0057-materials-on-the-definition-typed-sources.md) | accepted (2026-11-26) |
