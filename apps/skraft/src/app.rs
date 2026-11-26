@@ -72,6 +72,9 @@ pub struct SkraftApp {
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
     /// The confirmation of « Empreindre » (decision 0055).
     imprint: Option<crate::workspaces::modelling::dialogs::imprint::Dialog>,
+    /// A coat to delete that schemes lay, waiting for its confirmation: its document, its id,
+    /// how many schemes (decision 0057).
+    deleting_coat: Option<(u64, skraft_model::Id, usize)>,
     prefs: Preferences,
     /// The preferences as last stored: they are written again when they differ.
     stored_prefs: Preferences,
@@ -336,6 +339,7 @@ impl SkraftApp {
             closing: None,
             naming: None,
             imprint: None,
+            deleting_coat: None,
             quit_ok: false,
             #[cfg(target_arch = "wasm32")]
             unsaved: Default::default(),

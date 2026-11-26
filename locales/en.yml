@@ -276,6 +276,13 @@ loading:
   skip: "Continue Without Waiting"
   cancel: "Cancel"
 
+delete_coat:
+  title: "Delete the Coat?"
+  question: "« %{name} » is used in %{count} scheme: it will be removed from it."
+  question_plural: "« %{name} » is used in %{count} schemes: it will be removed from them."
+  delete: "Delete"
+  cancel: "Cancel"
+
 save_prompt:
   title: "Save Changes?"
   question: "Do you want to save the changes made to “%{name}”?"
@@ -929,12 +936,24 @@ panel:
     texture_width_tip: "Real width of the image, along the grain"
     texture_height_tip: "Real height of the image"
     texture_rotation_tip: "Texture rotation"
+    blend: "Mode"
+    blend_cover: "Covering"
+    blend_tint: "Tinting"
+    intensity: "Intensity"
+    intensity_tip: "Covering: its opacity; tinting: the strength of its tint (0 to 100 %)"
+    coats: "Coats"
+    coat_add: "Add a Coat"
+    coat_remove_tip: "Remove from the scheme"
+    coat_up_tip: "Move up"
+    coat_down_tip: "Move down"
     family:
       material: "Material"
       covering: "Covering"
       coloration: "Coloration"
     kind_label: "Category"
     kind:
+      coat: "Coat"
+      scheme: "Scheme"
       solid: "Solid"
       sheet: "Sheet"
       profile: "Profile"

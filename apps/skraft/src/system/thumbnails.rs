@@ -20,7 +20,7 @@ pub const CAP: usize = 300;
 const MAX_PLACEMENTS: usize = 5000;
 
 /// A part mesh and its placements, each with the material it shows.
-pub type PartPlaces = (Id, Vec<(DAffine3, Option<Id>)>);
+pub type PartPlaces = (Id, Vec<(DAffine3, skraft_model::Seen)>);
 
 /// What a component's thumbnail draws, in its own axes: each part mesh, at its placements
 /// (with the material each one shows), and a hash of all of it.
@@ -66,8 +66,12 @@ impl Content {
                     v.to_bits().hash(&mut h);
                 }
                 m.hash(&mut h);
-                // A material's colour changed: drawn again.
-                m.and_then(|m| doc.material(m).ok()).map(|m| m.color).hash(&mut h);
+                // A colour, a coat changed: drawn again.
+                let coats = m.over.map(|o| doc.coats_of(o)).unwrap_or_default();
+                let under = m.under.and_then(|u| doc.material(u).ok());
+                for x in under.into_iter().chain(coats.into_iter().map(|(_, c)| c)) {
+                    (x.color, x.blend, x.intensity.to_bits()).hash(&mut h);
+                }
             }
         }
         Content { parts, hash: h.finish() }
@@ -248,7 +252,7 @@ mod tests {
         // A part: itself, once, in its own axes.
         let part = Content::of(doc, pa);
         assert_eq!(part.parts.len(), 1);
-        assert_eq!(part.parts[0].1, vec![(DAffine3::IDENTITY, None)]);
+        assert_eq!(part.parts[0].1, vec![(DAffine3::IDENTITY, skraft_model::Seen::NONE)]);
 
         // An assembly: its parts as placed in it.
         let content = Content::of(doc, asm);
@@ -275,7 +279,7 @@ mod tests {
         e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
         let painted = Content::of(e.document(), asm);
         assert_eq!(painted.parts.len(), 1, "the hidden part left out");
-        assert_eq!(painted.parts[0].1[0].1, Some(oak));
+        assert_eq!(painted.parts[0].1[0].1.top(), Some(oak));
         assert_ne!(painted.hash, content.hash, "drawn again");
     }
 }

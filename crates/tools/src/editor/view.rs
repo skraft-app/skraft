@@ -2,7 +2,7 @@
 //! lines and the inferred point.
 
 use glam::{DAffine3, DVec3};
-use skraft_model::{EntityPath, Id, Section};
+use skraft_model::{EntityPath, Id, Section, Seen};
 
 use super::Editor;
 use crate::draw::{BoxStyle, Color, Drawer, Pen, Stipple, ThemeColor};
@@ -56,7 +56,7 @@ pub struct ViewPlacement {
     /// Outside the context being edited (drawn faded).
     pub faded: bool,
     /// The material its faces take.
-    pub material: Option<Id>,
+    pub material: Seen,
     pub look: Look,
     /// Drawn as a ghost — translucent faces, edges as they are —: an open part's blank, or
     /// what the eraser would take.
@@ -74,7 +74,7 @@ pub struct ViewHighlight {
     pub transform: DAffine3,
     pub mark: Mark,
     /// The material the part takes there.
-    pub material: Option<Id>,
+    pub material: Seen,
     /// An open part's blank, drawn as a ghost: highlighted see-through (docs/model/bodies.md).
     pub ghost: bool,
     /// Only this face of the solid (its index in the record), in `material` over its own
@@ -293,7 +293,7 @@ impl Editor {
                         solid: tool.key,
                         transform: t * tool.placement,
                         mark: Mark::Selected,
-                        material: None,
+                        material: Seen::NONE,
                         ghost: key.4 || r.is_ghost(*id),
                         face: None,
                     });
@@ -309,7 +309,7 @@ impl Editor {
                         solid: b.key,
                         transform: t * b.placement,
                         mark: Mark::Related,
-                        material: None,
+                        material: Seen::NONE,
                         ghost: key.4 || r.is_ghost(b.body),
                         face: None,
                     });
@@ -532,7 +532,8 @@ impl Editor {
                 .scene
                 .placements()
                 .find(|(p, _)| *p == r.part)
-                .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).and_then(|p| p.material));
+                .and_then(|(_, places)| places.iter().find(|p| p.entity_path() == *o).map(|p| p.material))
+                .unwrap_or_default();
             // A body stretched is drawn as previewed (docs/model/bodies.md).
             let body_swaps = if preview.stretch.is_some() || preview.blend.is_some() { Some(&self.body_swaps) } else { None };
             let drawn = |b: &crate::scene::RecipeTool| body_swaps.and_then(|s| s.get(&b.body)).copied().unwrap_or((b.key, b.placement));
@@ -566,8 +567,14 @@ impl Editor {
                 let faint = erasing.contains(&tool.body);
                 let ghost = faint || !tool.failed || self.xray();
                 let (key, placement) = drawn(tool);
-                let p =
-                    ViewPlacement { transform: t * placement, faded: faded(tool.body), material: None, look, ghost, faint_edges: faint };
+                let p = ViewPlacement {
+                    transform: t * placement,
+                    faded: faded(tool.body),
+                    material: Seen::NONE,
+                    look,
+                    ghost,
+                    faint_edges: faint,
+                };
                 // Batches of one kind: a batch's edges are faint, or not, as a whole.
                 let out = match (ghost, faint) {
                     (_, true) => &mut tool_faint,
@@ -590,7 +597,7 @@ impl Editor {
                 let p = ViewPlacement {
                     transform: t * tool.placement,
                     faded: faded(tool.body),
-                    material: None,
+                    material: Seen::NONE,
                     look,
                     ghost: true,
                     faint_edges: true,
@@ -654,7 +661,7 @@ impl Editor {
                         solid: key,
                         transform: extra * t,
                         mark: m,
-                        material: None,
+                        material: Seen::NONE,
                         ghost,
                         face: None,
                     });
@@ -967,7 +974,7 @@ impl Editor {
     fn paint_marks(&self, paint: &tools::PaintPreview, out: &mut Vec<ViewHighlight>) {
         let doc = self.document();
         let xray = self.xray();
-        let mut mark = |part: Id, transform: DAffine3, material: Option<Id>| {
+        let mut mark = |part: Id, transform: DAffine3, material: Seen| {
             out.push(ViewHighlight { definition: part, solid: part, transform, mark: Mark::Painted, material, ghost: xray, face: None });
         };
         match &paint.target {
@@ -993,12 +1000,12 @@ impl Editor {
             }
             tools::PaintTarget::Face { path, face, layer } => {
                 let Ok((part, q, _)) = doc.resolve_part(path) else { return };
-                // What the face would show: its coloration over its covering, else its part's.
-                let (coloration, covering) = (q.faces.get(face).copied(), q.coverings.get(face).copied());
-                let shown = match layer {
-                    skraft_model::Family::Covering => coloration.or(paint.material),
-                    _ => paint.material.or(covering),
-                };
+                // What the face would show, its layer of `layer` painted.
+                let mut shown = q.faces_shown().get(face).copied().unwrap_or(q.shown());
+                match layer {
+                    skraft_model::Family::Covering => shown.under = paint.material.or(q.material),
+                    _ => shown.over = paint.material.or(q.coloration),
+                }
                 let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part) else { return };
                 for p in places.iter().filter(|p| self.scene.is_shown(p)) {
                     out.push(ViewHighlight {
@@ -1006,8 +1013,7 @@ impl Editor {
                         solid: part,
                         transform: p.transform,
                         mark: Mark::Painted,
-                        // Nothing of its own: what its part shows.
-                        material: shown.or(p.material),
+                        material: shown,
                         ghost: xray,
                         face: Some(*face),
                     });

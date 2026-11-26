@@ -38,8 +38,12 @@ colours, picture, interaction, section headers.
 - **The entity info edits it** (how many parts show it is the item's tip in the card, not
   repeated there): its family shown (« Type »), a material's or a covering's
   « Catégorie » among its family's (« Massif », « Panneau », « Profilé »; « Placage »,
-  « Chant »), name, colour, texture (image, width, height, rotation), its
-  [properties](../model/properties.md).
+  « Chant »; « Couche », « Schéma »), name; a coat's « Mode » (« Couvrant », « Teintant ») and
+  « Intensité » (%); a scheme's « Couches »: « Ajouter une couche » (among the coats, laid on top),
+  then its coats as they lie, the top one first, each moved up or down or taken out; colour, texture (image, width, height,
+  rotation) but for a scheme; its [properties](../model/properties.md). A scheme's tile shows
+  its coats as bands, the bottom one below.
+- **Deleting a coat that schemes lay** asks first, saying how many: it leaves them.
 - **The count** `×n` is how many placed parts of the model hold it, in any of their layers,
   each placement once (`Document::material_counts`).
 - **Unused** means nothing refers to it. A material only on unused components stays in

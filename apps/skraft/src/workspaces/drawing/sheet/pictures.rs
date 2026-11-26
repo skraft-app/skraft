@@ -174,7 +174,7 @@ pub(super) fn wanted_picture(
         p.0.hash(&mut h);
         for (t, m) in places {
             t.to_cols_array().map(f64::to_bits).hash(&mut h);
-            m.map(|m| m.0).hash(&mut h);
+            m.hash(&mut h);
         }
     }
     Some(Wanted { slot, size, camera, parts, lines, images, stamp: h.finish() })

@@ -1777,7 +1777,7 @@ fn drawn_material(e: &Editor, o: Id) -> Option<Id> {
             paths.into_iter().zip(ps.clone())
         })
         .find(|(p, _)| p.path.last() == Some(&o))
-        .and_then(|(_, v)| v.material)
+        .and_then(|(_, v)| v.material.top())
 }
 
 #[test]
@@ -1819,7 +1819,7 @@ fn paint_tool_paints_occurrences_the_selection_and_faces() {
     let (part, p, _) = e.document().resolve_part(&EntityPath::root(a)).unwrap();
     assert_eq!(p.faces.len(), 1, "one face painted");
     let dm = e.scene().definition_mesh(part).unwrap();
-    assert_eq!(dm.faces.values().copied().collect::<Vec<_>>(), [oak]);
+    assert_eq!(dm.faces.values().map(|s| s.top()).collect::<Vec<_>>(), [Some(oak)]);
 }
 
 /// The paint tool shows what a click would paint in the colour it would take, and its pipette
@@ -1839,7 +1839,7 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
     let (top_a, top_b, top_c) = (DVec3::new(50.0, 50.0, 50.0), DVec3::new(350.0, 50.0, 50.0), DVec3::new(650.0, 50.0, 50.0));
     let painted = |e: &Editor| {
         let mut marks: Vec<(Option<Id>, Option<u32>)> =
-            e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).map(|h| (h.material, h.face)).collect();
+            e.view().highlights.iter().filter(|h| h.mark == Mark::Painted).map(|h| (h.material.top(), h.face)).collect();
         marks.sort();
         marks
     };
@@ -6389,7 +6389,7 @@ fn drawers_editor() -> (Editor, [Id; 5]) {
 
 /// What the part `path` leads to shows: its coloration, else its material.
 fn part_material(e: &Editor, path: &EntityPath) -> Option<Id> {
-    e.document().resolve_part(path).ok().and_then(|(_, p, _)| p.shown())
+    e.document().resolve_part(path).ok().and_then(|(_, p, _)| p.shown().top())
 }
 
 fn parts_scope(e: &mut Editor) {

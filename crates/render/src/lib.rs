@@ -60,6 +60,9 @@ pub const TEXTURE_SIZE: u32 = 1024;
 /// The mip levels of a layer, down to one texel.
 const TEXTURE_MIPS: u32 = TEXTURE_SIZE.ilog2() + 1;
 
+/// A palette entry without coloration ([`Style::overlays`]): `A` 1, `B` 0.
+pub const NO_OVERLAY: [[f32; 4]; 2] = [[1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]];
+
 /// A palette entry without texture ([`Style::textures`]).
 pub const NO_TEXTURE: [f32; 4] = [-1.0, 0.0, 0.0, 0.0];
 
@@ -369,6 +372,10 @@ pub struct Style<'a> {
     /// Each palette entry's texture ([`texture_entry`], [`NO_TEXTURE`]); entries past its end
     /// have none.
     pub textures: &'a [[f32; 4]],
+    /// Each palette entry's coloration (docs/render/look.md#palette-and-materials): two per
+    /// entry, `A` then `B` (rgb), what is under (its colour or texture) shown as `A·x + B`;
+    /// entries past its end have none ([`NO_OVERLAY`]).
+    pub overlays: &'a [[f32; 4]],
     /// Draw the outline of curved faces.
     pub silhouettes: bool,
     pub section: Option<Section>,
@@ -391,6 +398,7 @@ impl Default for Style<'_> {
             grid: [0.3, 0.3, 0.3],
             palette: &[],
             textures: &[],
+            overlays: &[],
             silhouettes: true,
             section: None,
             cap_shade: 0.25,
@@ -1037,6 +1045,8 @@ pub struct Renderer {
     palette: Dynamic,
     /// The palette entries' textures ([`Style::textures`]).
     texture_entries: Dynamic,
+    /// The palette entries' colorations ([`Style::overlays`]).
+    overlays: Dynamic,
     /// The images of the textures, one layer each ([`Renderer::set_textures`]), and their keys.
     layers: TextureLayers,
     sampler: wgpu::Sampler,
@@ -1122,6 +1132,16 @@ impl Renderer {
                     binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -1397,6 +1417,7 @@ impl Renderer {
             bind_group: None,
             palette: Dynamic::new("palette", wgpu::BufferUsages::STORAGE),
             texture_entries: Dynamic::new("texture entries", wgpu::BufferUsages::STORAGE),
+            overlays: Dynamic::new("overlays", wgpu::BufferUsages::STORAGE),
             layers: TextureLayers::empty(device),
             sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("textures"),
@@ -1673,10 +1694,19 @@ impl Renderer {
         // it would read as the first layer.
         let mut textures: Vec<[f32; 4]> = style.textures.to_vec();
         textures.resize(palette.len(), NO_TEXTURE);
+        // Two per palette entry, none by default.
+        let mut overlays: Vec<[f32; 4]> = style.overlays.to_vec();
+        overlays.truncate(palette.len() * 2);
+        while overlays.len() < palette.len() * 2 {
+            overlays.extend(NO_OVERLAY);
+        }
         let new_palette = self.palette.write(device, queue, bytemuck::cast_slice(&palette));
         let new_textures = self.texture_entries.write(device, queue, bytemuck::cast_slice(&textures));
-        if new_palette || new_textures || self.bind_group.is_none() {
-            let (Some(pb), Some(tb)) = (&self.palette.buffer, &self.texture_entries.buffer) else { return false };
+        let new_overlays = self.overlays.write(device, queue, bytemuck::cast_slice(&overlays));
+        if new_palette || new_textures || new_overlays || self.bind_group.is_none() {
+            let (Some(pb), Some(tb), Some(ob)) = (&self.palette.buffer, &self.texture_entries.buffer, &self.overlays.buffer) else {
+                return false;
+            };
             self.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("globals"),
                 layout: &self.layout,
@@ -1686,6 +1716,7 @@ impl Renderer {
                     wgpu::BindGroupEntry { binding: 2, resource: tb.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.layers.view) },
                     wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 5, resource: ob.as_entire_binding() },
                 ],
             }));
         }
@@ -2292,6 +2323,10 @@ fn fingerprint(frame: &Frame<'_>, size: [u32; 2], generation: u64) -> u64 {
     s.textures.len().hash(&mut h.0);
     for t in s.textures {
         h.fs(t);
+    }
+    s.overlays.len().hash(&mut h.0);
+    for o in s.overlays {
+        h.fs(o);
     }
     s.silhouettes.hash(&mut h.0);
     match s.section {

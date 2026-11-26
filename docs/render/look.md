@@ -114,8 +114,12 @@ symbols the code writes, and of Greek.
     (`Solid`, a new one's), « Panneau » (`Sheet`), « Profilé » (`Profile`);
   - **coverings**, what covers a face; their type: « Placage » (`Veneer`, a new one's),
     « Chant » (`Edge`);
-  - **colorations**, what colours a part or a face, never counted, no type; the colours of
-    imports are colorations.
+  - **colorations**, what colours a part or a face, never counted; the colours of imports are
+    colorations. A **coat** (« Couche », `Coat`, a new one's) has a `blend` — « Couvrant »
+    (`Cover`: laid over what is under, its `intensity` its opacity) or « Teintant » (`Tint`:
+    multiplying it, its intensity its strength) — and an `intensity` (0 to 1); a **scheme**
+    (« Schéma », `Scheme`) lays coats of the catalog, referred to, from the bottom up
+    (`coats`; one level, a coat may come twice; `SetCoat`, `SetCoats`).
   An item's family is its type's (`Material::family`, a coloration without one); a type changes
   only within its family (`SetMaterialKind`), an item never changes family. A file's item
   without a type of its table's family takes the family's first.
@@ -124,19 +128,25 @@ symbols the code writes, and of Greek.
 
   | | Counted | Seen |
   |---|---|---|
-  | Part | `Part.material` | `Part.coloration` (all its faces), else its material |
-  | Face | `Part.coverings` | `Part.faces` (its coloration), else its covering, else the part's |
+  | Part | `Part.material` | `Part.coloration` over its material |
+  | Face | `Part.coverings` | `Part.faces` (its coloration), else the part's, over its covering, else the part's material |
 
-  Then the theme's default; back faces keep the back colour (`Part::shown`,
-  `Part::faces_shown`, `PlacedPart::shown`). An item laid in a slot of another family is
+  What is seen is a pair, `Seen { under, over }` (`Part::shown`, `Part::faces_shown`,
+  `PlacedPart::shown`); under nothing, the theme's default; back faces keep the back colour. An item laid in a slot of another family is
   refused (`Refusal::MaterialLayer`).
 - **Operations**: `AddMaterial` (its type: its family), `EditMaterial` (name, colour; dragging a colour merges into one
   step), `SetMaterialKind`, `DeleteMaterial` (unpaints what used it), `PaintParts`, `PaintFaces` (each
   on a family's layer),
   `SetTexture`, `ImportMaterials`. None calls the kernel. A file painting with an unknown
   material is refused.
-- **Rendering**: a **palette** (a storage buffer of linear RGBA); each instance carries a
-  palette index (what its part shows), each vertex the index of what its face shows (or none).
+- **Rendering**: a **palette** (a storage buffer of linear RGBA), an entry per pair seen (the
+  app's `Viewport::colours`): what is under's colour, its texture beside it, and the
+  coloration's coats composed into one map per channel, `x -> A·x + B` (`compose`: covering
+  `(1 − t)·x + t·c`, tinting `x·((1 − t) + t·c)`), two `vec4` per entry in a third buffer
+  (`Style::overlays`) that the shader applies over the colour or the texture: a scheme of any
+  number of coats costs one. A coat covering fully with a texture is what is under from it on;
+  otherwise a coat's colour counts. Each instance carries a palette index (what its part
+  shows), each vertex the index of what its face shows (or none).
   Changing a material's colour rewrites only the palette; painting a part only the instances
   (rewritten each frame); painting a face re-uploads that one part's mesh. The app gives each material a
   palette slot for the session, never reused, so baked face indices stay valid. A highlight

@@ -250,6 +250,7 @@ impl SkraftApp {
         crate::dialogs::journal_window::show(ctx, &mut self.journal_window, journal);
         self.palette_window(ctx, views, actions);
         self.save_prompt(ctx);
+        self.delete_coat_prompt(ctx);
         self.loading_window(ctx);
     }
 

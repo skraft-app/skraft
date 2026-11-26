@@ -26,8 +26,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assets::Asset;
 use crate::clipboard::BodyFragment;
 use crate::document::{
-    Assembly, Behavior, Body, BodyDef, ComponentKind, Document, EntityPath, Family, Guide, GuideShape, Id, Material, MaterialKind,
-    Occurrence, Part, Sign, Texture, is_identity,
+    Assembly, Behavior, BlendMode, Body, BodyDef, ComponentKind, Document, EntityPath, Family, Guide, GuideShape, Id, Material,
+    MaterialKind, Occurrence, Part, Sign, Texture, is_identity,
 };
 use crate::drawing::{Border, Container, ElementKind, FieldOn, Paper, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
@@ -444,6 +444,11 @@ pub enum Operation {
     SetMaterialKind { material: Id, kind: MaterialKind },
     /// Renames or recolours a material.
     EditMaterial { material: Id, name: String, color: [u8; 3] },
+    /// Sets a coat's blend and intensity (0 to 1); changes in a row to one coat undo in one go
+    /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    SetCoat { material: Id, blend: BlendMode, intensity: f32 },
+    /// Sets the coats a scheme lays, from the bottom up: coats of the catalog, never schemes.
+    SetCoats { material: Id, coats: Vec<Id> },
     /// Removes a material: what was painted with it is not any more.
     DeleteMaterial { material: Id },
     /// Drops the materials nothing refers to (docs/ui/catalog.md).
@@ -676,6 +681,7 @@ impl Operation {
             Operation::AddMaterial { .. } => t!("operation.add_material"),
             Operation::EditMaterial { .. } => t!("operation.edit_material"),
             Operation::SetMaterialKind { .. } => t!("operation.set_material_kind"),
+            Operation::SetCoat { .. } | Operation::SetCoats { .. } => t!("operation.edit_material"),
             Operation::DeleteMaterial { .. } => t!("operation.delete_material"),
             Operation::PurgeMaterials => t!("operation.purge_materials"),
             Operation::SetProps { .. } => t!("operation.set_props"),
@@ -779,6 +785,7 @@ impl Operation {
         match (self, prev) {
             (Operation::SetSettings(_), Operation::SetSettings(_)) => true,
             (Operation::EditMaterial { material: a, .. }, Operation::EditMaterial { material: b, .. }) => a == b,
+            (Operation::SetCoat { material: a, .. }, Operation::SetCoat { material: b, .. }) => a == b,
             (Operation::SetElement { element: a, .. }, Operation::SetElement { element: b, .. }) => a == b,
             (Operation::SetBehavior { component: a, .. }, Operation::SetBehavior { component: b, .. }) => a == b,
             (Operation::SetProps { target: a, props: pa }, Operation::SetProps { target: b, props: pb }) => {
@@ -1168,8 +1175,34 @@ impl Document {
                 self.prune_assets();
                 Ok(Outcome::default())
             }
+            Operation::SetCoat { material, blend, intensity } => {
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                if m.kind != Some(MaterialKind::Coat) || !(0.0..=1.0).contains(intensity) {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                (m.blend, m.intensity) = (*blend, *intensity);
+                Ok(Outcome::default())
+            }
+            Operation::SetCoats { material, coats } => {
+                let is_coat = |id: &Id| self.materials.get(id).is_some_and(|m| m.kind == Some(MaterialKind::Coat));
+                if !coats.iter().all(is_coat) {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
+                if !m.is_scheme() {
+                    return Err(Error::Invalid(Refusal::MaterialLayer));
+                }
+                m.coats = coats.clone();
+                Ok(Outcome::default())
+            }
             Operation::DeleteMaterial { material } => {
                 self.materials.remove(material).ok_or(Error::NotFound(*material))?;
+                // A coat leaves the schemes laying it (the interface said how many first).
+                for scheme in self.schemes_with(*material) {
+                    if let Some(m) = self.materials.get_mut(&scheme) {
+                        m.coats.retain(|c| c != material);
+                    }
+                }
                 // Unpaint what used it, copying only the parts that did.
                 let users: Vec<Id> = self
                     .components

@@ -378,7 +378,8 @@ fn occurrence_line(
         }
         // What a part shows, if anything: a dot of its colour left of the eye, a column of its
         // own so the names stay aligned.
-        if let Some(m) = doc.part(o.component).ok().and_then(|p| p.shown()).and_then(|m| doc.material(m).ok()) {
+        let top = doc.part(o.component).ok().map(|p| p.shown()).and_then(|s| s.top());
+        if let Some(m) = top.and_then(|m| doc.material(m).ok()) {
             material_dot(ui, m, greyed);
         }
         eye

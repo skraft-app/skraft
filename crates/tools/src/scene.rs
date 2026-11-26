@@ -24,7 +24,9 @@ use std::sync::Arc;
 
 use glam::{DAffine3, DVec3};
 use skraft_kernel::{Display, Mesh, Quality, Snaps, Solid};
-use skraft_model::{Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Sign};
+use skraft_model::{
+    Assembly, ComponentKind, Document, EntityPath, FastMap, FastSet, GuideShape, Id, MAX_DEPTH, Occurrence, Section, Seen, Sign,
+};
 
 use crate::bvh::{Aabb, Bvh, ray_box_entry};
 use crate::camera::Ray;
@@ -49,7 +51,7 @@ pub struct DefinitionMesh {
     pub parts: Vec<PartMesh>,
     /// What single faces show (by face index), over the part's: their coloration, else their
     /// covering (docs/render/look.md).
-    pub faces: BTreeMap<u32, Id>,
+    pub faces: BTreeMap<u32, Seen>,
 }
 
 /// One occurrence of a part in the scene.
@@ -59,9 +61,9 @@ pub struct Placement {
     pub path: Vec<Id>,
     /// Part to world.
     pub transform: DAffine3,
-    /// What its faces without anything of their own show: the part's coloration, else its
+    /// What its faces without anything of their own show: the part's coloration over its
     /// material.
-    pub material: Option<Id>,
+    pub material: Seen,
     /// Hidden by the user: it, or an occurrence above it, out of the active path (what is
     /// being edited shows).
     pub hidden: bool,
@@ -400,10 +402,10 @@ impl DisplayScene {
 
         self.placements.clear();
         for p in doc.placed_parts() {
+            let material = p.shown();
             let mut path = p.path.occurrences;
             path.push(p.path.entity);
             let hidden = hidden_off(&path, p.hidden_at, &self.active);
-            let material = p.coloration.or(p.material);
             self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material, hidden });
         }
         self.section = doc.settings().display.active_section();
@@ -429,7 +431,7 @@ impl DisplayScene {
                     self.recipe_places.push((place, b.key, Piece::Blank(b.body)));
                 }
                 for t in &r.tools {
-                    let place = Placement { transform: open.transform * r.within * t.placement, material: None, ..open.clone() };
+                    let place = Placement { transform: open.transform * r.within * t.placement, material: Seen::NONE, ..open.clone() };
                     self.recipe_places.push((place, t.key, Piece::Tool(t.body)));
                 }
             }
@@ -565,7 +567,7 @@ impl DisplayScene {
 
     /// The mesh of `solid` under the key `key` (a part, or a recipe's solid): cached, or a
     /// stand-in asked for once.
-    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut FastSet<usize>) -> DefinitionMesh {
+    fn mesh_of(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Seen>, seen: &mut FastSet<usize>) -> DefinitionMesh {
         let at = Arc::as_ptr(solid) as usize;
         let entry = self.solids.entry(at).or_insert_with(|| Cached::pending(solid.clone()));
         // A part made unique shares its shape until it changes: ask for it once.
@@ -579,7 +581,7 @@ impl DisplayScene {
 
     /// The definition `key` drawn from `solid` ([`DisplayScene::mesh_of`]), recorded as one
     /// of its users.
-    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Id>, seen: &mut FastSet<usize>) {
+    fn define(&mut self, solid: &Arc<Solid>, key: Id, faces: &BTreeMap<u32, Seen>, seen: &mut FastSet<usize>) {
         let dm = self.mesh_of(solid, key, faces, seen);
         self.users.entry(Arc::as_ptr(solid) as usize).or_default().push(key);
         self.definitions.insert(key, dm);
@@ -994,8 +996,8 @@ pub struct Under {
     pub part: Id,
     /// Part to world.
     pub transform: DAffine3,
-    /// The material its faces without one of their own take.
-    pub material: Option<Id>,
+    /// What its faces without anything of their own show.
+    pub material: Seen,
 }
 
 /// The occurrences of the assembly a context path leads into, indexed by id: built once, it answers many occurrences (a selection of tens of
@@ -1060,8 +1062,8 @@ impl<'d> ContextIndex<'d> {
                 Ok(ComponentKind::Part(p)) => {
                     let material = match painted {
                         None => p.shown(),
-                        Some((skraft_model::Family::Material, m)) => p.coloration.or(m),
-                        Some((_, m)) => m.or(p.material),
+                        Some((skraft_model::Family::Material, m)) => Seen { under: m, ..p.shown() },
+                        Some((_, m)) => Seen { over: m, ..p.shown() },
                     };
                     out.push(Under { part: component, transform: t, material })
                 }
@@ -1084,7 +1086,7 @@ type Painted = Option<(skraft_model::Family, Option<Id>)>;
 
 /// A definition's revision: changes with its solid, its state (a stand-in, then the real
 /// mesh) and its faces' materials.
-fn revision(at: usize, state: State, faces: &BTreeMap<u32, Id>) -> u64 {
+fn revision(at: usize, state: State, faces: &BTreeMap<u32, Seen>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (at, matches!(state, State::Pending { .. } | State::Failed), state == State::Ready, faces).hash(&mut h);
     h.finish()

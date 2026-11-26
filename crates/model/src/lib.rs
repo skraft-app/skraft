@@ -47,9 +47,9 @@ pub use assets::{Asset, ImageKind};
 pub use clipboard::BodyFragment;
 pub use dimensions::{Anchor, DimKind, Dimension, Entity, Found, Orient, part_names};
 pub use document::{
-    Assembly, Behavior, Body, BodyDef, BodyGroup, BodySource, Catalog, Component, ComponentKind, Document, EntityPath, Family, Guide,
-    GuidePath, GuideShape, Id, MAX_DEPTH, Material, MaterialKind, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache, RawCell,
-    Sign, StretchMask, Texture, name_base,
+    Assembly, Behavior, BlendMode, Body, BodyDef, BodyGroup, BodySource, Catalog, Component, ComponentKind, Document, EntityPath, Family,
+    Guide, GuidePath, GuideShape, Id, MAX_DEPTH, Material, MaterialKind, Nature, Occurrence, Part, PlacedGuide, PlacedPart, RawCache,
+    RawCell, Seen, Sign, StretchMask, Texture, name_base,
 };
 pub use drawing::{
     Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Look, Paper, Perspective,

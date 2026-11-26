@@ -394,20 +394,22 @@ impl Part {
 
     /// Is the part its single positive body, placed or not: its shape that body's, its faces
     /// in the same order (docs/decisions/0054-changing-a-components-axes.md)?
-    /// What the part shows where its faces have nothing of their own: its coloration, else its
+    /// What the part shows where its faces have nothing of their own: its coloration over its
     /// material (docs/render/look.md#palette-and-materials).
-    pub fn shown(&self) -> Option<Id> {
-        self.coloration.or(self.material)
+    pub fn shown(&self) -> Seen {
+        Seen { under: self.material, over: self.coloration }
     }
 
-    /// What each face with something of its own shows: its coloration, else its covering.
-    pub fn faces_shown(&self) -> std::borrow::Cow<'_, BTreeMap<u32, Id>> {
-        if self.coverings.is_empty() {
-            return std::borrow::Cow::Borrowed(&self.faces);
-        }
-        let mut all = self.coverings.clone();
-        all.extend(self.faces.iter().map(|(f, m)| (*f, *m)));
-        std::borrow::Cow::Owned(all)
+    /// What each face with something of its own (a covering, a coloration) shows: its
+    /// coloration, else the part's, over its covering, else the part's material.
+    pub fn faces_shown(&self) -> BTreeMap<u32, Seen> {
+        let faces = self.coverings.keys().chain(self.faces.keys());
+        faces
+            .map(|f| {
+                let under = self.coverings.get(f).copied().or(self.material);
+                (*f, Seen { under, over: self.faces.get(f).copied().or(self.coloration) })
+            })
+            .collect()
     }
 
     /// Every material and coloration it holds, each slot's (a material may come twice).
@@ -960,7 +962,7 @@ impl Family {
         match self {
             Family::Material => &[MaterialKind::Solid, MaterialKind::Sheet, MaterialKind::Profile],
             Family::Covering => &[MaterialKind::Veneer, MaterialKind::Edge],
-            Family::Coloration => &[],
+            Family::Coloration => &[MaterialKind::Coat, MaterialKind::Scheme],
         }
     }
 }
@@ -979,6 +981,35 @@ pub enum MaterialKind {
     Veneer,
     /// An edge banding (« Chant »).
     Edge,
+    /// A coloration of its own: a colour, a mode, an intensity (« Couche »).
+    Coat,
+    /// A coloration made of coats of the catalog, in order (« Schéma »).
+    Scheme,
+}
+
+/// How a coat lays its colour over what is under it (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlendMode {
+    /// Laid over it, its intensity its opacity (« Couvrant »): a paint.
+    #[default]
+    Cover,
+    /// Multiplying it, its intensity its strength (« Teintant »): a stain, a tinted varnish.
+    Tint,
+}
+
+impl BlendMode {
+    fn is_cover(&self) -> bool {
+        *self == BlendMode::Cover
+    }
+}
+
+fn is_full(x: &f32) -> bool {
+    *x == 1.0
+}
+
+fn full() -> f32 {
+    1.0
 }
 
 impl MaterialKind {
@@ -987,13 +1018,14 @@ impl MaterialKind {
         match self {
             MaterialKind::Solid | MaterialKind::Sheet | MaterialKind::Profile => Family::Material,
             MaterialKind::Veneer | MaterialKind::Edge => Family::Covering,
+            MaterialKind::Coat | MaterialKind::Scheme => Family::Coloration,
         }
     }
 }
 
 /// An item of the catalog — a material, a covering or a coloration: a name, a colour, maybe a
-/// texture (docs/render/look.md), the type of a material or a covering. Its family is its
-/// table's ([`Catalog`]).
+/// texture (docs/render/look.md), its type, which tells its family ([`Catalog`]); a coat's
+/// blend and intensity, a scheme's coats.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
@@ -1003,25 +1035,39 @@ pub struct Material {
     pub color: [u8; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<Texture>,
+    /// A coat's: how it lays its colour over what is under it.
+    #[serde(default, skip_serializing_if = "BlendMode::is_cover")]
+    pub blend: BlendMode,
+    /// A coat's: its opacity, or its strength when it tints, from 0 to 1.
+    #[serde(default = "full", skip_serializing_if = "is_full")]
+    pub intensity: f32,
+    /// A scheme's: the coats it lays, from the bottom up, referred to (a coat may come twice).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coats: Vec<Id>,
     /// Its typed properties (docs/model/properties.md).
     #[serde(default, skip_serializing_if = "Props::is_empty")]
     pub props: Props,
 }
 
 impl Material {
-    /// A coloration of `color`, named `name`, without texture nor properties.
+    /// A coat of `color`, named `name`, covering, without texture nor properties.
     pub fn new(name: String, color: [u8; 3]) -> Self {
         Material::of_kind(name, color, None)
     }
 
-    /// An item of `kind` (none: a coloration) and `color`, named `name`.
+    /// An item of `kind` (none: a coat) and `color`, named `name`.
     pub fn of_kind(name: String, color: [u8; 3], kind: Option<MaterialKind>) -> Self {
-        Material { name, kind, color, texture: None, props: Props::default() }
+        let kind = Some(kind.unwrap_or(MaterialKind::Coat));
+        Material { name, kind, color, texture: None, blend: BlendMode::Cover, intensity: 1.0, coats: Vec::new(), props: Props::default() }
     }
 
-    /// Its family: its type's, a coloration without one.
+    /// Its family: its type's (a coloration without one).
     pub fn family(&self) -> Family {
         self.kind.map_or(Family::Coloration, MaterialKind::family)
+    }
+
+    pub fn is_scheme(&self) -> bool {
+        self.kind == Some(MaterialKind::Scheme)
     }
 }
 
@@ -1053,7 +1099,7 @@ impl From<CatalogFile> for Catalog {
         let mut c = Catalog::default();
         for (family, table) in [(Family::Material, f.materials), (Family::Covering, f.coverings), (Family::Coloration, f.colorations)] {
             for (id, mut m) in table {
-                if m.family() != family {
+                if m.family() != family || m.kind.is_none() {
                     m.kind = family.kinds().first().copied();
                 }
                 c.insert(id, m);
@@ -1268,10 +1314,45 @@ pub struct PlacedPart {
 }
 
 impl PlacedPart {
-    /// What it shows where its faces have nothing of their own: its coloration, else its
-    /// material ([`Part::shown`]).
-    pub fn shown(&self) -> Option<Id> {
-        self.coloration.or(self.material)
+    /// What it shows where its faces have nothing of their own ([`Part::shown`]).
+    pub fn shown(&self) -> Seen {
+        Seen { under: self.material, over: self.coloration }
+    }
+}
+
+/// What a part or a face shows (docs/render/look.md#palette-and-materials): what is under — a
+/// covering or a material, else the theme's default — and the coloration over it, if any.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Seen {
+    pub under: Option<Id>,
+    pub over: Option<Id>,
+}
+
+impl Seen {
+    /// Nothing: the theme's default.
+    pub const NONE: Seen = Seen { under: None, over: None };
+
+    pub fn is_none(&self) -> bool {
+        *self == Seen::NONE
+    }
+
+    /// The item named by `id`, as what is seen: a coloration over nothing, else what is under.
+    pub fn of(doc: &Document, id: Option<Id>) -> Seen {
+        match id.and_then(|m| doc.material(m).ok().map(|x| (m, x.family()))) {
+            Some((m, Family::Coloration)) => Seen { under: None, over: Some(m) },
+            Some((m, _)) => Seen { under: Some(m), over: None },
+            None => Seen::NONE,
+        }
+    }
+
+    /// The item on top: the coloration, else what is under.
+    pub fn top(&self) -> Option<Id> {
+        self.over.or(self.under)
+    }
+
+    /// The items it names.
+    pub fn ids(&self) -> impl Iterator<Item = Id> {
+        self.under.into_iter().chain(self.over)
     }
 }
 
@@ -1401,14 +1482,22 @@ impl Document {
     /// textures' images, every definition of properties (a `.skraftmat`, docs/io/file-format.md).
     pub fn materials_fragment(&self, ids: &[Id]) -> Result<Document> {
         let mut out = Document::new();
-        for (id, m) in self.materials.iter() {
-            if ids.is_empty() || ids.contains(id) {
-                let k = out.fresh_id();
-                out.materials.insert(k, m.clone());
-            }
-        }
         for id in ids {
             self.material(*id)?;
+        }
+        // The schemes' coats come along.
+        let mut wanted: FastSet<Id> = ids.iter().copied().collect();
+        wanted.extend(ids.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied()));
+        let mut fresh: HashMap<Id, Id> = HashMap::new();
+        for (id, _) in self.materials.iter().filter(|(id, _)| ids.is_empty() || wanted.contains(id)) {
+            fresh.insert(*id, out.fresh_id());
+        }
+        for (id, m) in self.materials.iter() {
+            if let Some(k) = fresh.get(id) {
+                let mut m = m.clone();
+                m.coats = m.coats.iter().filter_map(|c| fresh.get(c).copied()).collect();
+                out.materials.insert(*k, m);
+            }
         }
         out.prop_defs = self.prop_defs.clone();
         out.assets = self.assets.clone();
@@ -1590,7 +1679,10 @@ impl Document {
                     }
                 }
                 ComponentKind::Part(p) => {
-                    let shown: FastSet<Id> = p.materials_held().collect();
+                    // A scheme shows its coats too.
+                    let held: Vec<Id> = p.materials_held().collect();
+                    let coats = held.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied());
+                    let shown: FastSet<Id> = held.iter().copied().chain(coats).collect();
                     for m in shown {
                         let k = counts.entry(m).or_insert(0);
                         *k = k.saturating_add(n);
@@ -1602,7 +1694,7 @@ impl Document {
     }
 
     /// The materials something refers to: a part or a face of any part, placed in the model or
-    /// not.
+    /// not, and the coats of the schemes they refer to.
     pub fn materials_referenced(&self) -> FastSet<Id> {
         let mut out = FastSet::default();
         for c in self.components.values() {
@@ -1610,7 +1702,24 @@ impl Document {
                 out.extend(p.materials_held());
             }
         }
+        let coats: Vec<Id> = out.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied()).collect();
+        out.extend(coats);
         out
+    }
+
+    /// The coats a coloration lays, from the bottom up: a scheme's (those still there), a coat
+    /// itself (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    pub fn coats_of(&self, coloration: Id) -> Vec<(Id, &Material)> {
+        match self.materials.get(&coloration) {
+            Some(m) if m.is_scheme() => m.coats.iter().filter_map(|c| self.materials.get(c).map(|m| (*c, m))).collect(),
+            Some(m) => vec![(coloration, m)],
+            None => Vec::new(),
+        }
+    }
+
+    /// The schemes laying the coat `coat`.
+    pub fn schemes_with(&self, coat: Id) -> Vec<Id> {
+        self.materials.family(Family::Coloration).filter(|(_, m)| m.is_scheme() && m.coats.contains(&coat)).map(|(id, _)| id).collect()
     }
 
     /// Does the occurrence path `occurrences` go through an assembly placed more than once — a
@@ -2033,6 +2142,7 @@ impl Document {
             self.assets.entry(id.clone()).or_insert_with(|| a.clone());
         }
         let mut materials: HashMap<Id, Id> = HashMap::new();
+        let mut added = Vec::new();
         for (id, m) in fragment.materials.iter() {
             let same = if here.contains(id) { Some(*id) } else { self.materials.iter().find(|(_, here)| *here == m).map(|(k, _)| *k) };
             let to = match same {
@@ -2040,10 +2150,19 @@ impl Document {
                 None => {
                     let k = self.fresh_id();
                     self.materials.insert(k, m.clone());
+                    added.push(k);
                     k
                 }
             };
             materials.insert(*id, to);
+        }
+        // The schemes added lay the coats as they came in.
+        for k in added {
+            if let Some(m) = self.materials.get_mut(&k)
+                && !m.coats.is_empty()
+            {
+                m.coats = m.coats.iter().filter_map(|c| materials.get(c).copied()).collect();
+            }
         }
         // Decided before anything is added: a fresh id may be one of the fragment's.
         let kept: crate::FastSet<Id> = if reuse {

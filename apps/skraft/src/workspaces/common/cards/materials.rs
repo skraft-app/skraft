@@ -183,6 +183,19 @@ impl Shelf for Materials<'_> {
 
     fn picture(&mut self, ui: &mut egui::Ui, rect: egui::Rect, id: Id, _ink: &Ink) {
         let Ok(m) = self.doc.material(id) else { return };
+        // A scheme: its coats, a band each, the bottom one below.
+        if m.is_scheme() {
+            let coats = self.doc.coats_of(id);
+            ui.painter().rect_filled(rect, 4.0, ui.visuals().faint_bg_color);
+            let n = coats.len().max(1) as f32;
+            for (k, (_, c)) in coats.iter().enumerate() {
+                let [r, g, b] = c.color;
+                let top = rect.bottom() - rect.height() * (k + 1) as f32 / n;
+                let band = egui::Rect::from_min_max(egui::pos2(rect.left(), top), egui::pos2(rect.right(), top + rect.height() / n));
+                ui.painter().rect_filled(band, 0.0, egui::Color32::from_rgb(r, g, b));
+            }
+            return;
+        }
         let [r, g, b] = m.color;
         ui.painter().rect_filled(rect, 4.0, egui::Color32::from_rgb(r, g, b));
         if let Some(tex) = m.texture.as_ref().and_then(|t| thumbnail(ui.ctx(), self.doc, &t.image)) {
@@ -236,7 +249,7 @@ impl Shelf for Materials<'_> {
                 actions.push(Action::ExportMaterials(Some(id)));
             }
             if ui.button(t!("panel.components.delete")).tip(t!("panel.materials.delete_tip")).clicked() {
-                actions.push(Action::Apply(Operation::DeleteMaterial { material: id }));
+                actions.push(Action::DeleteMaterial(id));
             }
         });
     }

@@ -317,6 +317,14 @@ loading:
   skip: "Continuer sans attendre"
   cancel: "Annuler"
 
+# Deleting a coat that schemes lay (docs/decisions/0057).
+delete_coat:
+  title: "Supprimer la couche ?"
+  question: "« %{name} » est utilisée dans %{count} schéma : elle en sera retirée."
+  question_plural: "« %{name} » est utilisée dans %{count} schémas : elle en sera retirée."
+  delete: "Supprimer"
+  cancel: "Annuler"
+
 save_prompt:
   title: "Enregistrer les modifications ?"
   question: "Enregistrer les modifications apportées à « %{name} » ?"
@@ -1019,6 +1027,18 @@ panel:
     texture_width_tip: "Largeur réelle de l'image, le long du fil"
     texture_height_tip: "Hauteur réelle de l'image"
     texture_rotation_tip: "Rotation de la texture"
+    # A coat's blend (docs/decisions/0057): laid over what is under, or tinting it.
+    blend: "Mode"
+    blend_cover: "Couvrant"
+    blend_tint: "Teintant"
+    intensity: "Intensité"
+    intensity_tip: "Couvrant : son opacité ; teintant : la force de sa teinte (de 0 à 100 %)"
+    # A scheme's coats, from the bottom up.
+    coats: "Couches"
+    coat_add: "Ajouter une couche"
+    coat_remove_tip: "Retirer du schéma"
+    coat_up_tip: "Monter d'un cran"
+    coat_down_tip: "Descendre d'un cran"
     # An item's family (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
     family:
       material: "Matériau"
@@ -1027,6 +1047,8 @@ panel:
     # A material's or a covering's type: how it is counted and cut.
     kind_label: "Catégorie"
     kind:
+      coat: "Couche"
+      scheme: "Schéma"
       solid: "Massif"
       sheet: "Panneau"
       profile: "Profilé"

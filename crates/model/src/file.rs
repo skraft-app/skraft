@@ -416,6 +416,13 @@ impl Document {
             if m.texture.as_ref().is_some_and(|t| !t.is_valid() || !self.assets.contains_key(&t.image)) {
                 return Err(Error::File(FileError::BadTexture(*id)));
             }
+            // A scheme lays coats of the catalog, never schemes (docs/decisions/0057).
+            if m.coats.iter().any(|c| self.materials.get(c).is_none_or(|c| c.kind != Some(crate::MaterialKind::Coat))) {
+                return Err(Error::File(FileError::UnknownMaterial(*id)));
+            }
+            if !(0.0..=1.0).contains(&m.intensity) {
+                return Err(Error::File(FileError::BadMaterialId(*id)));
+            }
         }
         // The drawing (docs/ui/drawing.md): ids fresh, images present, views resolved, what
         // hangs on a view beside it, occurrences of known compositions, no composition holding itself, a

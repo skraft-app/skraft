@@ -936,18 +936,21 @@ impl Cx<'_> {
         self.part_material(p)
     }
 
-    /// What the part `path` (from the root) leads to shows: its coloration, else its material,
-    /// if it is a known one.
+    /// The item on top of what the part `path` (from the root) leads to shows: its coloration,
+    /// else its material, if it is a known one.
     pub fn part_material(&self, path: &EntityPath) -> Option<Id> {
         let (_, part, _) = self.doc.resolve_part(path).ok()?;
-        part.shown().filter(|m| self.doc.material(*m).is_ok())
+        let seen = part.shown();
+        seen.top().filter(|m| self.doc.material(*m).is_ok())
     }
 
-    /// The material shown on `face` of the part `path` leads to (« Prélever »): the face's
-    /// coloration, else its covering, else what the part shows (docs/render/look.md).
+    /// The item on top of what `face` of the part `path` leads to shows (« Prélever »): its
+    /// coloration (the face's, else the part's), else its covering, else the part's material
+    /// (docs/render/look.md).
     pub fn material_shown(&self, path: &EntityPath, face: u32) -> Option<Id> {
-        let own = self.doc.resolve_part(path).ok().and_then(|(_, part, _)| part.faces_shown().get(&face).copied());
-        own.filter(|m| self.doc.material(*m).is_ok()).or_else(|| self.part_material(&path.part_path()))
+        let (_, part, _) = self.doc.resolve_part(path).ok()?;
+        let seen = part.faces_shown().get(&face).copied().unwrap_or(part.shown());
+        seen.top().filter(|m| self.doc.material(*m).is_ok())
     }
 
     /// The operation a part creation tool applies (as [`Cx::add_primitive`]), « Dessiner dans »

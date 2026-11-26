@@ -752,7 +752,7 @@ fn materials_paint_parts_assemblies_and_faces() {
 
     // A part painted: on its definition, the other part not.
     h.apply(paint(vec![EntityPath::root(a)], Some(oak), Scope::All)).unwrap();
-    let placed = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().shown();
+    let placed = |h: &History, o: Id| h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap().shown().top();
     assert_eq!(placed(&h, a), Some(oak));
     assert_eq!(placed(&h, b), None);
     let part_a = h.document().root_assembly().occurrence(a).unwrap().component;
@@ -818,12 +818,15 @@ fn each_family_goes_to_its_layer_colorations_over_the_others() {
 
     // Seen: the coloration over the material, a face's coloration over its covering.
     let p = |h: &History| h.document().part(part).unwrap().clone();
-    assert_eq!((p(&h).shown(), p(&h).faces_shown().get(&0).copied()), (Some(oak), Some(veneer)));
+    assert_eq!((p(&h).shown().top(), p(&h).faces_shown().get(&0).and_then(|s| s.top())), (Some(oak), Some(veneer)));
     h.apply(on_part(Family::Coloration, Some(paint))).unwrap();
     h.apply(on_face(Family::Coloration, Some(paint))).unwrap();
-    assert_eq!((p(&h).material, p(&h).shown(), p(&h).faces_shown().get(&0).copied()), (Some(oak), Some(paint), Some(paint)));
+    assert_eq!(
+        (p(&h).material, p(&h).shown().top(), p(&h).faces_shown().get(&0).and_then(|s| s.top())),
+        (Some(oak), Some(paint), Some(paint))
+    );
     h.apply(on_part(Family::Coloration, None)).unwrap();
-    assert_eq!(p(&h).shown(), Some(oak), "the coloration taken off: the material again");
+    assert_eq!(p(&h).shown().top(), Some(oak), "the coloration taken off: the material again");
 
     // A type changes within its family only.
     h.apply(Operation::SetMaterialKind { material: oak, kind: MaterialKind::Sheet }).unwrap();
@@ -840,6 +843,59 @@ fn each_family_goes_to_its_layer_colorations_over_the_others() {
     assert_eq!(&Document::from_json(&json).unwrap(), h.document());
     let json = json.replace("\"kind\":\"sheet\",", "");
     assert_eq!(Document::from_json(&json).unwrap().material(oak).unwrap().kind, Some(MaterialKind::Solid));
+}
+
+#[test]
+fn schemes_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
+    let mut h = History::new(Document::new());
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let item = |h: &mut History, name: &str, kind| {
+        h.apply(Operation::AddMaterial { name: name.into(), color: [9, 9, 9], kind }).unwrap().material.unwrap()
+    };
+    let stain = item(&mut h, "Teinte noyer", None);
+    let varnish = item(&mut h, "Vernis ambré", Some(MaterialKind::Coat));
+    let scheme = item(&mut h, "Noyer verni", Some(MaterialKind::Scheme));
+    let oak = item(&mut h, "Chêne", Some(MaterialKind::Solid));
+    let refused = |r: Result<Outcome>| matches!(r, Err(Error::Invalid(Refusal::MaterialLayer)));
+    assert_eq!(h.document().material(stain).unwrap().kind, Some(MaterialKind::Coat), "a coat by default");
+
+    // A coat's blend and intensity; dragging it merges into one step.
+    h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Tint, intensity: 0.4 }).unwrap();
+    h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Tint, intensity: 0.6 }).unwrap();
+    assert_eq!(h.document().material(stain).unwrap().intensity, 0.6);
+    assert!(refused(h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Cover, intensity: 1.5 })));
+    assert!(refused(h.apply(Operation::SetCoat { material: scheme, blend: BlendMode::Cover, intensity: 1.0 })));
+
+    // A scheme lays coats, twice the same if need be; never a scheme nor a material.
+    h.apply(Operation::SetCoats { material: scheme, coats: vec![stain, varnish, varnish] }).unwrap();
+    assert!(refused(h.apply(Operation::SetCoats { material: scheme, coats: vec![scheme] })));
+    assert!(refused(h.apply(Operation::SetCoats { material: scheme, coats: vec![oak] })));
+    assert!(refused(h.apply(Operation::SetCoats { material: stain, coats: vec![varnish] })), "a coat lays none");
+    let ids = |h: &History| h.document().coats_of(scheme).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+    assert_eq!(ids(&h), [stain, varnish, varnish]);
+    assert_eq!(h.document().schemes_with(varnish), [scheme]);
+
+    // Laid on a part: the scheme and its coats count as used, kept by the purge.
+    let paint =
+        Operation::PaintParts { targets: vec![EntityPath::root(a)], layer: Family::Coloration, material: Some(scheme), scope: Scope::All };
+    h.apply(paint).unwrap();
+    h.apply(Operation::PurgeMaterials).unwrap();
+    for m in [stain, varnish, scheme] {
+        assert!(h.document().material(m).is_ok());
+    }
+    assert!(h.document().material(oak).is_err(), "unused: purged");
+
+    // A file keeps it all; a material file brings a scheme's coats along.
+    assert_eq!(&Document::from_json(&h.document().to_json().unwrap()).unwrap(), h.document());
+    let alone = h.document().materials_fragment(&[scheme]).unwrap();
+    assert_eq!(alone.materials().count(), 3);
+    let (_, s) = alone.materials().find(|(_, m)| m.is_scheme()).unwrap();
+    assert_eq!(s.coats.len(), 3);
+    assert!(s.coats.iter().all(|c| alone.material(*c).is_ok()));
+
+    // Deleted, a coat leaves the schemes laying it.
+    h.apply(Operation::DeleteMaterial { material: varnish }).unwrap();
+    assert_eq!(ids(&h), [stain]);
 }
 
 #[test]

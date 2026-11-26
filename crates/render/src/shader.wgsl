@@ -26,6 +26,9 @@ struct Globals {
 @group(0) @binding(2) var<storage, read> textures: array<vec4<f32>>;
 @group(0) @binding(3) var texture_layers: texture_2d_array<f32>;
 @group(0) @binding(4) var texture_sampler: sampler;
+// Each palette entry's coloration (docs/render/look.md#palette-and-materials): `A` at 2i, `B` at
+// 2i + 1, what is under shown as A·x + B.
+@group(0) @binding(5) var<storage, read> overlays: array<vec4<f32>>;
 // A layer's side (texels), lib.rs's `TEXTURE_SIZE`.
 const TEXTURE_SIZE: f32 = 1024.0;
 
@@ -145,6 +148,14 @@ fn textured(in: FaceOut, base: vec3<f32>) -> vec3<f32> {
     let texels = size / slant * max(t.y, t.z) * TEXTURE_SIZE;
     let lod = max(log2(max(texels, 1e-6)), 0.0);
     return textureSampleLevel(texture_layers, texture_sampler, uv, i32(t.x), lod).rgb;
+}
+
+// What is under, `x`, with palette entry `i`'s coloration over it.
+fn coloured(i: u32, x: vec3<f32>) -> vec3<f32> {
+    if (i == NO_MATERIAL || 2u * i + 1u >= arrayLength(&overlays)) {
+        return x;
+    }
+    return x * overlays[2u * i].rgb + overlays[2u * i + 1u].rgb;
 }
 
 fn front_colour(i: u32) -> vec3<f32> {
@@ -275,13 +286,13 @@ fn shade(in: FaceOut, facing: bool, caps: bool, hatch: f32) -> vec4<f32> {
     if (!front) {
         if (caps) {
             // A section cap: the part's colour, flat and darker, hatched in the edges' ink.
-            let cap = mix(base * (1.0 - g.section.y), g.edge.rgb, hatch * g.hatch.z);
+            let cap = mix(coloured(in.colour, base) * (1.0 - g.section.y), g.edge.rgb, hatch * g.hatch.z);
             return vec4<f32>(mix(cap, in.tint.rgb, in.tint.a), 1.0);
         }
         n = -n;
         base = g.face_back.rgb;
     } else {
-        base = textured(in, base);
+        base = coloured(in.colour, textured(in, base));
     }
     let view = normalize(-in.world);
     let head = max(dot(n, view), 0.0);

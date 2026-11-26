@@ -136,6 +136,9 @@ impl Document {
                 ComponentKind::Part(p) => materials.extend(p.materials_held()),
             }
         }
+        // The schemes' coats come along.
+        let coats: Vec<Id> = materials.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied()).collect();
+        materials.extend(coats);
 
         let root = self.component(self.root)?;
         let top = Component {
