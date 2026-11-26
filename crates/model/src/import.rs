@@ -16,11 +16,72 @@ use skraft_i18n::t;
 use web_time::Instant;
 
 use crate::Result;
-use crate::document::{Assembly, Behavior, ComponentKind, Document, Id, Material, Occurrence, StretchMask};
+use crate::document::{Assembly, Behavior, ComponentKind, Document, Family, Id, Material, MaterialKind, Occurrence, StretchMask};
 use skraft_kernel::SketchUpImport;
 
 /// How many of the slowest builds the report keeps.
 const SLOWEST: usize = 15;
+
+// ---- the catalog's items -----------------------------------------------------------------
+
+/// Where a SketchUp material is laid: on an instance (what its parts are made of), or on a face.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Laid {
+    Instance,
+    Face,
+}
+
+/// The type a SketchUp material takes where it is laid (none: a coloration), by OpenCutList's
+/// type when it has one (docs/io/sketchup-import.md#materials): a material on an instance, a
+/// covering on a face where its type is one; else, a coloration for what only colours or does
+/// not go there, a solid material on an instance, a coloration on a face.
+fn kind_of(ocl: Option<u8>, laid: Laid) -> Option<MaterialKind> {
+    match (laid, ocl) {
+        (Laid::Instance, Some(2)) => Some(MaterialKind::Sheet),
+        (Laid::Instance, Some(3)) => Some(MaterialKind::Profile),
+        // An edge, a veneer on a whole instance, a machining: their look.
+        (Laid::Instance, Some(4 | 6 | 7)) => None,
+        // Solid wood, hardware (bought, later), none.
+        (Laid::Instance, _) => Some(MaterialKind::Solid),
+        (Laid::Face, Some(4)) => Some(MaterialKind::Edge),
+        (Laid::Face, Some(6)) => Some(MaterialKind::Veneer),
+        (Laid::Face, _) => None,
+    }
+}
+
+/// The items made, by SketchUp material and type: one material laid two ways is two items of
+/// one name.
+#[derive(Default)]
+struct Items {
+    made: std::collections::HashMap<(usize, Option<MaterialKind>), Id>,
+}
+
+impl Items {
+    /// The item SketchUp's material `m` is where it is `laid`, made on first use with its
+    /// texture, its image among the assets: laid at its real size, the image's width along the
+    /// part's length (docs/render/look.md#textures).
+    fn item(&mut self, doc: &mut Document, skp: &SketchUpImport, m: usize, laid: Laid) -> Option<Id> {
+        let source = skp.materials.get(m)?;
+        let kind = kind_of(source.ocl_type, laid);
+        if let Some(id) = self.made.get(&(m, kind)) {
+            return Some(*id);
+        }
+        let id = doc.fresh_id();
+        let mut material = Material::of_kind(source.name.clone(), source.color, kind);
+        if let Some(t) = &source.texture
+            && let Some(asset) = crate::Asset::new(t.image.clone())
+        {
+            let texture = crate::Texture { image: asset.id(), size: t.size, rotation: 0.0 };
+            if texture.is_valid() {
+                doc.assets.insert(texture.image.clone(), asset);
+                material.texture = Some(texture);
+            }
+        }
+        doc.materials.insert(id, material);
+        self.made.insert((m, kind), id);
+        Some(id)
+    }
+}
 
 // ---- the report --------------------------------------------------------------------------
 
@@ -68,27 +129,8 @@ impl Document {
         let mut doc = Document::new();
         let root_id = doc.root;
         doc.component_mut(root_id)?.name = name.to_owned();
-        let materials: Vec<Id> = skp
-            .materials
-            .iter()
-            .map(|m| {
-                let id = doc.fresh_id();
-                let mut material = Material::new(m.name.clone(), m.color);
-                // Its texture, its image among the assets: laid at its real size, the image's
-                // width along the part's length (docs/render/look.md#textures).
-                if let Some(t) = &m.texture
-                    && let Some(asset) = crate::Asset::new(t.image.clone())
-                {
-                    let texture = crate::Texture { image: asset.id(), size: t.size, rotation: 0.0 };
-                    if texture.is_valid() {
-                        doc.assets.insert(texture.image.clone(), asset);
-                        material.texture = Some(texture);
-                    }
-                }
-                doc.materials.insert(id, material);
-                id
-            })
-            .collect();
+        // The catalog's items, made as they are laid (docs/io/sketchup-import.md#materials).
+        let mut items = Items::default();
         let name_of = |def: Option<usize>| def.map_or_else(|| t!("default_name.model"), |d| skp.definitions[d].name.clone());
         let named_def = |def: Option<usize>| def.is_some_and(|d| !skp.definitions[d].group);
         let behavior = |def: Option<usize>| Behavior {
@@ -110,8 +152,14 @@ impl Document {
                     report.parts += 1;
                     let name = if p.loose { t!("default_name.loose_faces", name = name_of(p.definition)) } else { name_of(p.definition) };
                     let mut part = doc.plain_part(Arc::new(solid.clone()));
-                    // Its painted faces, over the occurrences' material.
-                    part.faces.extend(p.painted.iter().filter_map(|&(face, m)| Some((face, *materials.get(m)?))));
+                    // Its painted faces: a covering, else a coloration.
+                    for &(face, m) in &p.painted {
+                        let Some(item) = items.item(&mut doc, skp, m, Laid::Face) else { continue };
+                        match doc.material(item).map(|x| x.family()) {
+                            Ok(Family::Covering) => part.coverings.insert(face, item),
+                            _ => part.faces.insert(face, item),
+                        };
+                    }
                     let id = doc.insert_component(&name, named_def(p.definition), ComponentKind::Part(part));
                     doc.component_mut(id)?.behavior = behavior(p.definition);
                     part_ids.push(Some(id));
@@ -154,7 +202,7 @@ impl Document {
                 let mut paints = Vec::new();
                 for (component, transform, name, material) in occurrences {
                     let id = doc.fresh_id();
-                    if let Some(m) = material.and_then(|m| materials.get(m).copied()) {
+                    if let Some(m) = material.and_then(|m| items.item(&mut doc, skp, m, Laid::Instance)) {
                         paints.push((id, m));
                     }
                     list.push(Occurrence { id, name, component, transform, hidden: false, props: Default::default() });
@@ -184,7 +232,7 @@ impl Document {
         for c in &root_node.children {
             match component_of[c.node] {
                 Some(component) => {
-                    top_paints.push(c.material.and_then(|m| materials.get(m).copied()));
+                    top_paints.push(c.material.and_then(|m| items.item(&mut doc, skp, m, Laid::Instance)));
                     top.push(Occurrence {
                         id: Id(0),
                         name: c.name.clone(),

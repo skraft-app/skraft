@@ -60,14 +60,15 @@ impl Document {
         for (part, paths) in by_part {
             // Every placement painted: the part itself, whatever the scope.
             let whole = scope == Scope::All || placed.get(&part).copied().unwrap_or(0) == paths.len();
-            self.paint_groups(part, layer, &[(material, paths)], whole.then_some(0))?;
+            self.paint_groups(part, Some(layer), &[(material, paths)], whole.then_some(0))?;
         }
         Ok(())
     }
 
-    /// Gives the parts of a document whose occurrences carried colorations (a SketchUp file's
-    /// instances, docs/io/sketchup-import.md) those colorations: `painted` by (assembly,
-    /// occurrence), a part taking the nearest one above it. A part reached in several keeps the
+    /// Gives the parts of a document whose occurrences carried items of the catalog (a SketchUp
+    /// file's instances, docs/io/sketchup-import.md) those items, each where its family goes
+    /// (a material, a coloration): `painted` by (assembly, occurrence), a part taking the
+    /// nearest one above it. A part reached in several keeps the
     /// one most of its placements take; the others get a copy of it each.
     pub(crate) fn settle_occurrence_paints(&mut self, painted: &FastMap<(Id, Id), Id>) -> Result<()> {
         if painted.is_empty() {
@@ -101,19 +102,28 @@ impl Document {
         for (part, groups) in by_part {
             // The largest group (the first of the largest) keeps the part.
             let kept = (0..groups.len()).rev().max_by_key(|&g| groups[g].1.len());
-            self.paint_groups(part, Family::Coloration, &groups, kept)?;
+            self.paint_groups(part, None, &groups, kept)?;
         }
         Ok(())
     }
 
-    /// Paints `layer` of the placements `groups` of `part`, each group in its material: the group `kept`
+    /// Paints `layer` (none: each group's material's family, a group without one left as it is) of
+    /// the placements `groups` of `part`, each group in its material: the group `kept`
     /// on `part` itself, every other on a copy of its own. An occurrence all of whose
     /// placements are in a group is pointed at its copy where it stands; one placed in several
     /// groups (its assembly shown elsewhere) has the assemblies on the way made their own first,
     /// as « only this one » does.
-    fn paint_groups(&mut self, part: Id, layer: Family, groups: &[(Option<Id>, Vec<EntityPath>)], kept: Option<usize>) -> Result<()> {
-        for (g, (material, paths)) in groups.iter().enumerate() {
-            let own = if Some(g) == kept {
+    fn paint_groups(
+        &mut self,
+        part: Id,
+        layer: Option<Family>,
+        groups: &[(Option<Id>, Vec<EntityPath>)],
+        kept: Option<usize>,
+    ) -> Result<()> {
+        // Every copy made first, from the part as it was: one group's paint is not another's.
+        let mut owns = Vec::with_capacity(groups.len());
+        for (g, (_, paths)) in groups.iter().enumerate() {
+            owns.push(if Some(g) == kept {
                 part
             } else {
                 let copy = self.copy_component(part)?;
@@ -142,7 +152,10 @@ impl Document {
                     }
                 }
                 copy
-            };
+            });
+        }
+        for ((material, _), own) in groups.iter().zip(owns) {
+            let Some(layer) = layer.or_else(|| material.and_then(|m| self.material(m).ok()).map(|m| m.family())) else { continue };
             let now = match layer {
                 Family::Material => self.part(own)?.material,
                 _ => self.part(own)?.coloration,

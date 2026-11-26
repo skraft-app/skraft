@@ -14,7 +14,7 @@
 
 use glam::{DMat3, DVec3};
 use skraft_model::kernel::{Job, Output, Task};
-use skraft_model::{Document, ImportReport};
+use skraft_model::{Document, Family, ImportReport, MaterialKind};
 
 const CABINET: &[u8] = include_bytes!("../../kernel/tests/fixtures/cabinet.skp");
 const CABINET_2017: &[u8] = include_bytes!("../../kernel/tests/fixtures/cabinet-2017.skp");
@@ -52,11 +52,11 @@ fn definitions_become_shared_parts_and_assemblies() {
         let high = cab.occurrences().iter().find(|o| o.name == "Haut").unwrap();
         assert!(high.transform.matrix3.determinant() < 0.0);
         assert!((high.transform.translation - DVec3::new(0.0, 0.0, 500.0)).length() < 1e-9);
-        let oak = doc.material(doc.part(high.component).unwrap().coloration.unwrap()).unwrap();
+        let oak = doc.material(doc.part(high.component).unwrap().material.unwrap()).unwrap();
         assert_eq!((oak.name.as_str(), oak.color), ("Chêne", [180, 140, 90]));
         let low = cab.occurrences().iter().find(|o| o.name == "Bas").unwrap();
         assert_ne!(low.component, high.component);
-        assert_eq!(doc.part(low.component).unwrap().coloration, None);
+        assert_eq!(doc.part(low.component).unwrap().material, None);
 
         // The scale is in the geometry: a part 1200 long, placed by a translation only.
         let top = doc.root_assembly().occurrences().iter().find(|o| o.name == "Longue").unwrap();
@@ -122,10 +122,78 @@ fn faces_take_the_material_of_their_side_facing_out_and_textures_come_along() {
     let (_, point, normal) = on("Bleu");
     assert!((normal - DVec3::X).length() < 1e-9 && (point.x - 100.0).abs() < 1e-9, "the face at X 100");
 
-    // The instance's material, on its part, its texture with its image.
-    let wood = doc.material(cube.as_part().unwrap().coloration.unwrap()).unwrap();
+    // The instance's material, what its part is made of, its texture with its image; the faces'
+    // are colorations.
+    let wood = doc.material(cube.as_part().unwrap().material.unwrap()).unwrap();
+    assert_eq!(wood.family(), Family::Material);
+    assert!(part.faces.values().all(|m| doc.material(*m).unwrap().family() == Family::Coloration));
     assert!(wood.name.starts_with("Bois"), "{}", wood.name);
     let texture = wood.texture.as_ref().unwrap();
     assert_eq!(texture.size, [100.0, 50.0]);
     assert!(doc.asset(&texture.image).is_some());
+}
+
+/// `ocl-materials.skp`, drawn in SketchUp 2026 through its Ruby API, its materials typed by
+/// OpenCutList (`ladb_opencutlist` › `type`): « Côté » placed twice in « MDF » (2, sheet good),
+/// its front face in « Chant chêne » (4, edge); « Plateau » in « Chêne massif » (1, solid wood)
+/// and in « Chant chêne » (an edge on a whole instance), its top face in « Laque blanche » (no
+/// type), its bottom in « Placage noyer » (6, veneer); « Tasseau » in « Tasseau pin » (3,
+/// dimensional), its top face in « MDF », its bottom in « Rainure » (7, machining); « Bouton » in
+/// « Charnière » (5, hardware) and in « Rainure ».
+#[test]
+fn opencutlist_types_put_materials_where_they_go() {
+    let (doc, _) = import(include_bytes!("../../kernel/tests/fixtures/ocl-materials.skp"));
+    let item = |id: Option<skraft_model::Id>| id.map(|m| doc.material(m).unwrap()).map(|m| (m.name.as_str(), m.kind));
+    let parts = |name: &str| {
+        let mut v: Vec<_> = doc.components().filter(|c| c.name.starts_with(name)).filter_map(|c| c.as_part()).collect();
+        v.sort_by_key(|p| item(p.material).map(|(n, _)| n.to_owned()));
+        v
+    };
+    let face = |p: &skraft_model::Part, normal: DVec3, covering: bool| {
+        let planes: Vec<_> = p.shape().planes().collect();
+        let slots = if covering { &p.coverings } else { &p.faces };
+        let (_, m) = slots.iter().find(|(f, _)| (planes[**f as usize].normal - normal).length() < 1e-6).unwrap();
+        item(Some(*m)).unwrap()
+    };
+    let (solid, sheet, profile, edge, veneer, coat) = (
+        Some(MaterialKind::Solid),
+        Some(MaterialKind::Sheet),
+        Some(MaterialKind::Profile),
+        Some(MaterialKind::Edge),
+        Some(MaterialKind::Veneer),
+        Some(MaterialKind::Coat),
+    );
+
+    // A sheet good on the instances: the part's material; an edge on a face: its covering.
+    let side = parts("Côté");
+    assert_eq!(side.len(), 1, "both placed alike: one part");
+    assert_eq!(item(side[0].material), Some(("MDF", sheet)));
+    assert_eq!(face(side[0], -DVec3::Y, true), ("Chant chêne", edge));
+
+    // Solid wood, and an edge on a whole instance (only its look): two parts; a lacquer on the
+    // top face, a veneer under it.
+    let top = parts("Plateau");
+    assert_eq!(top.len(), 2);
+    let oak = top.iter().find(|p| p.material.is_some()).unwrap();
+    assert_eq!(item(oak.material), Some(("Chêne massif", solid)));
+    let banded = top.iter().find(|p| p.material.is_none()).unwrap();
+    assert_eq!(item(banded.coloration), Some(("Chant chêne", coat)));
+    assert_eq!(face(oak, DVec3::Z, false), ("Laque blanche", coat));
+    assert_eq!(face(oak, -DVec3::Z, true), ("Placage noyer", veneer));
+
+    // Dimensional timber; a sheet good on a face (only its look), a machining.
+    let slat = parts("Tasseau");
+    assert_eq!(item(slat[0].material), Some(("Tasseau pin", profile)));
+    assert_eq!(face(slat[0], DVec3::Z, false), ("MDF", coat));
+    assert_eq!(face(slat[0], -DVec3::Z, false), ("Rainure", coat));
+
+    // Hardware, a solid material for now; a machining on an instance, its look.
+    let knob = parts("Bouton");
+    assert_eq!(knob.len(), 2);
+    assert!(knob.iter().any(|p| item(p.material) == Some(("Charnière", solid))));
+    assert!(knob.iter().any(|p| p.material.is_none() && item(p.coloration) == Some(("Rainure", coat))));
+
+    // One item per material and type: « MDF » and « Chant chêne » twice, « Rainure » once.
+    let named = |n: &str| doc.materials().filter(|(_, m)| m.name == n).count();
+    assert_eq!((named("MDF"), named("Chant chêne"), named("Rainure")), (2, 2, 1));
 }

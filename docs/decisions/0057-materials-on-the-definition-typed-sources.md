@@ -95,9 +95,12 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
     on a body or a shell becomes a **coloration** of its part, a part's product's
     `MATERIAL_DESIGNATION` a material (solid); an option « Importer comme » (Fabriqué / Acheté /
     Existant) sets the imported root's source (a vendor's slide file: one article).
-  - SketchUp: an instance's material becomes a **coloration** of its part, a face's of its
-    face; a definition painted differently by its instances is made unique, one per
-    coloration. OpenCutList's material types, read later, will make materials of them.
+  - SketchUp: an instance's material becomes a **material** of its part (what it is made of),
+    a face's a **coloration** of its face — or, by OpenCutList's type of it when it has one,
+    the material, covering or coloration it says (sheet good, dimensional, edge, veneer…; a
+    type that does not go where it is laid gives a coloration); a definition painted
+    differently by its instances is made unique, one per item (decided 2026-11-26, as the
+    user's earlier files were converted).
   - The same « Importer comme » option for a `.skp`.
 
 ## Alternatives considered
