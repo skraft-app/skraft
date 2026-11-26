@@ -76,6 +76,13 @@ the sizes `scripts/build-web.sh` writes into the page, since a compressed respon
 worker, which only spawns once the UI runs, finds it in the HTTP cache. Without WebGPU the kernel
 is not fetched: the app only says what is missing.
 
+When the app cannot run — no WebGPU, or no adapter for it — it says why on the loading screen
+(the page's `skraftFailed`): its bar red and full, the app's sentence under it, in the last
+theme's colours; the screen is put back if it was already gone, and it keeps hiding the edges
+Safari reads its bars from ([Safe areas](touch.md#safe-areas)). A download that fails shows the
+browser's own words there, smaller. `?webgpu=off` in the page's address hides `navigator.gpu`,
+to try it.
+
 ## Measured
 
 `bench_step_loading` (`BENCH_STEP`, 8 threads, dev profile, Cruise): read 1.75 s, every preview
