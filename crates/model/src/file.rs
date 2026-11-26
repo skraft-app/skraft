@@ -369,8 +369,10 @@ impl Document {
         serde_json::from_str::<JsonIn<Document>>(text).map_err(file_err)?.document.settled()
     }
 
-    /// A document just read: checked, its automatic names settled.
+    /// A document just read: checked, its automatic names settled, the images no material uses
+    /// dropped (a coloration's texture is not read: [`crate::document::Catalog`]).
     fn settled(mut self) -> Result<Document> {
+        self.prune_assets();
         self.check()?;
         self.check_props()?;
         self.settle_link_names();

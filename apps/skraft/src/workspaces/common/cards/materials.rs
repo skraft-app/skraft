@@ -381,7 +381,7 @@ mod tests {
         let asset = Asset::new(png.into_inner()).unwrap();
         let image = asset.id();
         let mut h = History::new(Document::new());
-        h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [1, 2, 3], kind: Default::default() }).unwrap();
+        h.apply(Operation::AddMaterial { name: "Chêne".into(), color: [1, 2, 3], kind: Some(skraft_model::MaterialKind::Solid) }).unwrap();
         let material = h.document().materials().next().unwrap().0;
         let texture = Texture { image: image.clone(), size: [600.0, 400.0], rotation: 0.0 };
         h.apply(Operation::SetTexture { material, texture: Some(texture), image: Some(asset), color: None }).unwrap();

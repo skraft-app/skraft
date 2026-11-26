@@ -74,7 +74,7 @@ A material used by an instance or a face becomes an item of the document's catal
 colour (a texture's average colour), and its **texture**, the image (PNG or JPEG, as the file
 holds it) among the document's assets laid at the real size SketchUp gives it
 ([Textures](../render/look.md#textures): a box projection in the part's axes, not SketchUp's
-per-face placement). Its family comes from **where it is laid**, and from **OpenCutList's
+per-face placement) — but for a coloration, which has its colour alone. Its family comes from **where it is laid**, and from **OpenCutList's
 type** of it when it has one (`ladb_opencutlist` › `type`, `SketchUpMaterial::ocl_type`):
 
 | Type (OCL) | On an instance | On a face |

@@ -1050,7 +1050,7 @@ impl MaterialKind {
 }
 
 /// An item of the catalog — a material, a covering or a coloration: a name, a colour, maybe a
-/// texture (docs/render/look.md), its type, which tells its family ([`Catalog`]); a coat's
+/// texture (a material's or a covering's, docs/render/look.md), its type, which tells its family ([`Catalog`]); a coat's
 /// blend and intensity, a scheme's coats.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
@@ -1168,8 +1168,12 @@ impl Catalog {
         }
     }
 
-    /// Adds `m` to its family's table.
-    pub(crate) fn insert(&mut self, id: Id, m: Material) {
+    /// Adds `m` to its family's table; a coloration without a texture, which it never has (a
+    /// file's is dropped: docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+    pub(crate) fn insert(&mut self, id: Id, mut m: Material) {
+        if m.family() == Family::Coloration {
+            m.texture = None;
+        }
         self.table_mut(m.family()).insert(id, m);
     }
 

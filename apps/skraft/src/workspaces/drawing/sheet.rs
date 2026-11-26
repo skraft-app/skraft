@@ -1083,7 +1083,7 @@ mod tests {
         let root = h.document().root();
         let textured = |h: &mut skraft_model::History, byte: u8| {
             let material = h
-                .apply(Operation::AddMaterial { name: format!("M{byte}"), color: [9, 9, 9], kind: Default::default() })
+                .apply(Operation::AddMaterial { name: format!("M{byte}"), color: [9, 9, 9], kind: Some(skraft_model::MaterialKind::Solid) })
                 .unwrap()
                 .material
                 .unwrap();

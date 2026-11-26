@@ -2,7 +2,7 @@
 
 - Status: accepted (2026-11-26; step 1 built: the material on the definition; three families
   decided the same day; « Importer comme » dropped and the navigator's source mark decided
-  the same day)
+  the same day; colorations without texture decided the same day)
 - Design: [Palette and materials](../render/look.md#palette-and-materials),
   [Parts list](../ui/parts-list.md), [Data model](../model/data-model.md),
   [STEP import](../io/step-import.md), [SketchUp import](../io/sketchup-import.md)
@@ -41,7 +41,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
     names); a type: « Placage » (the default), « Chant »;
   - **colorations** (« Colorations »): what colours a face, never counted. The colours of
     imports are colorations. Two categories:
-    - a **coat** (« Couche », the default): a colour, maybe a texture, a **mode** and an
+    - a **coat** (« Couche », the default): a colour, never a texture, a **mode** and an
       **intensity** (0 to 100 %): « Couvrant » lays it over what is under (normal blending,
       the intensity its opacity: a paint, a thinned paint), « Teintant » multiplies what is
       under by it (the intensity its strength: a stain, a tinted varnish, the grain still
@@ -49,7 +49,8 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
     - a **scheme** (« Schéma »): an ordered list of coats of the catalog, referred to, not
       copied — « Noyer verni » is « Teinte noyer » then « Vernis ambré », the varnish existing
       once whatever the schemes using it. One level: a scheme holds coats, never schemes.
-  Each item has a colour and maybe a texture, to be seen. **A type changes only within its
+  Each item has a colour to be seen; a material or a covering maybe a texture, a coloration
+  never (a file's is not read; an imported one keeps its image's mean colour). **A type changes only within its
   family**, and every type of a family goes to the same place: nothing can end up where it does
   not go. An item never changes family (a new one is made).
 - **Where they go**, on the part's definition and its faces; **only parts have them**: an
@@ -66,9 +67,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **A coloration is composed, not drawn layer by layer**: each coat maps what is under, per
   channel, to `A·x + B` (covering: `(1 − a)·x + a·c`; tinting: `x·((1 − s) + s·c)`), and the
   coats of a scheme compose into one such map, worked out once, applied by the shader over what
-  is under (its colour or its texture): any number of coats costs one. A coat's texture shows
-  only when it covers fully (« Couvrant », 100 %: it hides what is under and starts the
-  composition again); otherwise its colour counts.
+  is under (its colour or its texture): any number of coats costs one.
 - **Deleting a coat used by schemes** removes it from them, after a confirmation saying how
   many; the purge keeps a coat only schemes use.
 - **A component has a source** (`Component.source`), a field of the model like its name, not a
@@ -129,6 +128,11 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   coat by coat on every face, the tool to tell adding from replacing, and the finishing
   scheme, a notion of the workshop, nameless.
 - **Schemes holding schemes**: cycles, and stacks hard to read; one level suffices.
+- **A coat with a texture** (decided first, the same day): its texture showed only when it
+  covered fully, its image's mean colour otherwise — a thinned grain shown as a plain veil.
+  Keeping the texture under a partial intensity holds one textured coat per scheme in the map
+  (`x·(A + E·T) + B + D·T`), a second texture sampled; a texture belongs to what a part is
+  made of or covered with, a coloration only colours it.
 - **The type deciding nothing, the tool's option choosing the target**: the user picks a mode
   where the material already says where it goes.
 - **« Acheté » as a material type** (OpenCutList's *hardware*): a bought slide has a substance
@@ -157,6 +161,9 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - Coverings in the parts list wait for stable face names.
 - The renderer shows what is under and the coloration over it: a palette entry per pair met
   (what is under, the coloration), its colour or texture and the coloration's map.
+- **Files**: a coloration's texture in an earlier file is dropped when it is read, its colour
+  (the image's mean) kept; a SketchUp face painted with a textured material and no
+  OpenCutList type gets its mean colour, no longer the image; the changelog says so.
 - Later modes (« Éclaircissant », a whitewash: lighten or overlay) fit the same map only in
   part (overlay is not affine): to see when asked.
 - A lock on components (`locked`, as SketchUp's) may come later, apart from the source.

@@ -4255,7 +4255,7 @@ fn texture(image: &Asset) -> Texture {
 fn a_textured_material_takes_its_image_mean_colour_and_keeps_it() {
     let mut h = History::new(Document::new());
     let oak = h
-        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Some(MaterialKind::Solid) })
         .unwrap()
         .material
         .unwrap();
@@ -4279,12 +4279,15 @@ fn a_textured_material_takes_its_image_mean_colour_and_keeps_it() {
 fn textures_are_stored_once_and_saved() {
     let mut h = History::new(Document::new());
     let oak = h
-        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Some(MaterialKind::Solid) })
         .unwrap()
         .material
         .unwrap();
-    let walnut =
-        h.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap().material.unwrap();
+    let walnut = h
+        .apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Some(MaterialKind::Solid) })
+        .unwrap()
+        .material
+        .unwrap();
     let image = png(1);
     h.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: None }).unwrap();
     // The same image for another: no bytes again.
@@ -4325,14 +4328,40 @@ fn textures_are_stored_once_and_saved() {
 }
 
 #[test]
+fn a_coloration_has_no_texture() {
+    let mut h = History::new(Document::new());
+    let add = |h: &mut History, kind| {
+        h.apply(Operation::AddMaterial { name: "Teinte".into(), color: [120, 80, 40], kind }).unwrap().material.unwrap()
+    };
+    let coat = add(&mut h, Some(MaterialKind::Coat));
+    let image = png(1);
+    let set = |material| Operation::SetTexture { material, texture: Some(texture(&image)), image: Some(image.clone()), color: None };
+    assert!(matches!(h.document().prepare(&set(coat)), Err(Error::Invalid(Refusal::ColorationTexture))));
+    // Taking none off is no change, and allowed.
+    h.apply(Operation::SetTexture { material: coat, texture: None, image: None, color: None }).unwrap();
+
+    // A file's coloration with a texture is read without it, its image dropped.
+    let mut h = History::new(Document::new());
+    let oak = add(&mut h, Some(MaterialKind::Solid));
+    h.apply(set(oak)).unwrap();
+    let json = h.document().to_json().unwrap();
+    let key = r#""materials":{"#;
+    assert_eq!(json.matches(key).count(), 1, "{json}");
+    let read = Document::from_json(&json.replace(key, r#""colorations":{"#)).unwrap();
+    let m = read.material(oak).unwrap();
+    assert_eq!((m.family(), m.texture.as_ref(), m.color), (Family::Coloration, None, [120, 80, 40]));
+    assert!(read.asset(&image.id()).is_none());
+}
+
+#[test]
 fn materials_files_export_and_import() {
     let mut src = History::new(Document::new());
     let oak = src
-        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Default::default() })
+        .apply(Operation::AddMaterial { name: "Chêne".into(), color: [180, 140, 90], kind: Some(MaterialKind::Solid) })
         .unwrap()
         .material
         .unwrap();
-    src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Default::default() }).unwrap();
+    src.apply(Operation::AddMaterial { name: "Noyer".into(), color: [90, 60, 40], kind: Some(MaterialKind::Solid) }).unwrap();
     let image = png(7);
     src.apply(Operation::SetTexture { material: oak, texture: Some(texture(&image)), image: Some(image.clone()), color: None }).unwrap();
     src.apply(Operation::SetPropDef { key: "user.densite".into(), def: Some(PropDef::new(ValueKind::Real)) }).unwrap();
@@ -4340,7 +4369,7 @@ fn materials_files_export_and_import() {
     let a = add(&mut src, cube(DVec3::ZERO, 10.0));
     src.apply(Operation::PaintParts {
         targets: vec![EntityPath::root(a)],
-        layer: Family::Coloration,
+        layer: Family::Material,
         material: Some(oak),
         scope: Scope::All,
     })

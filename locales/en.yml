@@ -1800,6 +1800,7 @@ error:
     nothing_reached: "no tool reaches a target"
     no_such_face: "no such face"
     material_layer: "this material does not go there"
+    coloration_texture: "a coloration has no texture, only a colour"
     no_bodies: "no bodies given"
     ungroup_negative: "a compound machining that spares material cannot be exploded"
     flatten_failed: "a failed or empty shape cannot be flattened: correct it first"

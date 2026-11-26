@@ -59,7 +59,8 @@ struct Items {
 impl Items {
     /// The item SketchUp's material `m` is where it is `laid`, made on first use with its
     /// texture, its image among the assets: laid at its real size, the image's width along the
-    /// part's length (docs/render/look.md#textures).
+    /// part's length (docs/render/look.md#textures). A coloration keeps its colour alone, the
+    /// image's mean.
     fn item(&mut self, doc: &mut Document, skp: &SketchUpImport, m: usize, laid: Laid) -> Option<Id> {
         let source = skp.materials.get(m)?;
         let kind = kind_of(source.ocl_type, laid);
@@ -69,6 +70,7 @@ impl Items {
         let id = doc.fresh_id();
         let mut material = Material::of_kind(source.name.clone(), source.color, kind);
         if let Some(t) = &source.texture
+            && material.family() != Family::Coloration
             && let Some(asset) = crate::Asset::new(t.image.clone())
         {
             let texture = crate::Texture { image: asset.id(), size: t.size, rotation: 0.0 };
