@@ -65,7 +65,8 @@ fn from_hsv([h, s, v]: [f32; 3]) -> Rgb {
     [f(5.0), f(3.0), f(1.0)].map(|x| (x * 255.0).round() as u8)
 }
 
-fn color32([r, g, b]: Rgb) -> Color32 {
+/// `c` as egui's colour.
+pub fn color32([r, g, b]: Rgb) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
@@ -188,8 +189,28 @@ fn shortcut(ctx: &egui::Context, text: &str) -> String {
     Shortcut::parse(text).map(|s| s.display(mac)).unwrap_or_default()
 }
 
-/// The corner radius of a colour box (points).
+/// The corner radius of a colour box, a swatch, a material's texture box (points).
 pub const BOX_RADIUS: f32 = 3.0;
+
+/// A swatch of `color` filling `rect`, edged by `edge`; none: empty, crossed.
+pub fn paint_swatch(ui: &egui::Ui, rect: Rect, color: Option<Rgb>, edge: Stroke) {
+    let p = ui.painter();
+    match color {
+        Some(c) => drop(p.rect(rect, BOX_RADIUS, color32(c), edge, egui::StrokeKind::Inside)),
+        None => {
+            p.rect_stroke(rect, BOX_RADIUS, edge, egui::StrokeKind::Inside);
+            p.line_segment([rect.left_bottom(), rect.right_top()], edge);
+        }
+    }
+}
+
+/// A swatch of `color`, `size` points square, laid out (a material in a list); none: empty,
+/// crossed.
+pub fn swatch(ui: &mut egui::Ui, color: Option<Rgb>, size: f32) -> egui::Response {
+    let (rect, r) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    paint_swatch(ui, rect, color, Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color));
+    r
+}
 
 /// A colour box of `size`: `color` shown, its panel opened by a click, copied and pasted by its
 /// menu (right click) or ⌘C / ⌘V under the pointer. `enabled` false: shown and copied only
@@ -206,7 +227,7 @@ pub fn color_box(
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let visuals = ui.visuals();
     let edge = if enabled { visuals.text_color() } else { visuals.widgets.noninteractive.bg_stroke.color };
-    ui.painter().rect(rect, BOX_RADIUS, color32(color), Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+    paint_swatch(ui, rect, Some(color), Stroke::new(1.0, edge));
     let mut picked = None;
     if response.hovered() {
         picked = clipboard_keys(ui, color, enabled);
@@ -226,6 +247,7 @@ pub fn color_box(
     if enabled {
         let panel_id = id.with("panel");
         let shown = egui::Popup::menu(&response)
+            .style(crate::kit::style::menu)
             .id(panel_id)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| panel(ui, panel_id, picked.unwrap_or(color)));
@@ -263,7 +285,7 @@ fn panel(ui: &mut egui::Ui, id: Id, color: Rgb) -> Option<Rgb> {
         ui.horizontal(|ui| {
             let now = state.rgb();
             let (r, _) = ui.allocate_exact_size(vec2(28.0, OPTION_HEIGHT), Sense::hover());
-            ui.painter().rect(r, BOX_RADIUS, color32(now), Stroke::new(1.0, ui.visuals().text_color()), egui::StrokeKind::Inside);
+            paint_swatch(ui, r, Some(now), Stroke::new(1.0, ui.visuals().text_color()));
             // The entity info's field: applied by Enter or a click away, Esc putting it back.
             let tip = t!("color.hex_tip");
             let field = Field {
@@ -282,7 +304,7 @@ fn panel(ui: &mut egui::Ui, id: Id, color: Rgb) -> Option<Rgb> {
                 picked = Some(c);
             }
         });
-        ui.label(egui::RichText::new(t!("color.favorites")).small().color(ui.visuals().weak_text_color()));
+        ui.label(crate::kit::style::caption(t!("color.favorites")));
         if let Some(c) = favorites_row(ui, state.rgb()) {
             picked = Some(c);
         }
@@ -374,7 +396,7 @@ fn favorites_row(ui: &mut egui::Ui, current: Rgb) -> Option<Rgb> {
             let (rect, r) = ui.allocate_exact_size(Vec2::splat(SWATCH), Sense::click());
             let lit = c == current;
             let edge = if lit { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
-            ui.painter().rect(rect, BOX_RADIUS, color32(c), Stroke::new(if lit { 2.0 } else { 1.0 }, edge), egui::StrokeKind::Inside);
+            paint_swatch(ui, rect, Some(c), Stroke::new(if lit { 2.0 } else { 1.0 }, edge));
             let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).tip(hex(c));
             if r.clicked() {
                 picked = Some(c);

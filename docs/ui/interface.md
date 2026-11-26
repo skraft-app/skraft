@@ -232,7 +232,8 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`tick`**, the check box: egui's, the Preferences' look, with a third state (`Covered`,
   through a row above it: egui's indeterminate mark).
 - **`warning`**, the ⚠ before an error to correct.
-- **`color::color_box`**, the one colour box ([Colours](#colours)).
+- **`color::color_box`**, the one colour box ([Colours](#colours)); **`color::swatch`** and
+  `paint_swatch`, the one swatch (a material in a list, a favourite colour, the box itself).
 - **`keycaps`**, a shortcut drawn as the keys to press, each a key cap, lit while one is being
   typed (the Preferences' *Shortcuts* tab).
 - **`keypad`**, the numeric keypad the measurements box opens under a finger
@@ -240,12 +241,16 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
   one ([Links](../model/bodies.md#links)): in the navigator, left of a part's eye, in its ink;
   **`linked_badge`**, the same chain small on the corner of a linked body's sign.
+- **`badge`**, an icon on a disc cutting what is under it, the one badge: `linked_badge`; over a
+  picture (`picture_badge`, `badge_button`: a disc of the panel's colour in a corner), a locked
+  colour's padlock, a texture's ✕ and ↻.
 
 Elsewhere:
 
 - **`style.rs`**: the cards' frames and margins (`card_frame`, `option_card`, `hover_card`,
   `CARD_MARGIN`), the gap around the floating cards (`FLOAT_GAP`), the bars' sizes
-  (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`), the settings'
+  (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`; the colour panel takes their style too), a
+  `caption` (small, dim: a box's name under it, a menu's note), the settings'
   sections and grids, the hover texts (`Tip`); the app's windows (`app_window`: their frame, their
   width, where they open, held under the title bar on a phone; `window_body`, their content
   as high as its content up to 80 % of the screen, then scrolled — egui's window keeps its

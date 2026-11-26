@@ -276,6 +276,11 @@ pub fn menu(style: &mut egui::Style) {
     style.spacing.button_padding.x = MENU_PADDING_X;
 }
 
+/// A caption: small text in the dim ink (a box's name under it, a note under a menu's rows).
+pub fn caption(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into()).small().weak()
+}
+
 /// The check box column of a menu that has check boxes: its side, the box's.
 const MENU_CHECK: f32 = 13.0;
 

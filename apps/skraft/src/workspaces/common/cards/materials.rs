@@ -198,8 +198,10 @@ impl Shelf for Materials<'_> {
         }
         let [r, g, b] = m.color;
         ui.painter().rect_filled(rect, 4.0, egui::Color32::from_rgb(r, g, b));
-        if let Some(tex) = m.texture.as_ref().and_then(|t| thumbnail(ui.ctx(), self.doc, &t.image)) {
-            egui::Image::new(&tex).uv(centre_square(&tex)).corner_radius(4.0).paint_at(ui, rect);
+        if let Some(t) = &m.texture
+            && let Some(tex) = thumbnail(ui.ctx(), self.doc, &t.image)
+        {
+            paint_texture(ui, &tex, quarters(t.rotation), rect, true, 4.0);
         }
     }
 
@@ -317,11 +319,49 @@ fn brush(ui: &mut egui::Ui, item: &egui::Response, on: bool, tip: &str, handle: 
     r.tip(tip).clicked()
 }
 
-/// The middle square of a texture, in its UVs.
-pub(crate) fn centre_square(tex: &egui::TextureHandle) -> egui::Rect {
+/// A texture's rotation (radians) as quarter turns, the nearest: the turns the interface offers
+/// (docs/render/look.md#textures).
+pub(crate) fn quarters(rotation: f64) -> u8 {
+    (rotation / std::f64::consts::FRAC_PI_2).round().rem_euclid(4.0) as u8
+}
+
+/// A texture's image size (texels) once turned by `quarter` quarter turns.
+pub(crate) fn turned_size(tex: &egui::TextureHandle, quarter: u8) -> [f32; 2] {
     let [w, h] = tex.size().map(|v| v.max(1) as f32);
-    let (du, dv) = ((1.0 - (h / w).min(1.0)) / 2.0, (1.0 - (w / h).min(1.0)) / 2.0);
-    egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv))
+    if quarter % 2 == 1 { [h, w] } else { [w, h] }
+}
+
+/// A texture's thumbnail `tex` in `rect`, turned anticlockwise by `quarter` quarter turns as the
+/// texture's rotation turns it on the parts; `cover`: its middle filling `rect`, its proportions
+/// kept (else all of it, stretched to `rect`). Its corners rounded by `radius` when not turned
+/// (egui rounds only a rectangle of the image).
+pub(crate) fn paint_texture(ui: &egui::Ui, tex: &egui::TextureHandle, quarter: u8, rect: egui::Rect, cover: bool, radius: f32) {
+    let [w, h] = turned_size(tex, quarter);
+    let (du, dv) = if cover {
+        let (image, room) = (w / h, rect.width() / rect.height().max(1.0));
+        if image > room { ((1.0 - room / image) / 2.0, 0.0) } else { (0.0, (1.0 - image / room) / 2.0) }
+    } else {
+        (0.0, 0.0)
+    };
+    if quarter % 4 == 0 {
+        let uv = egui::Rect::from_min_max(egui::pos2(du, dv), egui::pos2(1.0 - du, 1.0 - dv));
+        ui.painter().add(egui::epaint::RectShape::filled(rect, radius, egui::Color32::WHITE).with_texture(tex.id(), uv));
+        return;
+    }
+    // A point of the turned image (0 to 1, from its top left) taken from the image itself.
+    let source = |x: f32, y: f32| match quarter % 4 {
+        1 => egui::pos2(1.0 - y, x),
+        2 => egui::pos2(1.0 - x, 1.0 - y),
+        _ => egui::pos2(y, 1.0 - x),
+    };
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    let corners = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
+    for (corner, (x, y)) in corners.into_iter().zip([(du, dv), (1.0 - du, dv), (1.0 - du, 1.0 - dv), (du, 1.0 - dv)]) {
+        mesh.vertices.push(egui::epaint::Vertex { pos: corner, uv: source(x, y), color: egui::Color32::WHITE });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(mesh);
 }
 
 // ---- the textures' thumbnails ------------------------------------------------------------------

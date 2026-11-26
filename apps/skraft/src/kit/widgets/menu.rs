@@ -110,7 +110,7 @@ pub(crate) fn pin_list(ui: &mut egui::Ui, items: &[PinItem], checks: bool, texts
     let width = ui.min_rect().width();
     ui.separator();
     ui.set_max_width(width);
-    ui.add(egui::Label::new(egui::RichText::new((texts.note)()).small().weak()).wrap());
+    ui.add(egui::Label::new(crate::kit::style::caption((texts.note)())).wrap());
     event
 }
 
