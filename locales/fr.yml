@@ -1959,6 +1959,7 @@ error:
     missing_operand: "opérande manquant"
     missing_close_parenthesis: "parenthèse fermante manquante"
     unexpected_close_parenthesis: "parenthèse fermante en trop"
+    too_deep: "expression trop imbriquée"
     zero_division: "division par zéro"
     invalid_dimension: "unités incompatibles"
     wrong_unit: "« %{text} » : unité inattendue"
