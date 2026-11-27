@@ -66,10 +66,12 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   bodies lie on a band of their own (`band_color`: the card's colour a shade towards the text;
   white in the light theme), the tree of assemblies and parts on the card's, the band and the
   hover reaching the card's border across its margin (`style::CARD_MARGIN`). Before a
-  part's name, the swatch of what it shows (`materials::paint_material`, as the « Matières »
-  card and the material fields draw it). Left of an occurrence's eye, its marks: the chain of a
-  part shaping others, then a component's source when not « Fabriqué » (`icons::BOUGHT`, a
-  tag; `icons::EXISTING`, a wall; its tooltip naming it, [Parts list](parts-list.md#rows)). The tree follows
+  part's name, its material then its coloration, a swatch each (`materials::paint_material`,
+  as the « Matières » card and the material fields draw it), then, when faces carry a covering
+  or a coloration of their own, a swatch cut across (the most used of them in its lower half,
+  all named in its tooltip). Left of an occurrence's eye, its marks: the chain of a part
+  shaping others, then a component's source when not « Fabriqué » (`icons::BOUGHT`, a tag;
+  `icons::EXISTING`, a wall; its tooltip naming it, [Parts list](parts-list.md#rows)). The tree follows
   the path being edited down to its end: a part's bodies under it (a single one too), a group's
   under it, and under a body with a profile (an extrusion, a revolution) its « Profil »
   (`icons::PROFILE`), a click editing it (`Action::EditProfile`, `Editor::edit_body_profile`:

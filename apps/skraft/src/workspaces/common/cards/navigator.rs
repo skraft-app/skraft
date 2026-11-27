@@ -402,10 +402,10 @@ fn occurrence_line(
             Some(false) => return (rename_field(ui, rename, name), None),
             None => {}
         }
-        // What a part shows, if anything: its swatch before its name.
-        let top = doc.part(o.component).ok().map(|p| p.shown()).and_then(|s| s.top());
-        if let Some(m) = top.filter(|m| doc.material(*m).is_ok()) {
-            material_swatch(ui, doc, m, greyed);
+        // What a part shows, if anything, before its name: its material, its coloration, and a
+        // mark when faces carry their own.
+        if let Ok(p) = doc.part(o.component) {
+            material_marks(ui, doc, p, greyed);
         }
         let auto = doc.component(o.component).is_ok_and(|c| !c.named);
         let back = ui.visuals().window_fill;
@@ -598,20 +598,89 @@ fn occurrence_row(
     }
 }
 
-/// A navigator row's material: its swatch as the « Matières » card and the material fields draw
-/// it (a scheme its coats), faded on a hidden row (`greyed`); its name in the tip.
-fn material_swatch(ui: &mut egui::Ui, doc: &Document, m: Id, greyed: bool) {
+/// The gap between a navigator row's material marks: closer than the row's items, one group.
+const MARKS_GAP: f32 = 3.0;
+
+/// A navigator row's materials: the part's material, then its coloration, each its swatch as
+/// the « Matières » card and the material fields draw it (a scheme its coats); then, when faces
+/// carry a covering or a coloration of their own, a swatch cut across, the most used of them in
+/// its lower half. Faded on a hidden row (`greyed`); each names what it shows in its tip.
+fn material_marks(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Part, greyed: bool) {
+    let own = |m: &Option<Id>| m.filter(|m| doc.material(*m).is_ok());
+    let swatches: Vec<Id> = [own(&p.material), own(&p.coloration)].into_iter().flatten().collect();
+    // The faces' own items, the most used first, those the part shows already left out.
+    let mut faces: Vec<(Id, usize)> = Vec::new();
+    for m in p.coverings.values().chain(p.faces.values()) {
+        if Some(*m) == p.material || Some(*m) == p.coloration || doc.material(*m).is_err() {
+            continue;
+        }
+        match faces.iter_mut().find(|(f, _)| f == m) {
+            Some((_, n)) => *n += 1,
+            None => faces.push((*m, 1)),
+        }
+    }
+    faces.sort_by_key(|f| std::cmp::Reverse(f.1));
+    let n = swatches.len() + usize::from(!faces.is_empty());
+    if n == 0 {
+        return;
+    }
     let side = crate::kit::style::MENU_MARK;
-    let (r, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
-    // Faded in a child that takes no room (a scope would add a gap before the name).
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    let width = n as f32 * side + (n - 1) as f32 * MARKS_GAP;
+    let (all, _) = ui.allocate_exact_size(egui::vec2(width, side), egui::Sense::hover());
+    // Painted in a child that takes no room (a scope would add a gap before the name).
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(all));
     if greyed {
         child.multiply_opacity(0.4);
     }
-    super::materials::paint_material(&child, doc, r, m, 2.0);
-    if let Ok(m) = doc.material(m) {
-        response.tip(&m.name);
+    let at = |k: usize| egui::Rect::from_min_size(all.min + egui::vec2(k as f32 * (side + MARKS_GAP), 0.0), egui::Vec2::splat(side));
+    let name = |m: Id| doc.material(m).map_or(String::new(), |m| m.name.clone());
+    for (k, m) in swatches.iter().enumerate() {
+        super::materials::paint_material(&child, doc, at(k), *m, 2.0);
+        ui.interact(at(k), ui.scope_id().with(("material_mark", k)), egui::Sense::hover()).tip(name(*m));
     }
+    if let Some(&(first, _)) = faces.first() {
+        let r = at(swatches.len());
+        paint_faces_mark(&child, doc, r, first);
+        let names: Vec<String> = faces.iter().map(|(m, _)| name(*m)).collect();
+        let tip = t!("panel.navigator.faces_tip", names = names.join(", "));
+        ui.interact(r, ui.scope_id().with("faces_mark"), egui::Sense::hover()).tip(tip);
+    }
+}
+
+/// The mark of faces carrying their own items: a faint swatch cut across, its lower right half
+/// the colour of `m` (a scheme: its top coat).
+fn paint_faces_mark(ui: &egui::Ui, doc: &Document, r: egui::Rect, m: Id) {
+    let color = match doc.material(m) {
+        Ok(x) if x.is_scheme() => doc.coats_of(m).last().map_or(x.color, |(_, c)| c.color),
+        Ok(x) => x.color,
+        Err(_) => return,
+    };
+    let [red, g, b] = color;
+    // The rounded square's outline, its corners as the swatches' (radius 2), cut by the diagonal
+    // from top right to bottom left: it crosses those two corners' arcs at their middle (their
+    // centres lie on it), so each half is the outline's points on its side.
+    const RADIUS: f32 = 2.0;
+    const STEPS: usize = 4;
+    let mut outline = Vec::new();
+    let corners = [
+        (r.right_bottom() + egui::vec2(-RADIUS, -RADIUS), 0.0),
+        (r.left_bottom() + egui::vec2(RADIUS, -RADIUS), 0.25),
+        (r.left_top() + egui::vec2(RADIUS, RADIUS), 0.5),
+        (r.right_top() + egui::vec2(-RADIUS, RADIUS), 0.75),
+    ];
+    for (centre, start) in corners {
+        for k in 0..=STEPS {
+            let a = std::f32::consts::TAU * (start + 0.25 * k as f32 / STEPS as f32);
+            outline.push(centre + RADIUS * egui::vec2(a.cos(), a.sin()));
+        }
+    }
+    let side = |q: egui::Pos2| (q.x - r.left()) / r.width() + (q.y - r.top()) / r.height() - 1.0;
+    let half = |lower: bool| -> Vec<egui::Pos2> {
+        outline.iter().copied().filter(|q| if lower { side(*q) >= -1e-3 } else { side(*q) <= 1e-3 }).collect()
+    };
+    let p = ui.painter();
+    p.add(egui::Shape::convex_polygon(half(false), ui.visuals().faint_bg_color, egui::Stroke::NONE));
+    p.add(egui::Shape::convex_polygon(half(true), egui::Color32::from_rgb(red, g, b), egui::Stroke::NONE));
 }
 
 /// The model, the navigator's first row, at the list's left edge (no indent, no fold nor eye):

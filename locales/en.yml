@@ -1003,6 +1003,7 @@ panel:
     link_overlap: "Overlaps %{parts} inside %{receivers}"
     linked: "Machining linked to %{source}: it follows its shape and place. To change it, edit %{source} or break the link (right-click)"
     imprints_in: "Imprints its shape in: %{parts}"
+    faces_tip: "Faces: %{names}"
     profile: "Profile"
     profile_tip: "Click to edit the profile"
     # A row's right-click menu; the two names of a row with an occurrence name.
