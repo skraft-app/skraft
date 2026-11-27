@@ -85,5 +85,6 @@ Decision record: [The kernel runs off the UI thread, as stateless jobs](../decis
   transferred `ArrayBuffer`s. If the worker crashes, its current work fails (a message in the
   status bar), it is restarted and the other tasks in flight are sent to it again.
 - **Testing the recovery**: **Debug › Crash the kernel** menu (task `Task::Panic`, followed by a
-  normal task that must succeed). The menu is turned on at launch, in any build: `?debug` in the
-  page's address, `SKRAFT_DEBUG` in the environment on the desktop.
+  normal task that must succeed). The menu is always there in a dev build; in a release build it is
+  turned on at launch: `?debug` in the page's address, `SKRAFT_DEBUG` in the environment on the
+  desktop.

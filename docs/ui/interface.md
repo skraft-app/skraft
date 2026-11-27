@@ -364,8 +364,8 @@ review of 2026-11-23 found five icon buttons, three menu rows, two selection rec
 
 ## The kit's gallery
 
-« Galerie du kit » (`dialogs/kit_gallery.rs`, in the Débogage menu: `SKRAFT_DEBUG` on the
-desktop, `?debug` on the web) shows every widget of the list above, drawn by the kit itself,
+« Galerie du kit » (`dialogs/kit_gallery.rs`, in the Débogage menu: a dev build, or
+`SKRAFT_DEBUG` on the desktop, `?debug` on the web; through the palette) shows every widget of the list above, drawn by the kit itself,
 in its states — at rest, lit, disabled, wrong… —, each under the call that draws it
 (`Look::Framed`, `.lit(true)`: code, not translated). A tab a family: buttons, choices, fields,
 menus, rows, marks, colours, frames, overlays. Its specimens work: a list opens, a field

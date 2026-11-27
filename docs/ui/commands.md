@@ -21,7 +21,7 @@ has its own page ([Control protocol](../control-protocol.md)).
   come from it (the active tool's own keys — Esc, arrows, Tab, Delete, typed values — stay apart:
   the editor reads them).
 - **Menus**: only File is shown as a menu; Edit, View, Tools, Solids group the commands (the
-  shortcut preferences), Debug only with the debug menu (`?debug`, `SKRAFT_DEBUG`).
+  shortcut preferences), Debug only with the debug menu (a dev build; in a release build `?debug`, `SKRAFT_DEBUG`).
 
 ## Shortcuts and command palette
 

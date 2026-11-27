@@ -186,7 +186,7 @@ menu:
     title: "Outils"
   solids:
     title: "Solides"
-  # Only with `?debug` (web) or SKRAFT_DEBUG (desktop).
+  # Only in a dev build, or with `?debug` (web) or SKRAFT_DEBUG (desktop).
   debug:
     title: "Débogage"
     crash_kernel: "Faire planter le noyau"
