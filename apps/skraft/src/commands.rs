@@ -361,6 +361,8 @@ pub enum Action {
     PlaceComponent(Id),
     /// A card of definitions as a list (true) or a grid (docs/ui/catalog.md).
     CardList(crate::workspaces::common::cards::catalog::Card, bool),
+    /// The model's navigator's kinds listed by name, or in their order of creation (docs/ui/interface.md#sorting).
+    NavigatorByName(bool),
     /// The library's menu: its occurrences selected, the selection replaced by it, deleted.
     SelectOccurrences(Id),
     ReplaceSelection(Id),

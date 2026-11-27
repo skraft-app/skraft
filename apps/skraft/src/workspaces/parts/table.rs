@@ -121,7 +121,9 @@ impl Column {
     /// `a` before `b` by this column, ascending; equal ones by name, then as placed.
     fn order(self, a: &Row, b: &Row) -> Ordering {
         let dim = |r: &Row, k: usize| r.dims.map_or(f64::NEG_INFINITY, |d| d[k]);
-        let text = |s: &str| s.to_lowercase();
+        // As the navigator sorts names (docs/ui/interface.md#sorting): case and accents ignored,
+        // numbers as numbers.
+        let text = skraft_tools::search::NameKey::new;
         let by = match self {
             Column::Name => Ordering::Equal,
             Column::Material => {
@@ -419,5 +421,9 @@ mod tests {
         assert_eq!(names(&rows), ["c", "b", "A"], "no material last");
         sort(&mut rows, Sort { column: Column::Quantity, ascending: true });
         assert_eq!(names(&rows), ["b", "c", "A"]);
+        // Accents ignored, numbers as numbers (docs/ui/interface.md#sorting).
+        let mut rows = vec![row("Pièce#10", [1.0; 3], 1, None), row("Étagère", [1.0; 3], 1, None), row("piece#2", [1.0; 3], 1, None)];
+        sort(&mut rows, Sort::default());
+        assert_eq!(names(&rows), ["Étagère", "piece#2", "Pièce#10"]);
     }
 }

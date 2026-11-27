@@ -85,6 +85,22 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   assembly `icons::COMPONENT` (three ISO cubes about one corner, one up and two down, also
   « Créer un assemblage »'s).
 
+### Sorting
+
+The rows of a level are listed by kind (`navigator.rs`, `ordered`): the assemblies before the
+parts, the groups (and the nodes) before the bodies; each kind in its order of creation. The
+button right of the search field (`icons::SORT_NAME`, handle `navigator:sort`, lit while on)
+lists each kind by name instead: the name the row shows first (an occurrence's own, else its
+component's; a body's own, else its definition's), case and accents ignored, numbers as
+numbers (« Pièce#2 » before « Pièce#10 »: `skraft_tools::search::NameKey`), equal names in
+their order of creation. The search's rows follow the same order, and so do Shift ranges and
+the arrows. By name is an app preference (`Prefs::navigator_by_name`,
+`Action::NavigatorByName`), off by default; the model is left as it is.
+**Why:** the kinds apart, an assembly is found without reading every part. By name is a choice,
+not the default: a rename or a paint then moves the row away from under the pointer. The order
+of a level means nothing in the model (a part's bodies are a set,
+[Data model](../model/data-model.md)), so a sort only changes what is shown.
+
 ### Selecting in a list
 
 The navigators (the model's, the drawing's) select as the system's lists and trees do
@@ -224,7 +240,7 @@ moves there rather than being copied. Before drawing something new, look here fi
 In `apps/skraft/src/kit/widgets.rs`:
 
 - **`IconButton`**, the one icon button: a size, an icon and a `Look`. `Plain` has no frame (a
-  navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when
+  navigator row's), `Framed` egui's frame (the entity info's; lit, a segment chosen's frame and its icon in the accent: the navigator's by name), `Veil` a veil of its ink when
   hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
   floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
   is dimmed rather than disabled. `natural` keeps an icon's own colours (the app's mark in the

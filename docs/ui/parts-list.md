@@ -31,7 +31,9 @@ placed, in which material, of which size, how many.
   cell. The columns are as wide as a number at the document's decimals.
 - **Sorted** by a column's header: a click sorts by it (names and materials ascending, numbers
   descending), a second click the other way; the chevron beside the header says which. Equal
-  rows by name, case ignored; no material last. By name at first.
+  rows by name; no material last. By name at first. Names and materials compare as the
+  navigator's names ([Sorting](interface.md#sorting), `NameKey`): case and accents ignored,
+  numbers as numbers (« Pièce#2 » before « Pièce#10 »).
 - **Kept** per document (`Doc::parts_list`: the sort, the rows for the history's revision —
   built again while a shape is not known yet).
 

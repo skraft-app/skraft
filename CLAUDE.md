@@ -40,10 +40,13 @@ workspaces' (`workspaces/common/`, then one folder per workspace, each with `car
   tools by what they make (« Boîte », « Prisme »), their « Dessiner » group giving the verb.
 - **A tool ported from OpenCutList copies its interaction** (states, picking, previews, keys),
   not only its algorithm.
-- **Interface elements are built once**: before drawing a button, field, row, card, modal
-  box or 2D overlay, look in the shared modules
-  ([docs/ui/interface.md#widgets](docs/ui/interface.md#widgets)); what two screens draw alike
-  moves there, never a local copy.
+- **Interface elements are built once, in `apps/skraft/src/kit/`**: before drawing a button,
+  field, row, card, modal box or 2D overlay, read
+  [docs/ui/interface.md#widgets](docs/ui/interface.md#widgets) and take the kit's widget
+  (`IconButton`, `segmented`, `option_button`, `LabelButton`, `framed_field`…). No raw
+  `egui::Button`, `ui.button`, `selectable_label` or `.selected()` outside `kit/`: when the kit
+  lacks a variant (a size, a lit state, a look), add it to the kit's widget and its doc line,
+  then use it — never a local look-alike. What two screens draw alike moves there.
 - **Performance is part of the design**: measure (bench, timing tests) and optimise where it
   helps.
 - **Versions**: `0.0.x` are test builds, x going up by one at each build sent to testers,

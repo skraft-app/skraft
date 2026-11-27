@@ -59,12 +59,44 @@ mod tests {
 
     /// The navigator's rows under the search `text`: (depth, occurrence, body, dimmed).
     fn filtered(e: &Editor, text: &str) -> Vec<(usize, Id, Option<Id>, bool)> {
+        filtered_by(e, text, false)
+    }
+
+    /// The same, each kind by name or not (docs/ui/interface.md#sorting).
+    fn filtered_by(e: &Editor, text: &str, by_name: bool) -> Vec<(usize, Id, Option<Id>, bool)> {
         let doc = e.document();
         let matcher = skraft_tools::search::Matcher::new(text);
         let mut holds = FastMap::default();
         let mut rows = Vec::new();
-        Filtered { matcher: &matcher, holds: &mut holds, doc }.rows(doc.root(), &mut Vec::new(), &mut rows, false, 0);
+        Filtered { matcher: &matcher, holds: &mut holds, doc, by_name }.rows(doc.root(), &mut Vec::new(), &mut rows, false, 0);
         rows.iter().map(|r| (r.path.len(), r.occurrence.id, r.body.as_ref().map(|b| b.body.id), r.dim)).collect()
+    }
+
+    #[test]
+    fn the_assemblies_come_first_each_kind_in_its_order_of_creation_or_by_name() {
+        use glam::DVec3;
+        use skraft_model::Primitive;
+        let mut e = Editor::new(Document::new(), Box::new(skraft_kernel::Inline::default()));
+        let root = e.document().root();
+        let add = |e: &mut Editor, x: f64| {
+            let p = Primitive::Box { origin: DVec3::new(x, 0.0, 0.0), size: DVec3::splat(10.0) };
+            e.apply(Operation::AddPrimitive { context: root, primitive: p, placement: DAffine3::IDENTITY, material: None })
+                .unwrap()
+                .unwrap()
+                .created[0]
+        };
+        let (c, a, b) = (add(&mut e, 0.0), add(&mut e, 100.0), add(&mut e, 200.0));
+        let g = e.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().unwrap().created[0];
+        let d = add(&mut e, 300.0);
+        let pd = e.document().resolve(&EntityPath::root(d)).unwrap().component;
+        e.apply(Operation::RenameComponent { component: pd, name: "Aa".into() }).unwrap();
+        let top =
+            |by_name| -> Vec<Id> { filtered_by(&e, "", by_name).into_iter().filter(|r| r.0 == 0 && r.2.is_none()).map(|r| r.1).collect() };
+        assert_eq!(top(false), vec![g, c, d], "the assembly first, made after the part c");
+        assert_eq!(top(true), vec![g, d, c], "the parts by name: « Aa » first");
+        // Inside the assembly, its parts in their order still (same automatic name stem).
+        let inner: Vec<Id> = filtered_by(&e, "", true).into_iter().filter(|r| r.0 == 1 && r.2.is_none()).map(|r| r.1).collect();
+        assert_eq!(inner, vec![a, b]);
     }
 
     #[test]
