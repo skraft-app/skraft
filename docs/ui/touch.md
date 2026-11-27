@@ -111,6 +111,25 @@ protocol's `app.commands` gives them whatever the screen shows.
 *Why*: a shortcut's keys tell nothing to a finger and take the room of the label; a tablet with
 a keyboard is a desktop again for them, which only the first key typed tells.
 
+## Lists
+
+- **A finger dragged scrolls a card's list** — the navigators, the libraries, the materials —,
+  wherever it comes down, a row included, from the first touch on.
+- **A long press, then a move, picks up** a row or a tile: the long press opens its menu, as
+  everywhere; the finger moving on without being lifted closes it, and what is pressed goes with
+  the finger as with a mouse's drag — its copy under the finger, the rows it may land on marked,
+  dropped where the finger is lifted (a part out of the library, into the view).
+- A mouse drags them as on a desktop, on a tablet too: what the pointer is goes by its last
+  events, a finger's coming with touches (`kit::touch::watch_pointer`).
+
+One place does it (`kit::touch::drag_source`): under a mouse a row senses drags; under a finger
+it senses clicks only, so egui gives the drag to the list's `ScrollArea` behind it, and the row
+is picked up by hand (`DragAndDrop::set_payload`), egui giving a long-pressed widget no drag.
+The cards' lists drag-scroll from the first touch on (`kit::touch::list_scroll`).
+
+*Why*: as the phones' and tablets' own lists (Files, Photos); a row that took the finger's drag
+left a list no way to scroll but its empty end.
+
 ## The compact arrangement
 
 **When**: the primary pointer is a finger (CSS `pointer: coarse`) and the window's short side is

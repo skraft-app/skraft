@@ -605,11 +605,11 @@ fn sheet_row(
     let (response, renamed, ()) = line(ui, height, l, (salt, &mut st.tree_open), |_, _| ());
     crate::kit::handles::publish(|| format!("navigator:sheet:{}", s.id.0), response.rect);
     // Dragged by its row, it goes elsewhere in the order.
-    let response = response.interact(egui::Sense::click_and_drag());
-    if response.drag_started() {
+    let (response, lifted) = crate::kit::touch::drag_source(ui, response);
+    if lifted {
         widgets::set_drag_ghost(ui.ctx(), icons::SHEET, s.name.clone(), 1);
+        egui::DragAndDrop::set_payload(ui.ctx(), SheetOrderDrag { sheet: s.id });
     }
-    response.dnd_set_drag_payload(SheetOrderDrag { sheet: s.id });
     if response.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
@@ -760,14 +760,12 @@ fn element_row(
     crate::kit::handles::publish(|| format!("navigator:element:{}", el.id.0), response.rect);
     // Right on a sheet and free: dragged onto another sheet, with what is picked when it is.
     let response = if row.path.is_empty() && !el.locked {
-        let response = response.interact(egui::Sense::click_and_drag());
+        let (response, lifted) = crate::kit::touch::drag_source(ui, response);
         let elements = if selected { st.selected.clone() } else { vec![el.id] };
         // Shift or Cmd held: a pick, never a drag (docs/ui/interface.md#selecting-in-a-list).
-        if !list_select::picking(ui.ctx()) {
-            if response.drag_started() {
-                widgets::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
-            }
-            response.dnd_set_drag_payload(SheetDrag { sheet: row.sheet, elements });
+        if lifted && !list_select::picking(ui.ctx()) {
+            widgets::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
+            egui::DragAndDrop::set_payload(ui.ctx(), SheetDrag { sheet: row.sheet, elements });
         }
         response
     } else {

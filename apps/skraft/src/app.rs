@@ -508,6 +508,7 @@ impl eframe::App for SkraftApp {
         if matches!(self.driving.origin(), skraft_tools::journal::Origin::User) {
             self.probe.watch_keyboard(&ctx);
         }
+        crate::kit::touch::watch_pointer(&ctx, self.probe.coarse);
         if ctx.input(|i| i.any_touches()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

@@ -672,7 +672,7 @@ fn occurrence_row(
     // Dragged (decision 0044): the selected occurrences of its assembly with it when it
     // is selected. Dropped on: a part takes bodies or parts in, at its root; an assembly
     // makes a part of bodies.
-    let response = response.interact(egui::Sense::click_and_drag());
+    let (response, lifted) = crate::kit::touch::drag_source(ui, response);
     let with: Vec<Id> = match selected && editor.context() == path.occurrences.as_slice() {
         true => doc
             .context_of(&path.occurrences)
@@ -683,12 +683,10 @@ fn occurrence_row(
     };
     // Shift or Cmd held: a pick, never a drag (docs/ui/interface.md#selecting-in-a-list).
     let picking = list_select::picking(ui.ctx());
-    if response.drag_started() && !picking {
+    if lifted && !picking {
         let shown = if o.name.is_empty() { name.clone() } else { o.name.to_string() };
         set_drag_ghost(ui.ctx(), occurrence_icon(doc, o), shown, with.len());
-    }
-    if !picking {
-        response.dnd_set_drag_payload(PartsDrag { from: path.occurrences.clone(), occurrences: with });
+        egui::DragAndDrop::set_payload(ui.ctx(), PartsDrag { from: path.occurrences.clone(), occurrences: with });
     }
     drop_on_occurrence(ui, editor, o, &path, &response, actions);
     // A component's name is never empty, and unique: an emptied one is kept, one taken
@@ -1670,18 +1668,16 @@ fn body_row(
     }
     // Dragged (decision 0044): the selected siblings with it when it is selected.
     crate::kit::handles::publish(|| format!("navigator:body:{}", b.body.id.0), response.rect);
-    let response = response.interact(egui::Sense::click_and_drag());
+    let (response, lifted) = crate::kit::touch::drag_source(ui, response);
     let with: Vec<Id> = match selected {
         true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
         false => vec![b.body.id],
     };
     let picking = list_select::picking(ui.ctx());
-    if response.drag_started() && !picking {
+    if lifted && !picking {
         let shown = if b.body.name.is_empty() { b.label() } else { b.body.name.to_string() };
         set_drag_ghost(ui.ctx(), b.icon(), shown, with.len());
-    }
-    if !picking {
-        response.dnd_set_drag_payload(BodiesDrag { from: look.path.clone(), bodies: with.clone() });
+        egui::DragAndDrop::set_payload(ui.ctx(), BodiesDrag { from: look.path.clone(), bodies: with.clone() });
     }
     drop_on_body(ui, editor, &row, b, &look, &response, actions);
     let alone = selected && editor.selection().len() == 1;

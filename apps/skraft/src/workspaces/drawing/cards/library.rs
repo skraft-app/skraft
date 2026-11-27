@@ -180,7 +180,7 @@ fn item(
         Some(n) => tp!("panel.compositions.count_tip", n as usize),
         None => t!("panel.compositions.unused_tip"),
     };
-    let response = ui.interact(response.rect, response.id, egui::Sense::click_and_drag());
+    let (response, lifted) = crate::kit::touch::drag_source(ui, response);
     let response = if response.dragged() { response } else { response.tip(format!("{name}\n{tip}")) };
     let here = occurrences_here(d, st, id);
     let alone = !here.is_empty() && st.selected == here;
@@ -191,7 +191,7 @@ fn item(
     let can_place = placeable(d, st, id);
     // Dragged, it may land on any sheet of the board, whatever the level open or the sheet active.
     let can_carry = d.sheets().next().is_some();
-    if response.drag_started_by(egui::PointerButton::Primary) && can_carry {
+    if lifted && can_carry {
         st.carried = Some(id);
     } else if response.clicked() {
         st.selected = here;
