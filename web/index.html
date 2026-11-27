@@ -32,9 +32,13 @@
     // name themselves in the user agent, and go without them (see .edge).
     if (/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|GSA\//.test(navigator.userAgent))
       document.documentElement.classList.add("no-edges");
-    // `?webgpu=off` in the address: a browser without WebGPU, to try what it is shown.
-    if (new URLSearchParams(location.search).get("webgpu") === "off")
+    // `?webgpu=off` in the address: a browser without WebGPU, to try what it is shown;
+    // `?webgpu=noadapter`: one that has it but gives no adapter (a GPU it blocks).
+    const webgpu = new URLSearchParams(location.search).get("webgpu");
+    if (webgpu === "off")
       Object.defineProperty(navigator, "gpu", { value: undefined });
+    else if (webgpu === "noadapter" && navigator.gpu)
+      navigator.gpu.requestAdapter = async () => null;
   </script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -159,11 +163,16 @@
     };
 
     const loader = document.getElementById("loader");
+    const bar = loader.querySelector("i");
     // The loading screen, failed: `text` under its red bar, the browser's words or (`said`) the
     // app's. Put back if it was gone — before the edges, which it keeps hidden (see .edge).
+    // A failure stops the kernel's download: the app will not run it.
     let failed = false;
+    const stop = new AbortController();
     const fail = (text, said) => {
       failed = true;
+      stop.abort();
+      bar.style.transform = "";
       loader.classList.add("failed");
       const why = document.createElement("p");
       if (said) why.className = "said";
@@ -183,17 +192,17 @@
     let hidden = document.hidden;
     document.addEventListener("visibilitychange", () => { hidden ||= document.hidden; });
 
-    const bar = loader.querySelector("i");
     const sizes = { ui: Number("__UI_WASM_BYTES__") };
     const loaded = { ui: 0, kernel: 0 };
     const paint = () => {
+      if (failed) return;
       const total = Object.values(sizes).reduce((a, b) => a + b, 0);
       const ratio = Math.min(1, (loaded.ui + loaded.kernel) / total);
       bar.style.transform = `scaleX(${ratio})`;
       loader.setAttribute("aria-valuenow", Math.round(ratio * 100));
     };
     const counted = async (url, key) => {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: stop.signal });
       if (!response.ok || !response.body) return response;
       const body = response.body.pipeThrough(new TransformStream({
         transform(chunk, out) { loaded[key] += chunk.length; paint(); out.enqueue(chunk); },
@@ -210,7 +219,7 @@
       sizes.kernel = Number("__KERNEL_WASM_BYTES__");
       kernel = counted("./worker/skraft_kernel_worker_bg.wasm", "kernel")
         .then((response) => response.body?.pipeTo(new WritableStream()))
-        .catch((err) => console.error("Skraft: kernel preload failed", err));
+        .catch((err) => failed || console.error("Skraft: kernel preload failed", err));
     }
 
     try {
