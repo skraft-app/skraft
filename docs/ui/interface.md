@@ -74,16 +74,19 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   `icons::EXISTING`, a wall; its tooltip naming it, [Parts list](parts-list.md#rows)). The tree follows
   the path being edited down to its end: a part's bodies under it (a single one too), a group's
   under it, and under a body with a profile (an extrusion, a revolution) its « Profil »
-  (`icons::PROFILE`), a click editing it (`Action::EditProfile`, `Editor::edit_body_profile`:
+  (`icons::PROFILE`, a square with a handle at each corner), a click editing it (`Action::EditProfile`, `Editor::edit_body_profile`:
   its part and group opened, the tool « Profil » on it). Only the deepest step of the path is
   marked selected: a body selected, not its part; its profile edited (`Editor::profile_body`,
   from `Tool::profile_body`), its « Profil » row, not the body nor the part — its body
   unfolded; the entity info then shows the profile (its body, its corners). A body row shows
   its nature's icon, not its tool's: an extrusion `icons::EXTRUSION` (an ISO square, a vertical
   arrow from its centre), a revolution `icons::REVOLUTION` (a profile standing on its dashed
-  axis, an ISO circular arrow around it) — the tools « Prisme » and « Tournage » keep theirs; an
-  assembly `icons::COMPONENT` (three ISO cubes about one corner, one up and two down, also
-  « Créer un assemblage »'s).
+  axis, an ISO circular arrow around it) — the tools « Prisme » and « Tournage » keep theirs; a
+  free solid `icons::SOLID` (an ISO cube in wireframe, as the tool « Boîte »'s), a group
+  `icons::GROUP` (three of these cubes in an L, two down and one up on the left, also
+  « Grouper »'s). A part shows `icons::PART` (the ISO cube, its three faces shaded), an assembly
+  `icons::COMPONENT` (the group's L of the part's cubes, also « Créer un assemblage »'s): what
+  is cut is shaded, the geometry in wireframe (see [Icons](#icons)).
 
 ### Selecting in a list
 
@@ -430,6 +433,17 @@ tool's options:
 
 Original SVG icons (drawn for the project), white and tinted by the theme, loaded by
 `egui_extras` (`svg`): no build step, no binary asset.
+
+The model's entities form one family of ISO cubes, told apart by their fill: a part and an
+assembly, what is cut, have their faces shaded (top 60 %, left 35 %, right 15 % white); a body
+and a group of bodies, the geometry, are in wireframe. One cube is one entity, an L of three
+cubes a gathering of them; only the faces seen are drawn, so the translucent fills never
+overlap. The other body natures (extrusion, revolution, round, chamfer) draw their operation,
+not a cube.
+
+*Why:* at 14 px in the navigator, a part and a free solid drawn both as wireframe polyhedra
+could not be told apart; a fill reads where a shape does not. Three shaded faces, not one,
+because the extrusion and round icons already fill a face.
 
 ## Tips
 
