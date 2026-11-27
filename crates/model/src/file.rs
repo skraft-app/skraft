@@ -18,6 +18,8 @@ use crate::{Error, FastMap, FastSet, FileError, Result};
 
 /// The `format` field of every Skraft file.
 pub const FORMAT: &str = "skraft";
+/// A model file's extension.
+pub const EXTENSION: &str = "skraft";
 /// The version this build writes, and the newest it reads.
 pub const VERSION: u32 = 1;
 

@@ -42,7 +42,7 @@ Decision record: [One control protocol, several transports](decisions/0020-contr
 
 | Namespace | Methods | Headless |
 |---|---|---|
-| `app.*` | `ping`, `methods` (names, descriptions, schemas), `state` (the active document — name, path, modified, revision, busy, idle, workspace —, tool, status, selection, the level open — `context`, `open_part`, `open_group` —, `body_sign`, `links` (the sources `off`, the linked bodies `broken`, the seated parts in `overlaps`), toasts, `instance`; its editor's part, `editor::state`, shared with a headless session), `instances`, `wait` (`revision` other than n, and / or `idle`, with a timeout: 10 s by default, 2 min at most), `commands` (the registry: id, label, enabled, checked, shortcut), `run` (a command id, available in the document's workspace), `docs` (`action`: list, new, switch, close — `index`, `force`), `workspace` (the workspaces listed — id, label, under way, stage — and the active document's; `id`: shows it in that one, [Workspaces](ui/workspaces.md)), `screenshot` (the viewport, PNG) | `ping`, `methods`, `state`, `instances`, `wait` |
+| `app.*` | `ping`, `methods` (names, descriptions, schemas), `state` (the active document — name, path, modified, revision, busy, idle, workspace —, tool, status, selection, the level open — `context`, `open_part`, `open_group` —, `body_sign`, `links` (the sources `off`, the linked bodies `broken`, the seated parts in `overlaps`), toasts, `instance`; its editor's part, `editor::state`, shared with a headless session), `instances`, `wait` (`revision` other than n, and / or `idle`, with a timeout: 10 s by default, 2 min at most), `save` (below), `commands` (the registry: id, label, enabled, checked, shortcut), `run` (a command id, available in the document's workspace), `docs` (`action`: list, new, switch, close — `index`, `force`), `workspace` (the workspaces listed — id, label, under way, stage — and the active document's; `id`: shows it in that one, [Workspaces](ui/workspaces.md)), `screenshot` (the viewport, PNG) | `ping`, `methods`, `state`, `instances`, `wait`, `save` |
 | `model.*` | `document` (the recipe: the document's JSON, B-reps inline — `Document::to_json` —, not saved; `brep` for the records in full, else their counts), `components` (the library: every part and assembly, its count in the model, unused or not, the one chosen), `geometry` (per placed part: path, part, name, occurrence name, hidden, material, finish, world transform, pieces, topology counts, bounds local and world, volume, bodies — each its `nature` (`extrusion`, `revolution`, `solid`, `group`, `round`, `chamfer`) and name, a group's `children`, a body node's `node`: blend, size, edges, `refused` —; `ids` / `selection` filters, `offset` / `limit` paging — 100 by default, 2 000 at most —, `stale` while the kernel computes; `brep`: the SolidCore record; `mesh`: the display mesh, an approximation) | yes |
 | `components.*` | the document's components library ([Components library](ui/components-library.md)): `place` (`component`: carried at the cursor by the origin of its axes, put down by a `tool.input` click), `select` (its occurrences under the active context), `replace` (the selection by it), `delete` (with all its occurrences), `purge` (the unused); `model.components` lists them (id, name, kind, named, source — `made`, `bought`, `existing` —, count in the model, unused) | yes |
 | `context.*` | the level open and what is selected in it, by id, as the user's double-clicks, Esc and clicks reach them: `open` (`ids` opened in turn: an occurrence of the assembly edited, of a part, a group or a body node of the part open; refused at the first that cannot be), `close` (one level, `levels`, or `all`; what was left selected), `select` (`ids` of the level open — occurrences, bodies, guides —, `add`; refused, nothing changed, naming one not there), `sign` (the sign of the bodies drawn in an open part, « Solide »: `positive` / `negative`); each answers `app.state`'s editor part | yes |
@@ -50,6 +50,18 @@ Decision record: [One control protocol, several transports](decisions/0020-contr
 | `view.*` | `camera` (read; set: `perspective`, `view` — a standard view —, `eye` + `target`, `fov_deg` or `height`, `fit`), `project` (world points → pixels, and whether each is in view), `pick` (pixels or world points → path, part, name, B-rep face, point, normal, distance) | yes (a virtual viewport) |
 | `journal.*` | `log`, `failures`, `record` (below) | yes |
 | `ui.*` | real egui events (`click`, `move`, `drag`, `touch`, `key`, `text`, `scroll`), `handles`, `screenshot` (the whole window, PNG), `messages` (the status bar's) | no: the window |
+
+### Saving
+
+`app.save` writes the active document to its file, or to `path`, which then becomes its file,
+as « Enregistrer sous »: `path` absolute (the control channel has no folder of the client's;
+`skraft-mcp` makes a relative one its own folder's), `.skraft` added when missing; another file
+already there is refused unless `force`, its own file rewritten. It answers once written,
+`path` and the `revision` saved; the document is no longer modified. The window saves it as
+« Enregistrer » does (its picture drawn, the view kept, the toast); a headless session keeps
+the camera as it is, the rest of the view and the picture as its `--in` file had them. The
+browser refuses it: a save is a download there, the user's. **Why:** an agent modelling
+headless lost its work when the session ended (issue #7, 2026-11-27).
 
 ### Tool input and the view
 
@@ -198,7 +210,7 @@ power; it reaches nothing outside the tab.
   loopback server), so an app started or started again later is found; `Headless` — an `Editor`
   of its own (the kernel inline, a viewport of 1280 × 800), on an empty document or `--in FILE`,
   serving every headless method (`app.state` and `app.wait` answered at once: the kernel ran
-  inline), the window's refused, said why. Without option the server takes the app if its
+  inline), the window's refused, said why; `app.save` writes its document. Without option the server takes the app if its
   channel answers, else headless; `--remote`, `--connect PORT`, `--headless`, `--in FILE`
   choose. The log goes to stderr.
 - In Claude Code: `claude mcp add skraft -- <repository>/target/debug/skraft-mcp`.

@@ -135,6 +135,12 @@ pub fn methods() -> Vec<Method> {
             schema::<WaitParams>,
         ),
         m("app.commands", "The command registry: id, label, enabled, checked, shortcut.", false, schema::<NoParams>),
+        m(
+            "app.save",
+            "Saves the active document: to its own file, or to `path` (absolute, `.skraft` added if missing), which becomes its file, as « Save as »; another file already there is refused unless `force`.",
+            true,
+            schema::<SaveParams>,
+        ),
         m("app.run", "Runs a command of the registry by its id.", false, schema::<RunParams>),
         m("app.docs", "The open documents (list), or a new one, another shown, one closed.", false, schema::<DocsParams>),
         m(
@@ -292,6 +298,28 @@ pub fn methods_json() -> Value {
     )
 }
 
+/// Where `app.save` writes (docs/control-protocol.md): `given` (absolute, the extension
+/// added if missing), else the document's `own` file; another file already there is refused
+/// unless `force`.
+pub fn save_path(given: Option<&str>, own: Option<&std::path::Path>, force: bool) -> Result<std::path::PathBuf, Error> {
+    use std::path::{Path, PathBuf};
+    let Some(given) = given else {
+        return own.map(Path::to_path_buf).ok_or_else(|| Error::Failed("the document has no file yet: give a `path`".into()));
+    };
+    let mut path = PathBuf::from(given);
+    if !path.is_absolute() {
+        return Err(Error::BadParams(format!("app.save: `path` must be absolute: {given:?}")));
+    }
+    if path.extension().and_then(|e| e.to_str()) != Some(skraft_model::EXTENSION) {
+        path.as_mut_os_string().push(format!(".{}", skraft_model::EXTENSION));
+    }
+    let same = |a: &Path, b: &Path| a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b);
+    if !force && path.exists() && !own.is_some_and(|o| same(o, &path)) {
+        return Err(Error::Failed(format!("{} exists already: `force` to overwrite it", path.display())));
+    }
+    Ok(path)
+}
+
 /// Whether `name` is a method of the protocol.
 pub fn is_method(name: &str) -> bool {
     methods().iter().any(|m| m.name == name)
@@ -326,5 +354,24 @@ mod tests {
         }
         assert!(is_method("tool.state"));
         assert!(!is_method("tool.nope"));
+    }
+
+    #[test]
+    fn where_a_save_goes() {
+        let dir = std::env::temp_dir().join(format!("skraft-control-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let own = dir.join("own.skraft");
+        std::fs::write(&own, b"x").unwrap();
+        assert_eq!(save_path(None, Some(&own), false), Ok(own.clone()));
+        assert!(matches!(save_path(None, None, false), Err(Error::Failed(_))));
+        assert!(matches!(save_path(Some("rel.skraft"), None, false), Err(Error::BadParams(_))));
+        let s = |p: &std::path::Path| p.to_str().unwrap().to_owned();
+        assert_eq!(save_path(Some(&s(&dir.join("a"))), None, false), Ok(dir.join("a.skraft")));
+        assert_eq!(save_path(Some(&s(&dir.join("a.v2"))), None, false), Ok(dir.join("a.v2.skraft")));
+        // Its own file rewritten, another refused unless forced.
+        assert_eq!(save_path(Some(&s(&own)), Some(&own), false), Ok(own.clone()));
+        assert!(matches!(save_path(Some(&s(&own)), None, false), Err(Error::Failed(m)) if m.contains("force")));
+        assert_eq!(save_path(Some(&s(&own)), None, true), Ok(own.clone()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

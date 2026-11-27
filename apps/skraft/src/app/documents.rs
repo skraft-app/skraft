@@ -357,9 +357,14 @@ impl SkraftApp {
 
     /// Saves document `id`: to its file, else (or if `ask`) where the user says.
     fn save_document(&mut self, id: DocId, ask: bool) {
+        let path = if ask { None } else { self.docs.iter().find(|d| d.id == id).and_then(|d| d.path.clone()) };
+        self.save_document_to(id, path);
+    }
+
+    /// Saves document `id` to `path` (written at once, desktop), else where the user says.
+    pub(super) fn save_document_to(&mut self, id: DocId, path: Option<String>) {
         self.draw_file_picture(id);
         let Some(d) = self.docs.iter().find(|d| d.id == id) else { return };
-        let path = if ask { None } else { d.path.clone() };
         // The name offered: its file's, else the default one.
         let name = d.path.as_deref().map(file_name).map(|n| n.trim_end_matches(&format!(".{}", file::EXTENSION)).to_owned());
         let name = name.unwrap_or_else(|| t!("default_name.file"));

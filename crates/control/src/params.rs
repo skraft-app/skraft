@@ -25,6 +25,19 @@ pub struct RunParams {
     pub id: String,
 }
 
+/// `app.save`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SaveParams {
+    /// Where to save it, an absolute path (`.skraft` added if missing); it becomes the
+    /// document's file. None: the document's own file.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Overwrites another file already there (the document's own is always rewritten).
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// `app.workspace`.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

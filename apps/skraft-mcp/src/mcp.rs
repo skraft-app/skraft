@@ -24,6 +24,8 @@ of the Skraft repository).
 `{\"idle\": true}` before reading geometry or picking what it made.
 - Read the model with `model_geometry` (summary; `brep`, `mesh` on demand), `model_document` \
 (the recipe), `tool_state` (the active tool, its preview, the inference under the cursor).
+- `app_save` writes the document to its file, or to `path` (relative to this server's folder), \
+which becomes its file; without it, a headless session's work ends with it.
 - `ui_*` tools (when connected to the window) send real input: clicks on named widgets \
 (`ui_handles` lists them) or points; `app_screenshot` / `ui_screenshot` show the view / window.
 - `journal_log`, `journal_failures` tell what happened and what the kernel failed (its job, to \
@@ -115,7 +117,10 @@ impl<B: Backend> Server<B> {
         let Some(method) = self.methods().into_iter().find(|m| tool_name(m.name) == name) else {
             return Err((-32602, format!("unknown tool {name:?}")));
         };
-        let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
+        let mut arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
+        if method.name == "app.save" {
+            absolute_path(&mut arguments);
+        }
         let outcome = self.backend.call(&Call::new(method.name, arguments));
         Ok(match outcome {
             Ok(Answer::Json(v)) => json!({
@@ -128,6 +133,15 @@ impl<B: Backend> Server<B> {
             }),
             Err(e) => json!({ "content": [{ "type": "text", "text": message(&e) }], "isError": true }),
         })
+    }
+}
+
+/// `app.save`'s `path`, relative to this server's folder, made absolute: the app's own folder
+/// means nothing to the client (docs/control-protocol.md).
+fn absolute_path(arguments: &mut Value) {
+    let Some(path) = arguments.get("path").and_then(Value::as_str) else { return };
+    if let Ok(p) = std::path::absolute(path) {
+        arguments["path"] = json!(p);
     }
 }
 
@@ -245,5 +259,17 @@ mod tests {
         assert_eq!(ask(&mut s, json!({ "jsonrpc": "2.0", "id": 5, "method": "resources/list" }))["error"]["code"], -32601);
         let garbage: Value = serde_json::from_str(&s.handle("{nope").unwrap()).unwrap();
         assert_eq!(garbage["error"]["code"], -32700);
+    }
+
+    #[test]
+    fn a_relative_save_path_is_this_servers() {
+        let mut s = Server::new(Fake::default());
+        let call = |path: &str| json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "app_save", "arguments": { "path": path } } });
+        ask(&mut s, call("table.skraft"));
+        let here = std::env::current_dir().unwrap().join("table.skraft");
+        assert_eq!(s.backend.calls[0].params["path"], json!(here));
+        let absolute = here.parent().unwrap().join("other.skraft");
+        ask(&mut s, call(absolute.to_str().unwrap()));
+        assert_eq!(s.backend.calls[1].params["path"], json!(absolute));
     }
 }
