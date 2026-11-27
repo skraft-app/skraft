@@ -2078,6 +2078,7 @@ error:
     face_across: "une face qui n'est ni plane ni cylindrique dans le sens de l'étirement traverse une coupe"
     unsupported: "une face traversant une coupe a une forme que l'étirement ne sait pas modifier"
     collapsed: "compression trop forte : la matière disparaîtrait"
+    overlaps: "compression trop forte : la matière de deux sections se traverserait"
     meets: "une forme courbe étirée à travers une coupe touche une matière qui ne fait que se déplacer"
     unreadable: "l'étirement a écrit un solide invalide (%{what})"
   # The web version cannot run (docs/render/display.md#web): shown in place of the app.

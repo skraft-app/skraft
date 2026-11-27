@@ -372,6 +372,19 @@ fn too_much_compression_is_refused() {
 }
 
 #[test]
+fn a_compression_past_matter_is_refused() {
+    // A hole at x 440 … 460, the cutter at 500: the end may come back to just past the hole, not
+    // through it — the hole only moves with its section, the end face would cross it.
+    let hole = Solid::new_cylinder(DVec3::new(450.0, 150.0, -5.0), 10.0, 30.0).unwrap();
+    let drilled = board().boolean(&hole, BooleanOp::Difference).unwrap();
+    let s = read_back(&x_stretch(&[500.0], &[0.0, -130.0]).apply(&drilled).unwrap());
+    assert_close(bounds(&s).1.x, 470.0, 1e-9);
+    assert_eq!(x_stretch(&[500.0], &[0.0, -150.0]).apply(&drilled), Err(StretchError::Overlaps));
+    // The gap closing from the other side alike.
+    assert_eq!(x_stretch(&[500.0], &[150.0, 0.0]).apply(&drilled), Err(StretchError::Overlaps));
+}
+
+#[test]
 fn extents_along_the_axis() {
     let x = x_stretch(&[0.0], &[0.0, 0.0]);
     let (lo, hi) = x.extent(&board()).unwrap();

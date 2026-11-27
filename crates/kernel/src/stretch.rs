@@ -56,6 +56,9 @@ pub enum StretchError {
     Unsupported(u32),
     /// The compression would make something crossing a cutter vanish or turn inside out.
     Collapsed,
+    /// The compression would bring the matter of two sections through each other (a hole near
+    /// an end, compressed past it): what lies wholly in one section only moves.
+    Overlaps,
     /// This face, scaled across a cutter, meets matter that only moves where it would have to
     /// move otherwise (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
     Meets(u32),
@@ -72,6 +75,7 @@ impl std::fmt::Display for StretchError {
             StretchError::FaceAcross(_) => t!("error.stretch.face_across"),
             StretchError::Unsupported(_) => t!("error.stretch.unsupported"),
             StretchError::Collapsed => t!("error.stretch.collapsed"),
+            StretchError::Overlaps => t!("error.stretch.overlaps"),
             StretchError::Meets(_) => t!("error.stretch.meets"),
             StretchError::Unreadable(what) => t!("error.stretch.unreadable", what = what),
         };
@@ -182,10 +186,15 @@ impl Stretch {
     /// mesh is blended as the group is scaled.
     pub fn section_spans(&self, solid: &Solid) -> Vec<Option<(f64, f64)>> {
         let r = solid.record();
+        self.spans(r, self.plan(r).ok().as_ref())
+    }
+
+    /// [`Stretch::section_spans`] of a record, its plan made (a group's edges left out, its ends
+    /// counted) or refused (`None`: every edge by its extent).
+    fn spans(&self, r: &Record, plan: Option<&Plan>) -> Vec<Option<(f64, f64)>> {
         let mut spans = vec![Span::EMPTY; self.moves.len()];
-        let plan = self.plan(r).ok();
         for (i, e) in r.edges.iter().enumerate() {
-            if plan.as_ref().is_some_and(|p| p.edge_group[i].is_some()) {
+            if plan.is_some_and(|p| p.edge_group[i].is_some()) {
                 continue;
             }
             let s = self.edge_span(r, e);
@@ -194,7 +203,7 @@ impl Stretch {
                 spans[a] = spans[a].union(s);
             }
         }
-        for g in plan.iter().flat_map(|p| &p.groups) {
+        for g in plan.into_iter().flat_map(|p| &p.groups) {
             for x in [g.lo, g.hi] {
                 let i = self.section(x);
                 spans[i] = spans[i].add(x);
@@ -446,8 +455,26 @@ impl Stretch {
             }
             map.finish(self, f)?;
         }
+        // After the rewrite: what would vanish (`Collapsed`) is said first.
+        self.check_overlaps(r0, &plan)?;
         check(&r)?;
         Ok(Solid::from_record(r))
+    }
+
+    /// Refuses a compression bringing the matter of two sections that hold some
+    /// ([`Stretch::section_spans`]) onto each other: where the gap between them closes, it must
+    /// stay open. The tool stops 1 mm before (its `move_range`); this holds for any caller.
+    fn check_overlaps(&self, r: &Record, plan: &Plan) -> Result<(), StretchError> {
+        let filled: Vec<(usize, (f64, f64))> =
+            self.spans(r, Some(plan)).into_iter().enumerate().filter_map(|(i, s)| s.map(|s| (i, s))).collect();
+        for w in filled.windows(2) {
+            let ((a, (_, a_hi)), (b, (b_lo, _))) = (w[0], w[1]);
+            let (ma, mb) = (self.moves[a], self.moves[b]);
+            if mb < ma - EPS && (b_lo + mb) - (a_hi + ma) <= EPS {
+                return Err(StretchError::Overlaps);
+            }
+        }
+        Ok(())
     }
 
     /// An edge's extent along the axis: its vertices and its curve, a circle's or an ellipse's
