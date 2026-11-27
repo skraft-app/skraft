@@ -637,7 +637,7 @@ impl Editor {
     /// Replaces the document (a file opened).
     pub fn open(&mut self, doc: Document) {
         self.history = History::new(doc);
-        self.has_hidden.set(None);
+        self.has_unshown.set(None);
         // What the kernel was doing for the previous document is dropped when it comes.
         self.pending = None;
         self.importing.clear();

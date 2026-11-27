@@ -67,6 +67,10 @@ pub struct Placement {
     /// Hidden by the user: it, or an occurrence above it, out of the active path (what is
     /// being edited shows).
     pub hidden: bool,
+    /// In wireframe (« Filaire », docs/tools/interaction.md#hiding-and-wireframe): drawn
+    /// see-through but inert — it, or an occurrence above it, out of the active path (what is
+    /// being edited is live).
+    pub wireframe: bool,
 }
 
 impl Placement {
@@ -231,6 +235,9 @@ pub struct SceneGuide {
     pub id: Id,
     /// World.
     pub shape: GuideShape,
+    /// Under an occurrence in wireframe: drawn faded, neither picked nor inferred on, as the
+    /// shapes there (docs/tools/interaction.md#hiding-and-wireframe).
+    pub wireframe: bool,
 }
 
 #[derive(Default)]
@@ -294,26 +301,27 @@ fn is_shown(p: &Placement, shown_under: &[Id], show_hidden: bool) -> bool {
     (show_hidden || !p.hidden) && p.path.starts_with(shown_under)
 }
 
-/// Is a path (`path`, root first) whose deepest hidden occurrence is at `hidden_at` hidden,
-/// `active` being edited? The occurrences hidden along the active path show.
-fn hidden_off(path: &[Id], hidden_at: Option<u32>, active: &[Id]) -> bool {
+/// Does a state set along `path` (root first) — hidden, in wireframe — hold there, `active`
+/// being edited? `set_at` is the deepest occurrence of the path carrying it; what is being
+/// edited stays shown and live, so a state set along the active path does not hold.
+fn set_off(path: &[Id], set_at: Option<u32>, active: &[Id]) -> bool {
     let along = path.iter().zip(active).take_while(|(a, b)| a == b).count();
-    hidden_at.is_some_and(|d| d as usize >= along)
+    set_at.is_some_and(|d| d as usize >= along)
 }
 
 /// Is the occurrence `chain` names (root first, itself last) hidden by the user — it, or an
-/// occurrence above it, out of the `active` path ([`hidden_off`])?
+/// occurrence above it, out of the `active` path ([`set_off`])?
 pub(crate) fn is_chain_hidden(doc: &Document, chain: &[Id], active: &[Id]) -> bool {
     let mut at = doc.root();
     let mut hidden_at = None;
     for (k, &id) in chain.iter().enumerate() {
         let Some(o) = doc.assembly(at).ok().and_then(|a| a.occurrence(id)) else { return false };
-        if o.hidden {
+        if o.visibility.is_hidden() {
             hidden_at = Some(k as u32);
         }
         at = o.component;
     }
-    hidden_off(chain, hidden_at, active)
+    set_off(chain, hidden_at, active)
 }
 
 /// One part mesh at one placement ([`DisplayScene::parts`] yields them in this order).
@@ -405,8 +413,9 @@ impl DisplayScene {
             let material = p.shown();
             let mut path = p.path.occurrences;
             path.push(p.path.entity);
-            let hidden = hidden_off(&path, p.hidden_at, &self.active);
-            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material, hidden });
+            let hidden = set_off(&path, p.hidden_at, &self.active);
+            let wireframe = set_off(&path, p.wireframe_at, &self.active);
+            self.placements.entry(p.part).or_default().push(Placement { path, transform: p.transform, material, hidden, wireframe });
         }
         self.section = doc.settings().display.active_section();
         self.show_hidden = doc.settings().display.show_hidden;
@@ -414,8 +423,13 @@ impl DisplayScene {
         self.guides = if doc.settings().display.guides {
             doc.placed_guides()
                 .into_iter()
-                .filter(|g| g.path.starts_with(&self.shown_under) && (self.show_hidden || !hidden_off(&g.path, g.hidden_at, &self.active)))
-                .map(|g| SceneGuide { path: g.path, id: g.guide.id, shape: g.guide.shape.transformed(&g.transform) })
+                .filter(|g| g.path.starts_with(&self.shown_under) && (self.show_hidden || !set_off(&g.path, g.hidden_at, &self.active)))
+                .map(|g| SceneGuide {
+                    wireframe: set_off(&g.path, g.wireframe_at, &self.active),
+                    shape: g.guide.shape.transformed(&g.transform),
+                    path: g.path,
+                    id: g.guide.id,
+                })
                 .collect()
         } else {
             Vec::new()
@@ -516,7 +530,7 @@ impl DisplayScene {
         let shapes = hits
             .into_iter()
             .map(|i| self.entry(i))
-            .filter(|(p, _)| open != Some(p.path.as_slice()) && self.is_shown(p))
+            .filter(|(p, _)| open != Some(p.path.as_slice()) && self.is_live(p))
             .map(|(p, m)| (p, m, Piece::Shape));
         let recipe = self.recipe_pieces().filter(|(p, m, _)| m.bounds.is_some_and(|b| accept(&transform_bounds(&p.transform, b))));
         shapes.chain(recipe).collect()
@@ -533,7 +547,7 @@ impl DisplayScene {
                 let (p, m) = self.entry(i);
                 (i as usize, p, m)
             })
-            .filter(|(_, p, _)| self.is_shown(p))
+            .filter(|(_, p, _)| self.is_live(p))
             .collect()
     }
 
@@ -542,7 +556,7 @@ impl DisplayScene {
     pub fn parts_under(&self, chain: &[Id]) -> (usize, Option<usize>) {
         let (mut n, mut first) = (0, None);
         for &i in self.entries_under(chain) {
-            if self.is_shown(self.entry(i).0) {
+            if self.is_live(self.entry(i).0) {
                 n += 1;
                 first = Some(first.map_or(i, |f: u32| f.min(i)));
             }
@@ -660,10 +674,17 @@ impl DisplayScene {
         self.active = chain;
     }
 
-    /// Is `p` shown: neither in the rest of the model, hidden, nor hidden by the user (but
-    /// with the hidden shown)?
+    /// Is `p` drawn: neither in the rest of the model, hidden, nor hidden by the user (but
+    /// with the hidden shown)? What is in wireframe is drawn — see-through, by
+    /// [`crate::editor::ViewPlacement::ghost`].
     pub fn is_shown(&self, p: &Placement) -> bool {
         is_shown(p, &self.shown_under, self.show_hidden)
+    }
+
+    /// Is `p` live — picked, inferred on, counted and taken by a marquee: drawn, and not in
+    /// wireframe (docs/tools/interaction.md#hiding-and-wireframe).
+    pub fn is_live(&self, p: &Placement) -> bool {
+        self.is_shown(p) && !p.wireframe
     }
 
     /// Is the recipe drawn and inferred on?
@@ -701,7 +722,7 @@ impl DisplayScene {
     pub fn inferable(&self) -> impl Iterator<Item = (&Placement, &PartMesh, Piece)> {
         let open = self.recipe_open();
         let shapes =
-            self.parts().filter(move |(p, _)| open != Some(p.path.as_slice()) && self.is_shown(p)).map(|(p, m)| (p, m, Piece::Shape));
+            self.parts().filter(move |(p, _)| open != Some(p.path.as_slice()) && self.is_live(p)).map(|(p, m)| (p, m, Piece::Shape));
         shapes.chain(self.recipe_pieces())
     }
 
@@ -913,7 +934,7 @@ impl DisplayScene {
         best: &mut Option<Best>,
     ) {
         let Some(b) = part.bounds else { return };
-        if !self.is_shown(p) {
+        if !self.is_live(p) {
             return;
         }
         let inv = p.transform.inverse();
@@ -1068,7 +1089,7 @@ impl<'d> ContextIndex<'d> {
                     out.push(Under { part: component, transform: t, material })
                 }
                 Ok(ComponentKind::Assembly(a)) => {
-                    for o in a.occurrences().iter().filter(|o| show_hidden || !o.hidden) {
+                    for o in a.occurrences().iter().filter(|o| show_hidden || !o.visibility.is_hidden()) {
                         walk(doc, show_hidden, o.component, t * o.transform, painted, out, depth + 1);
                     }
                 }

@@ -1,7 +1,7 @@
 //! Whole scenarios driven like the app does: pixels in, operations out.
 
 use glam::{DVec2, DVec3};
-use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope};
+use skraft_model::{Boolean, Document, EntityPath, Id, Operation, Primitive, Scope, Visibility};
 
 use crate::draw::ThemeColor;
 use crate::*;
@@ -961,12 +961,12 @@ fn hidden_occurrences() {
     let drawn = |e: &Editor| e.view().batches.iter().map(|(_, p)| p.len()).sum::<usize>();
     let faded = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.faded).count();
     let ray = |e: &Editor| e.camera.ray(px(e, DVec3::new(350.0, 50.0, 50.0)), e.viewport_size());
-    assert!(!e.has_hidden());
+    assert!(!e.has_unshown());
 
     // The assembly hidden: neither drawn, picked, inferred on nor framed; out of the selection.
     e.select(vec![a, g]);
-    e.set_hidden(&EntityPath::root(g), true);
-    assert!(e.has_hidden());
+    e.set_visibility(&EntityPath::root(g), Visibility::Hidden);
+    assert!(e.has_unshown());
     assert_eq!(e.selection(), [a]);
     assert_eq!(drawn(&e), 1);
     assert!(e.scene().pick(&ray(&e), |_| true).is_none());
@@ -1011,13 +1011,67 @@ fn hidden_occurrences() {
     e.undo();
     e.undo();
     assert!(e.document().root_assembly().occurrence(g).is_some());
-    assert!(!e.has_hidden());
+    assert!(!e.has_unshown());
     assert_eq!((drawn(&e), faded(&e)), (2, 0));
-    e.set_hidden(&EntityPath::root(a), true);
+    e.set_visibility(&EntityPath::root(a), Visibility::Hidden);
     assert_eq!(drawn(&e), 1);
     e.show_all();
-    assert!(!e.has_hidden());
+    assert!(!e.has_unshown());
     assert_eq!(drawn(&e), 2);
+}
+
+/// « Filaire » (docs/tools/interaction.md#hiding-and-wireframe): drawn see-through so where it
+/// stands reads, but the cursor goes through it — neither picked, inferred on nor taken by
+/// select all — and its guides go inert with it.
+#[test]
+fn wireframe_occurrences() {
+    use skraft_model::GuideShape;
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(100.0, 100.0, 0.0), "50");
+    let b = draw_box(&mut e, DVec3::new(300.0, 0.0, 0.0), DVec3::new(400.0, 100.0, 0.0), "50");
+    e.select(vec![b]);
+    e.make_assembly();
+    let g = e.selection()[0];
+    let asm = e.document().root_assembly().occurrence(g).unwrap().component;
+    let origin = DVec3::new(350.0, 50.0, 0.0);
+    e.apply(Operation::AddGuide { component: asm, shape: GuideShape::Line { origin, dir: DVec3::X } }).unwrap();
+    let drawn = |e: &Editor| e.view().batches.iter().map(|(_, p)| p.len()).sum::<usize>();
+    let ghosts = |e: &Editor| e.view().batches.iter().flat_map(|(_, p)| p).filter(|p| p.ghost).count();
+    let ray = |e: &Editor| e.camera.ray(px(e, DVec3::new(350.0, 50.0, 50.0)), e.viewport_size());
+    assert!(!e.has_unshown());
+    assert!(e.scene().guides().iter().all(|x| !x.wireframe));
+
+    // In wireframe: drawn see-through and framed where it stands, but neither picked nor
+    // inferred on, and out of the selection.
+    e.select(vec![a, g]);
+    e.set_visibility(&EntityPath::root(g), Visibility::Wireframe);
+    assert!(e.has_unshown());
+    assert_eq!(e.selection(), [a]);
+    assert_eq!((drawn(&e), ghosts(&e)), (2, 1), "drawn, as a ghost");
+    assert!(e.scene().pick(&ray(&e), |_| true).is_none(), "the cursor goes through it");
+    assert!(e.scene().pick_inferable(&ray(&e), |_| true).is_none());
+    assert!(e.scene().bounds().unwrap().1.x > 300.0, "framed where it stands");
+
+    // Its guide with it; select all leaves it out.
+    assert!(e.scene().guides().iter().all(|x| x.wireframe));
+    e.select_all();
+    assert_eq!(e.selection(), [a]);
+
+    // Nothing is hidden: it stays drawn whether or not the hidden are shown.
+    assert_eq!(drawn(&e), 2);
+
+    // Edited, it is live again; back out, inert.
+    e.enter(g);
+    assert!(e.scene().pick(&ray(&e), |_| true).is_some());
+    assert!(e.scene().guides().iter().all(|x| !x.wireframe));
+    e.exit();
+    assert!(e.scene().pick(&ray(&e), |_| true).is_none());
+
+    // « Tout afficher » brings it back, as it does the hidden.
+    e.show_all();
+    assert!(!e.has_unshown());
+    assert_eq!((drawn(&e), ghosts(&e)), (2, 0));
+    assert!(e.scene().pick(&ray(&e), |_| true).is_some());
 }
 
 #[test]
@@ -1033,12 +1087,12 @@ fn hidden_leave_the_deep_selection() {
     // A part selected at any depth (« Parts »), hidden: out of the selection, no longer marked.
     e.select_paths(vec![EntityPath::new(vec![g], a), EntityPath::new(vec![g], b)]);
     assert_eq!(selected(&e), 2);
-    e.set_hidden(&EntityPath::new(vec![g], a), true);
+    e.set_visibility(&EntityPath::new(vec![g], a), Visibility::Hidden);
     assert_eq!(e.deep_selection(), [EntityPath::new(vec![g], b)]);
     assert_eq!(selected(&e), 1);
 
     // Its assembly hidden: the parts selected under it with it.
-    e.set_hidden(&EntityPath::root(g), true);
+    e.set_visibility(&EntityPath::root(g), Visibility::Hidden);
     assert!(e.deep_selection().is_empty());
     assert_eq!(selected(&e), 0);
 }
@@ -3948,8 +4002,8 @@ fn erase_tool_erases_what_it_is_clicked_or_dragged_over() {
     // With Shift, the occurrences swept are hidden, the guide is left.
     drag(&mut e, DVec3::new(650.0, 50.0, 50.0), DVec3::new(650.0, -320.0, 0.0), shift);
     let assembly = e.document().assembly(root).unwrap();
-    assert!(assembly.occurrence(c).unwrap().hidden);
-    assert!(!assembly.occurrence(a).unwrap().hidden);
+    assert!(assembly.occurrence(c).unwrap().visibility.is_hidden());
+    assert!(assembly.occurrence(a).unwrap().visibility.is_shown());
     assert_eq!(e.document().component(root).unwrap().guides.len(), 1);
 }
 

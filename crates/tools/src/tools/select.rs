@@ -260,7 +260,7 @@ fn guides_in<'a>(
 ) -> impl Iterator<Item = &'a crate::scene::SceneGuide> + 'a {
     let rect = (a.min(b), a.max(b));
     cx.scene.guides().iter().filter(move |g| {
-        keep(&g.path) && {
+        !g.wireframe && keep(&g.path) && {
             let (all, any) = crate::guides::in_rect(cx.camera, cx.size, &g.shape, rect);
             if crossing { any } else { all }
         }

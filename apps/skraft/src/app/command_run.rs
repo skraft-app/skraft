@@ -91,7 +91,7 @@ impl SkraftApp {
                 self.clipboard.as_ref().is_some_and(|c| matches!(&c.content, Copied::Model(clip) if e.can_paste(clip)))
             }
             "view.section" | "view.section_clear" => section,
-            "view.show_all" => e.has_hidden(),
+            "view.show_all" => e.has_unshown(),
             "edit.delete_guides" => e.document().component(e.guide_component()).is_ok_and(|c| !c.guides.is_empty()),
             "components.purge" => !e.library_disabled() && !e.unused_components().is_empty(),
             "drawing.add_view" | "drawing.export_pdf" => d.sheet.shown(e.document().drawing()).is_some(),
@@ -614,7 +614,7 @@ impl SkraftApp {
             Action::ReplaceSelection(c) => e.replace_selection(c),
             Action::DeleteComponent(c) => e.delete_component(c),
             Action::EditProfile(p, body) => e.edit_body_profile(&p, body),
-            Action::SetHidden(p, hidden) => e.set_hidden(&p, hidden),
+            Action::SetVisibility(p, visibility) => e.set_visibility(&p, visibility),
             Action::Apply(op) => {
                 let _ = e.apply(op);
             }

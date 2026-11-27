@@ -49,7 +49,7 @@ pub use dimensions::{Anchor, DimKind, Dimension, Entity, Found, Orient, part_nam
 pub use document::{
     Assembly, Behavior, BlendMode, Body, BodyDef, BodyGroup, BodySource, Catalog, Component, ComponentKind, Document, EntityPath, Family,
     Guide, GuidePath, GuideShape, Id, Listed, MAX_DEPTH, Material, MaterialKind, Nature, Occurrence, Part, PlacedGuide, PlacedPart,
-    RawCache, RawCell, Seen, Sign, Source, StretchMask, Texture, name_base,
+    RawCache, RawCell, Seen, Sign, Source, StretchMask, Texture, Visibility, name_base,
 };
 pub use drawing::{
     Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Look, Paper, Perspective,

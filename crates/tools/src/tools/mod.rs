@@ -789,12 +789,12 @@ impl Cx<'_> {
         self.nearest_guide(px, |g| g.path.starts_with(self.context)).map(|g| GuidePath::new(g.path.clone(), g.id))
     }
 
-    /// The guide `keep` keeps near `px` (within [`GUIDE_PICK_PX`], not hidden by the model),
-    /// the nearest on screen.
+    /// The guide `keep` keeps near `px` (within [`GUIDE_PICK_PX`], not hidden by the model,
+    /// not in wireframe), the nearest on screen.
     fn nearest_guide(&self, px: DVec2, keep: impl Fn(&crate::scene::SceneGuide) -> bool) -> Option<&crate::scene::SceneGuide> {
         let ray = self.ray(px);
         let mut best: Option<(f64, &crate::scene::SceneGuide)> = None;
-        for g in self.scene.guides().iter().filter(|g| keep(g)) {
+        for g in self.scene.guides().iter().filter(|g| !g.wireframe && keep(g)) {
             let Some((dist, p)) = crate::guides::distance(self.camera, self.size, &g.shape, px) else { continue };
             if dist > GUIDE_PICK_PX || best.is_some_and(|b| dist >= b.0) {
                 continue;

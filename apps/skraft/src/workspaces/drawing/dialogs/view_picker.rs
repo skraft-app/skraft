@@ -89,7 +89,7 @@ fn walk(doc: &Document, component: Id, unfolded: &HashSet<Vec<Id>>, m: &Matcher,
         return;
     }
     let Ok(ComponentKind::Assembly(a)) = doc.component(component).map(|c| &c.kind) else { return };
-    for o in a.occurrences().iter().filter(|o| !o.hidden) {
+    for o in a.occurrences().iter().filter(|o| !o.visibility.is_hidden()) {
         let Ok(c) = doc.component(o.component) else { continue };
         let folder = matches!(&c.kind, ComponentKind::Assembly(s) if !s.occurrences().is_empty());
         let name = if o.name.is_empty() { c.name.clone() } else { format!("{} ({})", o.name, c.name) };

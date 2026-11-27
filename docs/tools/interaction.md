@@ -84,29 +84,63 @@ drag.
 - The selection scope « Parts » (parts at any depth) and the tools' picking phase:
   [Select first, and a selection scope](selection.md).
 
-## Hiding
+## Hiding and wireframe
 
-After SketchUp's `hidden`: an occurrence carries `hidden` (saved,
-`Operation::SetHidden { context, entities, hidden }`, undoable; « Masquer » / « Afficher »),
-toggled by the eye at the right end of each navigator row. One flag per occurrence, not per
-component: a leg of four is hidden alone; an occurrence inside an assembly is hidden in every
-occurrence of the assembly (its definition is shared).
+An occurrence carries one of three states, `Visibility` (saved,
+`Operation::SetVisibility { context, entities, visibility }`, undoable), set by the eye at the
+right end of each navigator row, which cycles through them:
+
+| State | Drawn | Picked, inferred on | Framed | Label |
+|---|---|---|---|---|
+| `Shown` | yes | yes | yes | « Afficher » |
+| `Wireframe` | see-through | **no** | yes | « Mettre en filaire » |
+| `Hidden` | no | no | no | « Masquer » |
+
+One state per occurrence, not per component: a leg of four is hidden alone; an occurrence
+inside an assembly takes it in every occurrence of the assembly (its definition is shared).
+Everything under an occurrence takes its state, the deepest one along a path winning, and
+`Hidden` above beats `Wireframe` below it (`Visibility` is ordered by how much it takes away,
+so exploding takes the `max` of the assembly's and its content's).
+
+**Hiding**, after SketchUp's `hidden`:
 
 - A hidden occurrence, and everything under it, is neither drawn, picked (click or
   rectangle), inferred on, framed by zoom extents nor taken by select all; its guides go with
   it; the navigator greys its row and those below, and hovering them there marks nothing.
   Hiding it takes it out of the selection, with what is selected under it at any depth
   (« Parts »); the navigator still selects it (its selection mark then shows where it is).
-- **What is being edited shows**: the occurrences hidden along the active path (the
-  assemblies entered, the part open) count as shown, what is hidden below them stays hidden
-  (`PlacedPart::hidden_at`, the deepest hidden occurrence of the path, compared with the
-  active path at each `DisplayScene::sync`).
 - The document setting `display.show_hidden` (command `view.show_hidden`, « Voir les éléments
-  masqués », off) draws them faded and lets them be picked, inferred on and framed;
-  `view.show_all` (`Operation::ShowAll`, « Tout afficher », enabled while something is hidden)
-  shows every occurrence again.
-- Exploding a hidden assembly leaves its content hidden; copies keep the flag; imports (STEP,
-  SketchUp) come in shown.
+  masqués », off) draws them faded and lets them be picked, inferred on and framed.
+
+**Wireframe** (« Filaire ») keeps an occurrence on screen as a reference to draw *from* — where
+a board stands, to start a line in the middle of it — without the cursor catching it:
+
+- It is drawn see-through (`ViewPlacement::ghost`, its faces at the style's `ghost_opacity`,
+  its edges as they are), and framed by zoom extents: where it stands reads exactly.
+- It is **inert**: not picked by a click or a rectangle, not inferred on, never hovered, not
+  taken by select all, and the shapes behind it are reached as if it were not there (it is left
+  out of the scene's index walk, so it hides nothing). Its guides go inert with it, drawn faded
+  (`SceneGuide::wireframe`). Putting it in wireframe takes it out of the selection, as hiding
+  does; the navigator still selects it, and its selection mark shows where it is.
+- Its row in the navigator reads as usual — the thing is on screen — and only the eye says the
+  state. Unlike hiding, there is no setting to bring it back: it is always visible.
+- It is a modelling-time aid, not a property of the product: the parts list counts it as any
+  other occurrence, and a drawing shows it (`Document::subject_parts` leaves out only the
+  hidden).
+
+**Both**:
+
+- **What is being edited is shown and live**: the states set along the active path (the
+  assemblies entered, the part open) do not hold, what is set below them does
+  (`PlacedPart::hidden_at` and `wireframe_at`, the deepest occurrence of the path carrying
+  each, compared with the active path at each `DisplayScene::sync` by `set_off`). The scene
+  then asks `DisplayScene::is_shown` for what to draw and frame, and `is_live` for what to pick
+  and infer on.
+- `view.show_all` (`Operation::ShowAll`, « Tout afficher », enabled while anything is not
+  shown, `Editor::has_unshown`) brings every occurrence back to `Shown`, hidden and wireframe
+  alike, in one step.
+- Exploding an assembly leaves its content in the stronger of the two states; copies keep the
+  state; imports (STEP, SketchUp) come in shown.
 
 ## Eraser
 
@@ -119,7 +153,7 @@ near the cursor at any depth under the context, else the part under it
 - A click erases at once; a drag gathers everything it passes over (sampled every 4 px between
   two cursor positions, so a quick stroke misses nothing) and erases it on release, in one
   operation (one undo step); Esc drops the drag. With Shift held on release, the occurrences
-  taken are hidden instead (`SetHidden`), guides and machinings left.
+  taken are hidden instead (`SetVisibility`), guides and machinings left.
 - The selection is let go when the tool starts (activating it erases nothing, unlike
   SketchUp).
 - What would go is drawn as a ghost (`Preview::erasing`): translucent faces as an open part's

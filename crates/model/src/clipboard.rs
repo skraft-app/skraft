@@ -203,7 +203,7 @@ impl Document {
             match &c.kind {
                 ComponentKind::Assembly(a) => {
                     // Reversed: popped in the assembly's order.
-                    for o in a.occurrences().iter().rev().filter(|o| !o.hidden) {
+                    for o in a.occurrences().iter().rev().filter(|o| !o.visibility.is_hidden()) {
                         stack.push((o.component, t * o.transform, &o.name));
                     }
                 }

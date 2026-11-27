@@ -16,7 +16,7 @@ use std::sync::Arc;
 use glam::{DAffine3, DVec2, DVec3};
 use skraft_i18n::t;
 use skraft_model::kernel::{JobId, KernelService, Quality, Solid};
-use skraft_model::{Document, EntityPath, GuidePath, History, Id, Operation, Outcome, Scope, Sign, measure};
+use skraft_model::{Document, EntityPath, GuidePath, History, Id, Operation, Outcome, Scope, Sign, Visibility, measure};
 
 use crate::camera::{Camera, ViewArea};
 use crate::infer::{EdgeRef, InferKind, Lock};
@@ -194,9 +194,9 @@ pub struct Editor {
     selection_drawing: std::cell::RefCell<Option<view::SelectionDrawing>>,
     /// The section's cut lines, kept while the plane and the meshes stay (docs/render/look.md).
     section_cuts: crate::section_cut::SectionCuts,
-    /// Is anything hidden, at the history's revision ([`Editor::has_hidden`]: asked at every
-    /// frame, found by a pass over every assembly).
-    has_hidden: std::cell::Cell<Option<(u64, bool)>>,
+    /// Is anything hidden or in wireframe, at the history's revision
+    /// ([`Editor::has_unshown`]: asked at every frame, found by a pass over every assembly).
+    has_unshown: std::cell::Cell<Option<(u64, bool)>>,
     selection: Vec<Id>,
     tool: Box<dyn Tool>,
     pivot: Option<DVec3>,
@@ -343,7 +343,7 @@ impl Editor {
             blend_shown: false,
             selection_drawing: std::cell::RefCell::new(None),
             section_cuts: Default::default(),
-            has_hidden: std::cell::Cell::new(None),
+            has_unshown: std::cell::Cell::new(None),
             selection: Vec::new(),
             tool: tools::make(ToolKind::Select),
             pivot: None,
@@ -1650,16 +1650,19 @@ impl Editor {
                     Operation::At { .. } | Operation::Batch(_) => After::Nothing,
                     _ => After::Select,
                 };
-                // Hidden (the eraser with Shift), they leave the selection, unless the hidden
-                // are shown.
-                let hidden = match &op {
-                    Operation::SetHidden { entities, hidden: true, .. } if !self.document().settings().display.show_hidden => {
+                // No longer shown (the eraser with Shift), they leave the selection: they
+                // cannot be acted on there. A hidden one stays while the hidden are shown.
+                let gone = match &op {
+                    Operation::SetVisibility { entities, visibility: Visibility::Wireframe, .. } => entities.clone(),
+                    Operation::SetVisibility { entities, visibility: Visibility::Hidden, .. }
+                        if !self.document().settings().display.show_hidden =>
+                    {
                         entities.clone()
                     }
                     _ => Vec::new(),
                 };
                 if self.start(op, after, false).is_ok() {
-                    self.selection.retain(|id| !hidden.contains(id));
+                    self.selection.retain(|id| !gone.contains(id));
                 }
                 self.held = held.zip(self.pending.as_ref()).map(|(s, p)| (p.job, Preview { stretch: Some(s), ..Preview::default() }));
                 if let (Some(b), Some(p)) = (held_blend, self.pending.as_ref()) {

@@ -65,6 +65,8 @@ icon!(REMOTE, "remote");
 icon!(MATERIALS, "materials");
 icon!(EYE, "eye");
 icon!(EYE_OFF, "eye_off");
+/// An occurrence in wireframe (« Filaire »): the eye with a broken pupil.
+icon!(EYE_WIRE, "eye_wire");
 icon!(LOCK, "lock");
 icon!(UNLOCK, "unlock");
 icon!(ARROW_UP, "arrow_up");

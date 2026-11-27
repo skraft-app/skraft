@@ -38,7 +38,7 @@ impl Document {
                 Err(_) => {
                     let (mut path, mut out) = (t.occurrences.clone(), Vec::new());
                     path.push(t.entity);
-                    self.walk(component, &mut path, glam::DAffine3::IDENTITY, None, &mut out, t.occurrences.len() + 1);
+                    self.walk(component, &mut path, glam::DAffine3::IDENTITY, Default::default(), &mut out, t.occurrences.len() + 1);
                     out.into_iter().map(|p| (p.path, p.part)).collect()
                 }
             };

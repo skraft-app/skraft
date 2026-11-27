@@ -1004,34 +1004,81 @@ fn occurrences_hide_and_show() {
     assert_eq!(hidden_at(&h, a), None);
 
     // A part hidden: its own level; an assembly hidden: its level, for every part under it.
-    h.apply(Operation::SetHidden { context: asm_def(&h, asm), entities: vec![b], hidden: true }).unwrap();
+    h.apply(Operation::SetVisibility { context: asm_def(&h, asm), entities: vec![b], visibility: Visibility::Hidden }).unwrap();
     assert_eq!(h.undo_op().map(|o| o.label()), Some("Masquer".to_owned()));
     assert_eq!((hidden_at(&h, a), hidden_at(&h, b), hidden_at(&h, c)), (None, Some(1), None));
-    h.apply(Operation::SetHidden { context: root, entities: vec![asm], hidden: true }).unwrap();
+    h.apply(Operation::SetVisibility { context: root, entities: vec![asm], visibility: Visibility::Hidden }).unwrap();
     assert_eq!((hidden_at(&h, a), hidden_at(&h, b)), (Some(0), Some(1)), "the deepest one");
 
     // Saved with the file; a file without the flag shows everything.
     let json = h.document().to_json().unwrap();
     assert_eq!(&Document::from_json(&json).unwrap(), h.document());
-    assert_eq!(json.matches("\"hidden\":true").count(), 2);
+    assert_eq!(json.matches("\"visibility\":\"hidden\"").count(), 2);
 
     // Exploded, a hidden assembly leaves its content hidden.
     let mut x = h.clone();
     let out = x.apply(Operation::Explode { context: root, occurrence: asm }).unwrap();
-    assert!(out.created.iter().all(|id| x.document().root_assembly().occurrence(*id).unwrap().hidden));
+    assert!(out.created.iter().all(|id| x.document().root_assembly().occurrence(*id).unwrap().visibility.is_hidden()));
 
     // Shown again one by one, or all at once; undone in one step.
-    h.apply(Operation::SetHidden { context: root, entities: vec![asm], hidden: false }).unwrap();
+    h.apply(Operation::SetVisibility { context: root, entities: vec![asm], visibility: Visibility::Shown }).unwrap();
     assert_eq!(h.undo_op().map(|o| o.label()), Some("Afficher".to_owned()));
     assert_eq!(hidden_at(&h, a), None);
-    h.apply(Operation::SetHidden { context: root, entities: vec![asm, c], hidden: true }).unwrap();
+    h.apply(Operation::SetVisibility { context: root, entities: vec![asm, c], visibility: Visibility::Hidden }).unwrap();
     h.apply(Operation::ShowAll).unwrap();
     assert!(h.document().placed_parts().iter().all(|p| p.hidden_at.is_none()));
     assert!(h.undo());
     assert_eq!((hidden_at(&h, b), hidden_at(&h, c)), (Some(1), Some(0)));
 
     // An occurrence of another assembly is refused.
-    assert!(h.apply(Operation::SetHidden { context: root, entities: vec![a], hidden: true }).is_err());
+    assert!(h.apply(Operation::SetVisibility { context: root, entities: vec![a], visibility: Visibility::Hidden }).is_err());
+}
+
+/// « Filaire » (docs/tools/interaction.md#hiding-and-wireframe): a third state, taken by what
+/// lies under it, which hiding beats.
+#[test]
+fn occurrences_go_wireframe() {
+    let mut h = History::new(Document::new());
+    let root = h.document().root();
+    let a = add(&mut h, cube(DVec3::ZERO, 10.0));
+    let b = add(&mut h, cube(DVec3::new(20.0, 0.0, 0.0), 10.0));
+    let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b], name: None }).unwrap().created[0];
+    let at = |h: &History, o: Id| {
+        let p = h.document().placed_parts().into_iter().find(|p| p.path.entity == o).unwrap();
+        (p.hidden_at, p.wireframe_at)
+    };
+
+    // An assembly in wireframe: its level, for every part under it; nothing is hidden.
+    h.apply(Operation::SetVisibility { context: root, entities: vec![asm], visibility: Visibility::Wireframe }).unwrap();
+    assert_eq!(h.undo_op().map(|o| o.label()), Some("Mettre en filaire".to_owned()));
+    assert_eq!((at(&h, a), at(&h, b)), ((None, Some(0)), (None, Some(0))));
+
+    // A part under it hidden: hidden wins, the wireframe above noted all the same.
+    h.apply(Operation::SetVisibility { context: asm_def(&h, asm), entities: vec![b], visibility: Visibility::Hidden }).unwrap();
+    assert_eq!((at(&h, a), at(&h, b)), ((None, Some(0)), (Some(1), Some(0))));
+
+    // Saved with the file, each state under its own name.
+    let json = h.document().to_json().unwrap();
+    assert_eq!(&Document::from_json(&json).unwrap(), h.document());
+    assert_eq!(json.matches("\"visibility\":\"wireframe\"").count(), 1);
+    assert_eq!(json.matches("\"visibility\":\"hidden\"").count(), 1);
+
+    // Exploded, an assembly in wireframe leaves its content so; what was hidden stays hidden.
+    let mut x = h.clone();
+    let out = x.apply(Operation::Explode { context: root, occurrence: asm }).unwrap();
+    let mut states: Vec<Visibility> =
+        out.created.iter().map(|id| x.document().root_assembly().occurrence(*id).unwrap().visibility).collect();
+    states.sort();
+    assert_eq!(states, [Visibility::Wireframe, Visibility::Hidden]);
+
+    // « Tout afficher » brings back the wireframe as well as the hidden, in one step.
+    h.apply(Operation::ShowAll).unwrap();
+    assert_eq!((at(&h, a), at(&h, b)), ((None, None), (None, None)));
+    assert!(h.undo());
+    assert_eq!((at(&h, a), at(&h, b)), ((None, Some(0)), (Some(1), Some(0))));
+
+    // An occurrence of another assembly is refused, as for hiding.
+    assert!(h.apply(Operation::SetVisibility { context: root, entities: vec![a], visibility: Visibility::Wireframe }).is_err());
 }
 
 /// The assembly the occurrence `o` of the root places.
@@ -2034,7 +2081,14 @@ fn placed_changes_skip_only_what_is_shared() {
 
 /// An occurrence of `component`, for the assembly's own tests.
 fn bare_occurrence(id: u64, component: Id) -> Occurrence {
-    Occurrence { id: Id(id), name: String::new(), component, transform: DAffine3::IDENTITY, hidden: false, props: Props::default() }
+    Occurrence {
+        id: Id(id),
+        name: String::new(),
+        component,
+        transform: DAffine3::IDENTITY,
+        visibility: Visibility::Shown,
+        props: Props::default(),
+    }
 }
 
 #[test]
@@ -2460,7 +2514,7 @@ fn parts_paste_into_a_part_as_groups_unless_plain() {
     let b = add(&mut h, cube(DVec3::new(520.0, 0.0, 0.0), 10.0));
     let c = add(&mut h, cube(DVec3::new(540.0, 0.0, 0.0), 10.0));
     let asm = h.apply(Operation::MakeAssembly { context: root, entities: vec![a, b, c], name: None }).unwrap().created[0];
-    h.apply(Operation::SetHidden { context: asm_def(&h, asm), entities: vec![c], hidden: true }).unwrap();
+    h.apply(Operation::SetVisibility { context: asm_def(&h, asm), entities: vec![c], visibility: Visibility::Hidden }).unwrap();
     let fragment = Arc::new(h.document().entities_fragment(&[], &[asm]).unwrap());
     assert_eq!(fragment.parts_as_bodies().unwrap().bodies.len(), 2);
 }
@@ -4073,7 +4127,7 @@ fn replacing_occurrences_keeps_their_placement_name_and_visibility() {
     let (mut h, a3, groups, asm, pa, pb) = library();
     let root = h.document().root();
     h.apply(Operation::RenameOccurrence { context: root, occurrence: a3, name: "Gauche".into() }).unwrap();
-    h.apply(Operation::SetHidden { context: root, entities: vec![a3], hidden: true }).unwrap();
+    h.apply(Operation::SetVisibility { context: root, entities: vec![a3], visibility: Visibility::Hidden }).unwrap();
     let before = occ(h.document(), &EntityPath::root(a3));
 
     h.apply(Operation::ReplaceOccurrences { context: root, entities: vec![a3], component: pb }).unwrap();
