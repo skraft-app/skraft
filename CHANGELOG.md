@@ -7,6 +7,26 @@ What changes in Skraft from one release to the next, for its users. The format f
 An entry is written when a version is tagged (`/changelog` in Claude Code, from
 `scripts/changelog.sh`); the release workflow publishes it as the GitHub Release's text.
 
+## [0.0.7] - 2026-11-27
+
+### Added
+- **Stretch** goes through arcs, rounds, holes and slanted faces: what crosses the cutter is scaled along the axis, so a circle becomes an ellipse and a hole goes oval. The default cutter keeps clear of holes, so a hole goes oval only where you put the cutter yourself.
+- The navigator shows a part's material and finish side by side, then a mark for faces painted with a covering or a finish of their own, named in its tooltip.
+- The finish of a library part can be changed in the entity info, even when the part is not placed in the model.
+- A fillet takes the last radius typed by a double-click or with Shift, from one part to the next.
+
+### Changed
+- Colorations are now called **Finishes** and schemes **Sequences**.
+- A tool's refusal shows as an error toast near where you work, instead of in the status bar. Warnings and errors go away after 10 seconds, unless they wait for a choice.
+- A tall box keeps the rectangle you drew as its profile, as a tall prism or cylinder does.
+- Files made with an earlier version lose the finishes of their parts and faces, and no longer open when they hold a sequence.
+
+### Fixed
+- **Stretch** no longer refuses a cutter beside a concave arc, a round whose surface comes out of a boolean, or some edges lengthened along their curve.
+- **Stretch** no longer halves a board stretched back across an arc it had already scaled, and stretches through a chamfer.
+- **Stretch** refuses a handle between two cutters that would move nothing, instead of doing nothing silently.
+- **Stretch** refuses a compression that would run a part's matter through itself, such as a hole near an end compressed past it, instead of making a broken part.
+
 ## [0.0.6] - 2026-11-26
 
 ### Added
