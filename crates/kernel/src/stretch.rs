@@ -19,8 +19,10 @@
 //!
 //! Extents along the axis are taken from the vertices and the curves, plus the surface for faces
 //! whose boundary does not hold their extremes (spheres, tori, splines): exact for lines and
-//! whole circles, conservative otherwise (a control net's hull), so a doubt refuses rather than
-//! tears.
+//! arcs of circles and ellipses, conservative otherwise (a control net's hull), so a doubt
+//! refuses rather than tears.
+
+use std::f64::consts::{PI, TAU};
 
 use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
@@ -284,15 +286,69 @@ impl Stretch {
         Ok(Solid::from_record(r))
     }
 
-    /// An edge's extent along the axis: its vertices and its curve.
+    /// An edge's extent along the axis: its vertices and its curve, a circle's or an ellipse's
+    /// only along the arc the edge runs on.
     fn edge_span(&self, r: &Record, e: &Edge) -> Span {
-        let span = e.vertices.iter().fold(Span::EMPTY, |s, &v| s.add(self.axis.dot(v3(r.vertices[v as usize].point))));
-        span.union(self.curve_span(&e.curve))
+        let ends = e.vertices.map(|v| v3(r.vertices[v as usize].point));
+        let span = ends.iter().fold(Span::EMPTY, |s, p| s.add(self.axis.dot(*p)));
+        let curve = match &e.curve {
+            Curve::Circle { frame, radius } => self.arc_span(e, frame, [*radius, *radius], ends),
+            Curve::Ellipse { frame, radii } => self.arc_span(e, frame, *radii, ends),
+            c => self.curve_span(c),
+        };
+        span.union(curve)
     }
 
-    /// A curve's extent along the axis, beyond its vertices: whole circles and ellipses (an arc
-    /// is taken whole), control hulls of splines. Nothing for a straight curve: its vertices
-    /// bound it (a mirrored line's spline has its control points at ±1234567).
+    /// The extent along the axis of the arc of a circle or an ellipse an edge runs on, `t` its
+    /// angle (`origin + r₀ cos t · x + r₁ sin t · y`, SolidCore's `Curve`), from start to end
+    /// as `t` grows. The arc is the edge's interval when the edge is parameterised on the conic;
+    /// with a NURBS form, it runs between the ends on the side of that form's first inner control
+    /// point (a conic's control points lie within its arc's angles). The whole conic for a closed
+    /// edge or in doubt.
+    fn arc_span(&self, e: &Edge, frame: &Frame, radii: [f64; 2], ends: [DVec3; 2]) -> Span {
+        let a = self.axis;
+        let whole = conic_span(a, frame, radii);
+        let (o, x, y) = (v3(frame.origin), v3(frame.x_axis), v3(frame.y_axis));
+        let angle = |p: DVec3| {
+            let (u, v) = ((p - o).dot(x) / radii[0], (p - o).dot(y) / radii[1]);
+            (u.hypot(v) > 1e-9).then(|| v.atan2(u))
+        };
+        // Counter-clockwise from one angle to another, in [0, 2π).
+        let turn = |from: f64, to: f64| (to - from).rem_euclid(TAU);
+        let arc = match &e.nurbs {
+            None => Some((e.interval[0], e.interval[1] - e.interval[0])),
+            Some(_) if e.vertices[0] == e.vertices[1] => None,
+            Some(n) => {
+                let inner = match n {
+                    Curve::Spline { points, .. } if points.len() >= 3 => Some(v3(points[1])),
+                    Curve::RationalSpline { homogeneous, .. } if homogeneous.len() >= 3 => Some(dehomogenise(&homogeneous[1])),
+                    _ => None,
+                };
+                match (angle(ends[0]), angle(ends[1]), inner.and_then(angle)) {
+                    (Some(t0), Some(t1), Some(tm)) if turn(t0, tm) < turn(t0, t1) => Some((t0, turn(t0, t1))),
+                    (Some(t0), Some(t1), Some(_)) => Some((t1, turn(t1, t0))),
+                    _ => None,
+                }
+            }
+        };
+        let Some((start, length)) = arc.filter(|&(_, l)| l < TAU) else { return whole };
+        // a · p = c + R cos(t − φ): its extremes at φ and φ + π, where the arc reaches them.
+        let (ax, ay) = (radii[0] * a.dot(x), radii[1] * a.dot(y));
+        let phi = ay.atan2(ax);
+        let at = |t: f64| a.dot(o) + ax * t.cos() + ay * t.sin();
+        let mut span = Span::EMPTY.add(at(start)).add(at(start + length));
+        if turn(start, phi) <= length {
+            span = span.add(whole.hi);
+        }
+        if turn(start, phi + PI) <= length {
+            span = span.add(whole.lo);
+        }
+        span
+    }
+
+    /// A curve's extent along the axis, beyond its vertices: whole circles and ellipses, control
+    /// hulls of splines. Nothing for a straight curve: its vertices bound it (a mirrored line's
+    /// spline has its control points at ±1234567).
     fn curve_span(&self, c: &Curve) -> Span {
         let a = self.axis;
         if straight(c).is_some() {

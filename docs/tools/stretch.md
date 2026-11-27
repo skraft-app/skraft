@@ -314,7 +314,11 @@ On the part's recipe — its bodies ([Bodies](../model/bodies.md)) —, not on i
 Rewriting the record: a pure function on `solidcore_record::brep::Brep` (no kernel), a
 **piecewise translation** along the axis, in `kernel::Stretch` (`crates/kernel/src/stretch.rs`:
 `apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines
-and whole circles, conservative for curved faces —, `section_spans`, `piece_moves`).
+and arcs of circles and ellipses, conservative for curved faces —, `section_spans`,
+`piece_moves`). An arc counts only along its own angles, not its whole circle's: a cutter
+beside a concave arc, where only its circle would pass, crosses straight matter alone. The
+arc is the edge's interval (the circle's angle), or, when the edge is parameterised on a NURBS
+form, the side of its ends where that form's first inner control point lies.
 `Solid::stretched` reads the rewritten record back into the kernel, which validates it; a
 refusal cancels the stretch.
 

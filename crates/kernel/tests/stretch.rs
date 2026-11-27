@@ -136,6 +136,29 @@ fn a_prism_with_arcs_stretches_along_its_height() {
 }
 
 #[test]
+fn a_cutter_beside_an_arc_is_not_across_it() {
+    use skraft_kernel::profile::{polygon, with_fillets};
+    // An arc spans only its own angles, not its whole circle's: a cutter where the circle passes
+    // but not the arc crosses only straight matter.
+    let corners = polygon(&[glam::DVec2::ZERO, glam::DVec2::new(600.0, 0.0), glam::DVec2::new(600.0, 300.0), glam::DVec2::new(0.0, 300.0)]);
+    let rounded = Solid::new_prism(DVec3::ZERO, &with_fillets(&corners, 100.0), 18.0).unwrap(); // arcs over x 500 … 600
+    // A concave arc made by a boolean (an edge with a NURBS form): x ≈ 363 … 537, its circle 350 … 550.
+    let cylinder = Solid::new_cylinder(DVec3::new(450.0, 360.0, -5.0), 100.0, 30.0).unwrap();
+    let carved = board().boolean(&cylinder, BooleanOp::Difference).unwrap();
+    for (solid, beside, across) in [(rounded, 450.0, 550.0), (carved, 355.0, 450.0)] {
+        let s = read_back(&x_stretch(&[beside], &[0.0, 100.0]).apply(&solid).unwrap());
+        assert_close(mesh_volume(&s), mesh_volume(&solid) + 100.0 * 300.0 * 18.0, 1e-3);
+        assert!(matches!(
+            x_stretch(&[across], &[0.0, 100.0]).apply(&solid),
+            Err(StretchError::EdgeAcross(_) | StretchError::FaceAcross(_))
+        ));
+        // The extent and the sections' extents still reach the arcs.
+        let x = x_stretch(&[beside], &[0.0, 0.0]);
+        assert_close(x.extent(&solid).unwrap().1, 600.0, 1e-9);
+    }
+}
+
+#[test]
 fn a_tool_is_stretched_in_its_own_frame() {
     // A tool along its own Z, placed along the part's X from x = 100 to 150.
     let tool = Solid::new_cylinder(DVec3::ZERO, 8.0, 50.0).unwrap();
