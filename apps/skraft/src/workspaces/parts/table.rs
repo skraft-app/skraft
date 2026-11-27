@@ -287,7 +287,7 @@ pub fn ui(ui: &mut egui::Ui, editor: &Editor, state: &mut PartsListState, sidewa
                             ui.add(egui::Label::new(egui::RichText::new("—").weak()).selectable(false));
                         }
                         None => {
-                            ui.add(egui::Label::new(egui::RichText::new(t!("panel.materials.none")).weak()).selectable(false));
+                            ui.add(egui::Label::new(egui::RichText::new(t!("panel.materials.none_material")).weak()).selectable(false));
                         }
                     });
                     row.col(|ui| right(ui, dim(0)));

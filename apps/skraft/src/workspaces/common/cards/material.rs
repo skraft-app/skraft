@@ -33,8 +33,9 @@ pub(crate) fn kind_label(kind: MaterialKind) -> String {
     }
 }
 
-/// A material picked among those `keep` lets through (« Aucune » first), framed as a
-/// [`framed_field`]: its name and a downward triangle. `Some(choice)` when it changed.
+/// A material picked among those `keep` lets through (`none` first, the word agreeing with the
+/// row's: « Aucun » matériau, « Aucune » coloration), framed as a [`framed_field`]: its name and
+/// a downward triangle. `Some(choice)` when it changed.
 pub(super) fn material_choice(
     ui: &mut egui::Ui,
     doc: &Document,
@@ -42,8 +43,9 @@ pub(super) fn material_choice(
     current: Option<Id>,
     width: f32,
     keep: impl Fn(&skraft_model::Material) -> bool,
+    none: String,
 ) -> Option<Option<Id>> {
-    item_choice(ui, doc, salt, current, width, keep, (t!("panel.materials.none"), true))
+    item_choice(ui, doc, salt, current, width, keep, (none, true))
 }
 
 /// An item to pick among those `keep` lets through, the field showing `title` (« Aucune »
@@ -59,8 +61,8 @@ pub(super) fn material_choice_titled(
     item_choice(ui, doc, salt, None, width, keep, (title, false))
 }
 
-/// [`material_choice`]'s field and menu: `empty` the text shown for none, and whether « Aucune »
-/// is offered.
+/// [`material_choice`]'s field and menu: `empty` the text shown for none, and whether it is
+/// offered.
 fn item_choice(
     ui: &mut egui::Ui,
     doc: &Document,
@@ -73,6 +75,12 @@ fn item_choice(
     let name = |m: Option<Id>| match m {
         Some(id) => doc.material(id).map_or("?".to_owned(), |m| m.name.clone()),
         None => empty.clone(),
+    };
+    // An item's swatch, drawn as the « Matières » card's tiles (a scheme its coats, none
+    // crossed): before its name in the field and in the menu.
+    let swatch = |ui: &egui::Ui, r: egui::Rect, item: Option<Id>| match item {
+        Some(id) => materials::paint_material(ui, doc, r, id, 2.0),
+        None => materials::paint_none(ui, r, ui.visuals().weak_text_color(), 2.0),
     };
     // Laid out as the label beside it (`field_label`): level with it.
     ui.vertical(|ui| {
@@ -92,20 +100,31 @@ fn item_choice(
         icons::chevron(ui, icon.center(), 14.0, ink, 0.0);
         let font = egui::TextStyle::Body.resolve(ui.style());
         let text = ui.fonts_mut(|f| f.layout_no_wrap(name(current), font, ink));
+        // The choice's swatch first, as its menu row shows it (not for a title: nothing chosen).
+        let mut left = inner.left();
+        if offer_none {
+            let side = crate::kit::style::MENU_MARK;
+            swatch(ui, egui::Rect::from_min_size(egui::pos2(left, inner.center().y - side / 2.0), egui::Vec2::splat(side)), current);
+            left += side + ui.spacing().icon_spacing;
+        }
         let clip = inner.with_max_x(icon.left() - 4.0);
-        ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
+        ui.painter_at(clip).galley(egui::pos2(left, inner.center().y - text.size().y / 2.0), text, ink);
 
         let mut picked = current;
         egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(ui.available_width());
+            // Each row its swatch where the menus' check boxes go: full width, the names lined up.
+            let mut row = |ui: &mut egui::Ui, item: Option<Id>, label: &str| {
+                let lead = crate::kit::style::menu_mark(move |ui, r, _| swatch(ui, r, item));
+                if ui.add(crate::kit::style::menu_item_lead(lead, label).selected(picked == item)).clicked() {
+                    picked = item;
+                }
+            };
             if offer_none {
-                ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
+                row(ui, None, &empty);
             }
             for (id, m) in doc.materials().filter(|(_, m)| keep(m)) {
-                ui.horizontal(|ui| {
-                    widgets::color::swatch(ui, Some(m.color), 12.0);
-                    ui.selectable_value(&mut picked, Some(id), &m.name);
-                });
+                row(ui, Some(id), &m.name);
             }
         });
         (picked != current).then_some(picked)
@@ -167,7 +186,12 @@ fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Mate
         ui.horizontal(|ui| {
             ui.set_width(width);
             let c = doc.material(*coat).ok();
-            widgets::color::swatch(ui, c.map(|c| c.color), 12.0);
+            // Its swatch as the menus and the « Matières » card draw it.
+            let (swatch, _) = ui.allocate_exact_size(egui::Vec2::splat(12.0), egui::Sense::hover());
+            match c {
+                Some(_) => materials::paint_material(ui, doc, swatch, *coat, 2.0),
+                None => materials::paint_none(ui, swatch, ui.visuals().weak_text_color(), 2.0),
+            }
             ui.label(c.map_or("?", |c| c.name.as_str()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if small(ui, icons::CLOSE, t!("panel.materials.coat_remove_tip"), true).clicked() {

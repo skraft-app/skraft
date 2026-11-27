@@ -1031,6 +1031,7 @@ panel:
     count_tip_plural: "%{count} pièces du modèle la montrent"
     purge_tip: "Supprimer toutes les matières inutilisées"
     none: "Aucune"
+    none_material: "Aucun"
     new: "Nouveau matériau"
     new_covering: "Nouveau revêtement"
     new_coloration: "Nouvelle coloration"
@@ -1105,6 +1106,7 @@ panel:
     link_overlap: "Chevauche %{parts} dans %{receivers}"
     linked: "Usinage lié à %{source} : il suit sa forme et sa place. Pour le changer, modifiez %{source} ou rompez le lien (clic droit)"
     imprints_in: "Empreint sa forme dans : %{parts}"
+    faces_tip: "Faces : %{names}"
     # Under a body with a profile (an extrusion, a revolution): its profile, a click editing it.
     profile: "Profil"
     profile_tip: "Cliquer pour modifier le profil"
