@@ -320,7 +320,8 @@ chevron, the active sheet and its presentation unfolding when another becomes ac
   for a default name, else « Plan#2 »). The copy becomes active.
 - **Its elements, the topmost first**: a view's name, a text's first line, a composition's name for an
   occurrence, else their kind. A click makes their sheet active and picks them, the camera going to
-  the sheet and never to the element ([Framing](#framing)), Shift adding or taking off;
+  the sheet and never to the element ([Framing](#framing)), Cmd (Ctrl elsewhere) adding or taking
+  off, Shift taking a range ([Selecting in a list](interface.md#selecting-in-a-list));
   hidden or locked, they are not picked. At the row's right end **the eye** (hidden or shown), **the
   padlock** (under the pointer, or while locked), and under the pointer **up** and **down**, over or
   under the next element (`SetElementState`, `MoveElement`).

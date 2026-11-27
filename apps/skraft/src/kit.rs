@@ -6,6 +6,7 @@
 pub(crate) mod cursors;
 pub(crate) mod handles;
 pub(crate) mod icons;
+pub(crate) mod list_select;
 pub(crate) mod overlay;
 pub(crate) mod search;
 pub(crate) mod style;

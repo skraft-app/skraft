@@ -5409,23 +5409,27 @@ fn stretch_tool_stretches_the_bodies_selected_alone() {
 }
 
 #[test]
-fn a_click_in_the_navigator_selects_or_deselects() {
+fn a_click_in_the_navigator_selects_alone_toggles_or_takes_a_range() {
     let mut e = top_editor(Document::new());
     two_boxes(&mut e);
     let ids: Vec<Id> = e.document().root_assembly().occurrences().iter().map(|o| o.id).collect();
     let (a, b) = (EntityPath::root(ids[0]), EntityPath::root(ids[1]));
-    e.toggle_path(&a, false);
+    e.select_path(&a);
     assert_eq!(e.selection(), &[ids[0]]);
-    e.toggle_path(&b, false);
+    e.select_path(&b);
     assert_eq!(e.selection(), &[ids[1]], "another one selected alone");
-    e.toggle_path(&b, false);
-    assert!(e.selection().is_empty(), "selected, deselected");
-    // With Shift: added, then taken out alone.
-    e.toggle_path(&a, true);
-    e.toggle_path(&b, true);
-    assert_eq!(e.selection(), &[ids[0], ids[1]]);
-    e.toggle_path(&a, true);
+    e.select_path(&b);
+    assert_eq!(e.selection(), &[ids[1]], "a plain click keeps it selected");
+    // Cmd: added, then taken out alone.
+    e.toggle_path(&a);
+    assert_eq!(e.selection(), &[ids[1], ids[0]]);
+    e.toggle_path(&b);
+    assert_eq!(e.selection(), &[ids[0]]);
+    // A range: in place of the selection, or added to it.
+    e.select_path_range(std::slice::from_ref(&b), false);
     assert_eq!(e.selection(), &[ids[1]]);
+    e.select_path_range(&[a.clone(), b.clone()], true);
+    assert_eq!(e.selection(), &[ids[1], ids[0]], "each once");
 }
 
 #[test]

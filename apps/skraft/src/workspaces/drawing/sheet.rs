@@ -104,6 +104,8 @@ pub struct SheetState {
     sketch: Option<DVec2>,
     /// What a dimension's tool picked so far: the view, the anchors.
     picks: Vec<(Id, skraft_model::Anchor)>,
+    /// The navigator's anchor of a range and arrow keys' row (docs/ui/interface.md#selecting-in-a-list).
+    pub tree_marks: crate::kit::list_select::Marks<crate::workspaces::drawing::cards::navigator::ElementKey>,
 }
 
 /// What the camera is asked to frame.

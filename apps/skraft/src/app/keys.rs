@@ -125,6 +125,10 @@ impl SkraftApp {
         let command = || self.keymap.command_for(key, modifiers, |id| w.has(id));
         let Some(d) = self.docs.active_mut() else { return command() };
         let typing = !d.vcb.is_empty();
+        // The arrows go to the navigator last clicked in (docs/ui/interface.md#selecting-in-a-list).
+        if !typing && crate::kit::list_select::give_key(ctx, key, modifiers) {
+            return None;
+        }
         // On a sheet, its own measurements box (docs/ui/drawing.md#measurements); Delete or
         // Backspace erases what is picked; the 3D tool hears nothing.
         if d.workspace.stage == Stage::Sheet {
