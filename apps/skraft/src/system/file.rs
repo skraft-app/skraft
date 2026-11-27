@@ -31,6 +31,10 @@ pub enum Outcome {
     Imported { name: String, bytes: Vec<u8> },
     /// A file dropped on the window could not be read: its name, why.
     ReadFailed { name: String, error: String },
+    /// A file picked that the app neither opens nor imports (web: the pickers do not filter):
+    /// its name.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    Unsupported { name: String },
     /// An image picked for the texture of `material`, in document `doc`.
     TextureImage { doc: DocId, material: skraft_model::Id, bytes: Vec<u8> },
     /// A file written that is not a document's (materials exported): where.
@@ -80,19 +84,46 @@ fn spawn(fut: impl std::future::Future<Output = ()> + 'static) {
 
 /// Asks for a file to open; its bytes arrive in `inbox`.
 pub fn open(inbox: &Inbox, ctx: &egui::Context) {
+    pick("Skraft", &[EXTENSION], Dropped::Open, inbox, ctx);
+}
+
+/// Asks for a file — `extensions`, under the filter `kind` — and reads it: it arrives in `inbox`
+/// as `as_kind` says (desktop). The browser's picker does not filter: iOS turns each extension
+/// into a system file type and drops those it cannot, keeping only the others — a `.skp` known
+/// to an app on the device greys the `.step` files out, and with none known nothing is
+/// filtered. So on the web any file is picked and taken by its extension, as a file dropped
+/// on the window (docs/io/file-format.md#extension-and-file-associations).
+fn pick(kind: &'static str, extensions: &'static [&'static str], as_kind: Dropped, inbox: &Inbox, ctx: &egui::Context) {
     let inbox = inbox.clone();
     let ctx = ctx.clone();
     spawn(async move {
-        let picked = rfd::AsyncFileDialog::new().add_filter("Skraft", &[EXTENSION]).pick_file().await;
-        if let Some(f) = picked {
-            #[cfg(not(target_arch = "wasm32"))]
-            let name = f.path().display().to_string();
-            #[cfg(target_arch = "wasm32")]
-            let name = f.file_name();
-            let bytes = f.read().await;
-            inbox.put(Outcome::Opened { name, bytes });
+        #[cfg(not(target_arch = "wasm32"))]
+        let picked = rfd::AsyncFileDialog::new().add_filter(kind, extensions).pick_file().await;
+        #[cfg(target_arch = "wasm32")]
+        let picked = {
+            let _ = (kind, extensions);
+            rfd::AsyncFileDialog::new().pick_file().await
+        };
+        let Some(f) = picked else { return };
+        let short = f.file_name();
+        #[cfg(not(target_arch = "wasm32"))]
+        let (name, as_kind) = (f.path().display().to_string(), Some(as_kind));
+        #[cfg(target_arch = "wasm32")]
+        let (name, as_kind) = {
+            let _ = as_kind;
+            (short.clone(), dropped_kind(std::path::Path::new(&short)))
+        };
+        let Some(as_kind) = as_kind else {
+            inbox.put(Outcome::Unsupported { name: short });
             ctx.request_repaint();
-        }
+            return;
+        };
+        let bytes = f.read().await;
+        inbox.put(match as_kind {
+            Dropped::Open => Outcome::Opened { name, bytes },
+            Dropped::Import => Outcome::Imported { name: short, bytes },
+        });
+        ctx.request_repaint();
     });
 }
 
@@ -106,17 +137,7 @@ pub fn open_path(path: &str, inbox: &Inbox) -> std::io::Result<()> {
 
 /// Asks for a file to import (STEP, SketchUp); its name and bytes arrive in `inbox`.
 pub fn import(inbox: &Inbox, ctx: &egui::Context) {
-    let inbox = inbox.clone();
-    let ctx = ctx.clone();
-    spawn(async move {
-        let picked = rfd::AsyncFileDialog::new().add_filter("STEP, SKP", IMPORT_EXTENSIONS).pick_file().await;
-        if let Some(f) = picked {
-            let name = f.file_name();
-            let bytes = f.read().await;
-            inbox.put(Outcome::Imported { name, bytes });
-            ctx.request_repaint();
-        }
-    });
+    pick("STEP, SKP", IMPORT_EXTENSIONS, Dropped::Import, inbox, ctx);
 }
 
 /// What a file dropped on the window is for, by its extension.
@@ -177,20 +198,7 @@ pub fn pick_texture(doc: DocId, material: skraft_model::Id, inbox: &Inbox, ctx: 
 
 /// Asks for a `.skraftmat` to import into the shown document: it arrives as a file opened.
 pub fn import_materials(inbox: &Inbox, ctx: &egui::Context) {
-    let inbox = inbox.clone();
-    let ctx = ctx.clone();
-    spawn(async move {
-        let picked = rfd::AsyncFileDialog::new().add_filter("Skraft", &[MATERIALS_EXTENSION]).pick_file().await;
-        if let Some(f) = picked {
-            #[cfg(not(target_arch = "wasm32"))]
-            let name = f.path().display().to_string();
-            #[cfg(target_arch = "wasm32")]
-            let name = f.file_name();
-            let bytes = f.read().await;
-            inbox.put(Outcome::Opened { name, bytes });
-            ctx.request_repaint();
-        }
-    });
+    pick("Skraft", &[MATERIALS_EXTENSION], Dropped::Open, inbox, ctx);
 }
 
 /// Writes `bytes` — materials exported (`.skraftmat`) — where the user says, `name` offered;

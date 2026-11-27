@@ -96,6 +96,9 @@ impl SkraftApp {
             file::Outcome::ReadFailed { name, error } => {
                 self.toasts.push(Note::error(t!("toast.open_failed", file = name), error));
             }
+            file::Outcome::Unsupported { name } => {
+                self.toasts.push(Note::error(t!("toast.drop_unknown", file = name), t!("toast.drop_supported")));
+            }
         }
     }
 
