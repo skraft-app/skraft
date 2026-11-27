@@ -174,7 +174,7 @@ impl Tool for PaintTool {
                 (m.hits, m.paths) = Self::hits(&m, cx);
                 return match Self::rectangle_target(&m, cx).map(|t| Self::paint(t, cx)) {
                     Some(Ok(op)) => vec![Command::Apply(op)],
-                    Some(Err(why)) => vec![Command::Say(why)],
+                    Some(Err(why)) => vec![super::refuse(why)],
                     None => vec![],
                 };
             }
@@ -182,7 +182,7 @@ impl Tool for PaintTool {
                 let Some(hit) = cx.pick(*px) else { return vec![] };
                 return match self.target(&hit, cx).and_then(|t| Self::paint(t, cx)) {
                     Ok(op) => vec![Command::Apply(op)],
-                    Err(why) => vec![Command::Say(why)],
+                    Err(why) => vec![super::refuse(why)],
                 };
             }
             _ => {}

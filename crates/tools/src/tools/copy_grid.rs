@@ -238,7 +238,7 @@ impl CopyGridTool {
             VcbValue::Counts(c) => (last.end, Self::counts(c)),
             VcbValue::Lengths(l) => match Self::typed_end(cx, &last.target, last.k, last.end, last.repeat, l) {
                 Ok(end) => (end, last.repeat),
-                Err(say) => return vec![Command::Say(say)],
+                Err(say) => return vec![super::refuse(say)],
             },
             _ => return vec![],
         };
@@ -300,7 +300,7 @@ impl Tool for CopyGridTool {
             ToolInput::Value(VcbValue::Lengths(l)) => {
                 return match Self::typed_end(cx, &t, k, end, self.repeat, l) {
                     Ok(end) => self.finish(cx, t, k, end),
-                    Err(say) => vec![Command::Say(say)],
+                    Err(say) => vec![super::refuse(say)],
                 };
             }
             _ => {}

@@ -140,12 +140,12 @@ pub(super) fn mirror_key(input: &ToolInput, cx: &Cx<'_>, several: bool) -> Optio
     let on = !cx.toggle(MIRROR);
     let mut out = vec![Command::SetOption { key: MIRROR, value: OptionValue::Toggle(on) }];
     if on && several {
-        out.push(Command::Say(t!("tool.handle.say.mirror_one")));
+        out.push(super::warn(t!("tool.handle.say.mirror_one")));
     }
     Some(out)
 }
 
 /// OCL's warning: the mirror makes one copy only.
 pub(super) fn mirror_warning(cx: &Cx<'_>, several: bool) -> Option<Command> {
-    (cx.toggle(MIRROR) && several).then(|| Command::Say(t!("tool.handle.say.mirror_one")))
+    (cx.toggle(MIRROR) && several).then(|| super::warn(t!("tool.handle.say.mirror_one")))
 }

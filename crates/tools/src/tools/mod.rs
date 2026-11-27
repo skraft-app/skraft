@@ -154,8 +154,10 @@ pub enum Command {
     /// open or the assembly being edited, it leaves it ([`Command::Exit`]); inside, it clears
     /// the selection.
     ClickOff(DVec2),
-    /// A message for the status bar (e.g. why a value was refused).
-    Say(String),
+    /// A message for the app's toasts (docs/ui/interface.md#toasts), after OpenCutList's
+    /// `notify` and `notify_errors`: why a gesture or a value is refused (an error), what it
+    /// warns of, what to do next. The status bar keeps the tools' hints.
+    Notify(crate::editor::NoticeKind, String),
     /// The height (whole) of the shape just drawn: the next one can take it again (Shift,
     /// double-click).
     RememberHeight(f64),
@@ -1681,4 +1683,20 @@ pub fn axis_ink(k: usize) -> [f32; 4] {
 pub(crate) fn ink_along(axes: [DVec3; 3], d: DVec3, tolerance: f64) -> Option<[f32; 4]> {
     let d = d.try_normalize()?;
     (0..3).find(|&k| axes[k].dot(d).abs() > 1.0 - tolerance).map(axis_ink)
+}
+
+/// A toast saying why a gesture or a value is refused ([`Command::Notify`], OpenCutList's
+/// `notify_errors`).
+pub(crate) fn refuse(text: impl Into<String>) -> Command {
+    Command::Notify(crate::editor::NoticeKind::Error, text.into())
+}
+
+/// A toast warning of what a gesture will do ([`Command::Notify`]).
+pub(crate) fn warn(text: impl Into<String>) -> Command {
+    Command::Notify(crate::editor::NoticeKind::Warning, text.into())
+}
+
+/// A toast saying what to do next ([`Command::Notify`], OpenCutList's `notify`).
+pub(crate) fn inform(text: impl Into<String>) -> Command {
+    Command::Notify(crate::editor::NoticeKind::Info, text.into())
 }

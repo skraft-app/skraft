@@ -551,7 +551,7 @@ impl PrismTool {
         let Some(ax) = self.axis else { return vec![] };
         let refuse = |me: &mut PrismTool, corners: Corners| {
             me.state = State::Corners(corners);
-            vec![Command::Say(t!("tool.turn.say.across"))]
+            vec![crate::tools::refuse(t!("tool.turn.say.across"))]
         };
         // The body's axes: Z along the axis, X towards the profile (its middle off the axis).
         let pts: Vec<DVec3> = outline.iter().map(|c| at3(&f, c.p)).collect();
@@ -779,14 +779,14 @@ impl PrismTool {
         if c.along.len() < 2 || c.along.len() == 2 && !c.arcs() {
             c.mids[k - 1] = None;
             self.state = State::Corners(c);
-            return vec![Command::Say(t!("tool.prism.say.too_few"))];
+            return vec![crate::tools::refuse(t!("tool.prism.say.too_few"))];
         }
         let f = c.frame();
         let outline = profile::cleaned(&c.outline(&f));
         if !profile::is_simple(&outline) {
             c.mids[k - 1] = None;
             self.state = State::Corners(c);
-            return vec![Command::Say(t!("tool.prism.say.crossed"))];
+            return vec![crate::tools::refuse(t!("tool.prism.say.crossed"))];
         }
         self.state = State::Height { corners: c, f, profile: outline, end, h: 0.0 };
         self.cursor = None;
@@ -821,7 +821,7 @@ impl PrismTool {
             Err(Some(_)) => self.close(c, end, None),
             Err(None) => {
                 self.state = State::Corners(c);
-                vec![Command::Say(t!("tool.prism.say.behind"))]
+                vec![crate::tools::refuse(t!("tool.prism.say.behind"))]
             }
         }
     }
@@ -854,7 +854,7 @@ impl PrismTool {
         }
         if cur.behind {
             self.state = State::Corners(c);
-            return vec![Command::Say(t!("tool.prism.say.behind"))];
+            return vec![crate::tools::refuse(t!("tool.prism.say.behind"))];
         }
         if let Some(i) = on_corner {
             let end = c.along[i];
@@ -867,12 +867,12 @@ impl PrismTool {
     fn finish(&mut self, cx: &Cx<'_>, f: Frame, outline: Vec<Corner>, h: f64) -> Vec<Command> {
         let (z0, z1) = span(h, self.pull_centered);
         if z1 - z0 < MIN {
-            return vec![Command::Say(t!("tool.prism.say.empty"))];
+            return vec![crate::tools::refuse(t!("tool.prism.say.empty"))];
         }
         // The outline made (§ module doc); the step stays when it cannot be.
         let outline = match made(cx, &outline) {
             Ok(o) => o,
-            Err(e) => return vec![Command::Say(offset_refused(e))],
+            Err(e) => return vec![crate::tools::refuse(offset_refused(e))],
         };
         self.state = State::First;
         let (primitive, placement) = if f.aligned() {
@@ -892,7 +892,7 @@ impl PrismTool {
             if let State::Height { h: hh, .. } = &mut self.state {
                 *hh = h;
             }
-            return vec![Command::Say(t!("tool.prism.say.empty"))];
+            return vec![crate::tools::refuse(t!("tool.prism.say.empty"))];
         }
         self.finish(cx, f, profile, h)
     }
@@ -1038,7 +1038,7 @@ impl PrismTool {
                         self.first.from_corner = false;
                         return self.close(c, end, closing);
                     }
-                    Some((_, None)) => return vec![Command::Say(t!("tool.prism.say.curved_face"))],
+                    Some((_, None)) => return vec![crate::tools::refuse(t!("tool.prism.say.curved_face"))],
                     None => {}
                 }
             }

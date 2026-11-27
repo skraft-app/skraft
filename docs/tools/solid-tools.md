@@ -18,7 +18,7 @@ bodies, a free shape) is the model's: [Booleans between parts](../model/bodies.m
 - **Several parts** (OCL's multiple selection): a Shift click adds a part to the step's set or
   takes it out, and the set then waits — a plain click too adds or takes out, once the set holds
   more than one. **Enter**, or the ✓ button, goes on; ✗ is Esc. Shift let go with a set waiting
-  says so in the status bar (OCL's `validate_a` / `validate_b` notifications).
+  says so in an info toast (OCL's `validate_a` / `validate_b` notifications).
 - **The steps bar** ([Steps bar](../ui/interface.md#steps-bar)): A, B — named as the texts and
   « Conserver A » / « Conserver B » call them, not numbered —, and the step's
   sentence; the ✗ / ✓ buttons, under the tool's options, while a set waits.

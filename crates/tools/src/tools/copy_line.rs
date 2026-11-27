@@ -172,7 +172,7 @@ impl CopyLineTool {
             },
             VcbValue::Lengths(l) => match Self::typed_end(cx, &last.target, last.end, last.repeat, l[0]) {
                 Ok(end) => (end, last.repeat),
-                Err(say) => return vec![Command::Say(say)],
+                Err(say) => return vec![super::refuse(say)],
             },
             _ => return vec![],
         };
@@ -244,7 +244,7 @@ impl Tool for CopyLineTool {
             ToolInput::Value(VcbValue::Lengths(v)) => {
                 return match Self::typed_end(cx, &t, end, self.repeat, v[0]) {
                     Ok(end) => self.finish(cx, t, end),
-                    Err(say) => vec![Command::Say(say)],
+                    Err(say) => vec![super::refuse(say)],
                 };
             }
             _ => {}

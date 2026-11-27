@@ -426,7 +426,7 @@ impl ProfileTool {
             return vec![];
         };
         if !now.is_valid() {
-            return vec![Command::Say(t!("tool.profile.say.crossed"))];
+            return vec![super::refuse(t!("tool.profile.say.crossed"))];
         }
         self.done();
         vec![Command::Apply(Operation::SetProfile { target, body, profile: now, scope: cx.part_scope })]
@@ -436,7 +436,7 @@ impl ProfileTool {
     /// too big for its sides, refused and said.
     fn set_fillet(&mut self, cx: &Cx<'_>, base: &BodyProfile, i: usize, r: f64) -> Vec<Command> {
         if profile::fillet_max(&base.profile, i).is_none_or(|m| r > m + 1e-9) {
-            return vec![Command::Say(t!("tool.profile.say.fillet_too_big"))];
+            return vec![super::refuse(t!("tool.profile.say.fillet_too_big"))];
         }
         let r = if r < MIN { 0.0 } else { r };
         let mut b = base.clone();

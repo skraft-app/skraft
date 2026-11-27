@@ -78,7 +78,7 @@ impl Editor {
     pub(super) fn start(&mut self, op: Operation, after: After, restore: bool) -> Result<Option<Outcome>, String> {
         if self.pending.is_some() {
             let msg = t!("status.busy");
-            self.message = Some(msg.clone());
+            self.notify(NoticeKind::Warning, msg.clone(), None);
             return Err(msg);
         }
         match self.document().prepare(&op) {

@@ -395,7 +395,7 @@ impl Tool for MeasureTool {
                     State::Measure { .. } => self.reset(),
                     State::Through { .. } => {
                         let Some((shape, _, _)) = self.guide_through(inf.point) else {
-                            return vec![Command::Say(t!("tool.measure.say.no_line"))];
+                            return vec![super::refuse(t!("tool.measure.say.no_line"))];
                         };
                         return self.add(cx, shape);
                     }
@@ -405,7 +405,7 @@ impl Tool for MeasureTool {
                         if let GuideShape::Circle { radius, .. } = shape
                             && radius < MIN
                         {
-                            return vec![Command::Say(t!("tool.measure.say.no_radius"))];
+                            return vec![super::refuse(t!("tool.measure.say.no_radius"))];
                         }
                         return self.add(cx, shape);
                     }
@@ -415,7 +415,7 @@ impl Tool for MeasureTool {
                 if let (State::Parallel { .. } | State::Concentric { .. }, Some(d)) = (self.state, v.first()) {
                     return match self.guide_at(*d) {
                         Ok(shape) => self.add(cx, shape),
-                        Err(e) => vec![Command::Say(e)],
+                        Err(e) => vec![super::refuse(e)],
                     };
                 }
             }

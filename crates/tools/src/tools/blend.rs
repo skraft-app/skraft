@@ -355,7 +355,7 @@ impl Tool for BlendTool {
                     let op = match self.node_validated(cx) {
                         Ok(Some(op)) => op,
                         Ok(None) => return Vec::new(),
-                        Err(refused) => return vec![Command::Say(refused)],
+                        Err(refused) => return vec![super::refuse(refused)],
                     };
                     self.picks.clear();
                     self.loaded = None;

@@ -919,7 +919,7 @@ impl StretchTool {
         let shares = self.shares(cuts.len() + 1, side, handle);
         // Refused now rather than at the end: the operation for a 1 mm pull, prepared.
         if let Err(e) = cx.doc.prepare(&self.operation(cx, &target, k, side, handle, 1.0)) {
-            return vec![Command::Say(e.to_string())];
+            return vec![super::refuse(e.to_string())];
         }
         let spans = match &target.bodies {
             Some(ids) => cx.doc.body_stretch_spans(&target.body_path(), ids, &target.in_context, DVec3::AXES[k], &cuts),
@@ -1033,7 +1033,7 @@ impl StretchTool {
                 let max = if d < 0.0 { range.0.abs() } else { range.1 };
                 t!("tool.stretch.say.max_compression", value = self.format(cx, d.abs()), max = self.format(cx, max))
             };
-            return vec![Command::Say(say)];
+            return vec![super::refuse(say)];
         }
         self.finish(cx, d, true)
     }
@@ -1204,7 +1204,7 @@ impl StretchTool {
                     }
                     // A padlock clicked: the axis unlocked, one cutter in the middle.
                     (Mode::Normal, Over::Padlock(k), _) if target.fixed[k] => {
-                        return vec![Command::Say(t!("tool.stretch.say.turned"))];
+                        return vec![super::refuse(t!("tool.stretch.say.turned"))];
                     }
                     (Mode::Normal, Over::Padlock(k), _) => {
                         self.over = Over::Nothing;
@@ -1323,7 +1323,7 @@ impl StretchTool {
             (State::Stretch { target, k, .. }, ToolInput::Value(VcbValue::Lengths(v))) => {
                 let (target, k) = ((**target).clone(), *k);
                 if self.overall() && v[0] < 0.0 {
-                    return vec![Command::Say(t!("tool.stretch.say.invalid_length", value = self.format(cx, v[0])))];
+                    return vec![super::refuse(t!("tool.stretch.say.invalid_length", value = self.format(cx, v[0])))];
                 }
                 // The offset typed already goes the way the cursor takes it: the measurements box
                 // gives it the sign of the move shown (vcb.rs), along the axis without a move yet.

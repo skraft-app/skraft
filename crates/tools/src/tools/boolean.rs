@@ -149,7 +149,7 @@ impl Tool for BooleanTool {
             // Shift let go with a set gathering: Enter goes on (OCL's notifications).
             ToolInput::Key { key: Key::Shift, .. } if self.gathers() && !self.set().paths.is_empty() => {
                 let say = if self.b.is_none() { t!("tool.boolean.say.validate_a") } else { t!("tool.boolean.say.validate_b") };
-                return vec![Command::Say(say)];
+                return vec![super::inform(say)];
             }
             _ => {}
         }

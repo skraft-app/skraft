@@ -56,7 +56,7 @@ would be guessing what the user meant.
 Each change (an edge, the size) asks the kernel for the node alone (`Document::blend_job`,
 `Task::Node`, not the part computed again around it), the job before it dropped
 (`Editor::update_blend_preview`). Its result is drawn in the body's or the part's stead (the
-stretch's swaps, `Editor::blend_done`); a refusal is said in the status bar. Applied, the
+stretch's swaps, `Editor::blend_done`); a refusal of the preview is said in the status bar, one at Enter in a toast. Applied, the
 preview is held until the kernel gives the part its new shape (`Editor::held`, as a stretch's).
 
 ## Editing a node

@@ -71,8 +71,8 @@ pub(super) fn carry_composition(
                 }
                 st.selected = o.element.into_iter().collect();
             }
-            Ok(None) => {}
-            Err(m) => st.message = Some(m),
+            // A failure is the editor's toast already.
+            Ok(None) | Err(_) => {}
         }
     }
 }

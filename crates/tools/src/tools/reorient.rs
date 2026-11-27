@@ -367,18 +367,18 @@ impl Tool for ReorientTool {
                 let Some(a) = aim(*px, mode, None, cx) else {
                     self.aim = None;
                     return match (mode, cx.pick(*px)) {
-                        (ADAPT, Some(_)) => vec![Command::Say(t!("tool.reorient.not_flat"))],
+                        (ADAPT, Some(_)) => vec![super::refuse(t!("tool.reorient.not_flat"))],
                         _ => vec![],
                     };
                 };
                 self.aim = None;
                 if a.axes.abs_diff_eq(DAffine3::IDENTITY, 1e-9) {
-                    return vec![Command::Say(t!("tool.reorient.already"))];
+                    return vec![super::refuse(t!("tool.reorient.already"))];
                 }
                 let settings = cx.doc.component(a.component).is_ok_and(|c| c.behavior != Behavior::default());
                 let mut commands = vec![Command::Apply(Operation::ChangeAxes { component: a.component, axes: a.axes })];
                 if settings && !is_quarter_turn(&a.axes.matrix3) {
-                    commands.push(Command::Say(t!("tool.reorient.settings_reset")));
+                    commands.push(super::inform(t!("tool.reorient.settings_reset")));
                 }
                 return commands;
             }

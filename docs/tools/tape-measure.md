@@ -119,7 +119,7 @@ axes') through the point clicked — for an upright edge, of the face clicked, e
 upright plane through it facing the eye; the perpendicular is inferred in that plane. The
 second click, or a typed length (the offset, towards the cursor's side), adds the guide. A guide
 may be offset by zero (along the edge, the tangent itself, or the whole circle of an arc); a
-circle shrunk to nothing adds nothing (said in the status bar).
+circle shrunk to nothing adds nothing (said in a toast).
 
 ### Measuring
 

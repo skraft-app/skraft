@@ -522,7 +522,7 @@ whatever a view's scale. It measures (`measure_of`, `typed_kind`):
   gesture, the value corrects it (one more operation), while it is picked alone and has not
   changed since (`SheetState::amend`).
 
-A value refused says why in the status bar until the next one or a click.
+A value refused says why in a toast ([Toasts](interface.md#toasts)).
 
 ## Fields
 

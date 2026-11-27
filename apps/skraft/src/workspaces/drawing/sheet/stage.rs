@@ -453,7 +453,6 @@ fn measure_now(e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_>, aim: Option
     let OnSheet { stage, to, pointer, shift, .. } = *s;
     let response = stage.response;
     if response.clicked() || response.drag_started() {
-        st.message = None;
         st.info = InfoOn::Sheet;
     }
     // The measurements box (docs/ui/drawing.md#measurements): the shape being drawn, the
@@ -485,7 +484,6 @@ fn measure_now(e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_>, aim: Option
     if let Some(text) = st.typed.take()
         && let Some(g) = &measured
     {
-        st.message = None;
         match typed_kind(g, &text, &units) {
             Ok(kind) if g.element == Id(0) => {
                 st.sketch = None;
@@ -500,7 +498,7 @@ fn measure_now(e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_>, aim: Option
                     st.amend = Some(Grip { kind, ..g.clone() });
                 }
             }
-            Err(m) => st.message = Some(m),
+            Err(m) => e.refuse(m),
         }
     }
 }
@@ -628,7 +626,6 @@ fn escape_step(ui: &egui::Ui, st: &mut SheetState) {
     if std::mem::take(&mut st.esc_eaten) {
     } else if esc {
         st.amend = None;
-        st.message = None;
         if st.sketch.take().is_some() || st.marquee.take().is_some() || st.moving.take().is_some() || st.grip.take().is_some() {
         } else if !st.picks.is_empty() {
             st.picks.clear();
@@ -771,7 +768,7 @@ fn select_tool(e: &mut Editor, st: &mut SheetState, s: &OnSheet<'_>, preview: &O
             // A view: its point of view (decision 0051).
             (None, Some(v)) if drawing.element(v).is_some_and(|el| matches!(el.kind, ElementKind::View(_))) => {
                 if let Err(why) = crate::workspaces::drawing::dialogs::view_framer::open(e, st, v) {
-                    st.message = Some(why);
+                    e.refuse(why);
                 }
             }
             (None, None) if st.open.is_empty() => {

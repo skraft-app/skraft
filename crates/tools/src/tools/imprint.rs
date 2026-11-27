@@ -107,7 +107,7 @@ impl Tool for ImprintTool {
                         return vec![];
                     }
                     if !self.reaches(cx, &path) {
-                        return vec![Command::Say(t!("tool.imprint.out_of_reach"))];
+                        return vec![super::refuse(t!("tool.imprint.out_of_reach"))];
                     }
                 }
                 let set = self.sources.as_mut().unwrap_or(&mut self.receivers);
@@ -126,7 +126,7 @@ impl Tool for ImprintTool {
             // Shift let go with a set gathering: Enter goes on.
             ToolInput::Key { key: Key::Shift, .. } if self.set().gathering && !self.set().paths.is_empty() => {
                 let say = if self.sources.is_none() { t!("tool.imprint.say.validate_a") } else { t!("tool.imprint.say.validate_b") };
-                return vec![Command::Say(say)];
+                return vec![super::inform(say)];
             }
             _ => {}
         }

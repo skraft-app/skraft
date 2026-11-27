@@ -321,21 +321,28 @@ in Safari, the address bar showing, is there.
 
 ## Toasts
 
-`toasts.rs`, after OpenCutList's notifications (`SmartTool#notify`): the app's messages — a
-file not opened or not saved, the preferences or the control channel failing, a command that
-cannot run, too many documents open, « modele.skraft enregistré » — and the editor's notices
-(`Editor::take_notices`: an operation failed, with the kernel's or the model's words; a display
-failed; a STEP file imported, empty, failed, cancelled; an operation abandoned) stack at the
-bottom center, above the status bar — and above the [steps bar](#steps-bar) when it shows —,
-the status bar keeping the tools' hints.
+`toasts.rs`, after OpenCutList's notifications (`SmartTool#notify`, `#notify_errors`): the
+app's messages — a file not opened or not saved, the preferences or the control channel
+failing, a command that cannot run, too many documents open, « modele.skraft enregistré » — and
+the editor's notices (`Editor::take_notices`: an operation failed, with the kernel's or the
+model's words; a display failed; a STEP file imported, empty, failed, cancelled; an operation
+abandoned; and the tools' own: `Command::Notify`, `tools::refuse` / `warn` / `inform` — a
+gesture or a value refused (an error, as OCL's `notify_errors`), a warning (the mirror's one
+copy), what to do next (« Entrée pour valider »); the editor's refusals, a value typed or a
+command with nothing to act on; the drawing sheet's values refused, `Editor::refuse`) stack at
+the bottom center, above the status bar — and above the [steps bar](#steps-bar) when it shows
+—, the status bar keeping the tools' hints. **Why:** a refusal said in the status bar went
+unseen, the eye on the cursor.
 
 - Four levels: info (neutral), success (green), warning (amber, an operation's
   `Outcome::warning`, the warning sign at its left), error (red), each a border of its colour on
   a pale wash of it (a dark one in a dark theme), the title in the colour and what went wrong
   under it, smaller.
-- A click on a toast closes it. An info or a success goes after 5 s, a bar along its bottom
-  emptying towards the left; the pointer over it stops the countdown, full again. A warning or
-  an error stays.
+- A click on a toast closes it. An info or a success goes after 5 s (OCL's), a warning or an
+  error after 10 s (its words take longer to read), a bar along its bottom emptying towards the
+  left; the pointer over it stops the countdown, full again. One whose button waits for a choice
+  (« Replacer », « Séparer ») stays. The same toast again counts on the one shown, its countdown
+  started again; too many, the shortest-lived goes first.
 - A toast may carry a button at its right end (as OpenCutList's « Ouvrir » after an export),
   whose click runs it and closes the toast: « Renommer » on « Nouvelle pièce créée », « Nouvel
   assemblage créé », « Nouveau groupe créé », « … rendu unique »

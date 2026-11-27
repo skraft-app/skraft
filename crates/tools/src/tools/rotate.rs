@@ -237,7 +237,7 @@ impl RotateTool {
             }
             (ToolInput::Click { .. }, State::Reference { center, axis, dir }) => {
                 let Some((reference, reach)) = dir else {
-                    return vec![Command::Say(t!("tool.rotate.say.too_close"))];
+                    return vec![super::refuse(t!("tool.rotate.say.too_close"))];
                 };
                 let reference_aim = self.snap.as_ref().map(|i| i.point);
                 self.state = State::Angle { center, axis, reference, reference_reach: reach, reference_aim, angle: 0.0, reach };

@@ -99,7 +99,7 @@ height.
   normal, the corners sharp where neighbouring sides meet — exact, no polygon library, arcs
   included (an arc offset is a concentric arc). As Clipper's miter offset (OCL's), a side the
   offset turns over is taken out and its neighbours meet instead (a trapezoid can become a
-  triangle). Refused, said in the status bar, the height step kept: nothing left (inward past
+  triangle). Refused, said in a toast, the height step kept: nothing left (inward past
   the middle), or an outline that would cross itself (an outward offset closing a notch, an
   inward one pinching a neck: one outline cannot be two pieces).
 - **Sides**: the choice « Tracé » in the bar — Ligne, Arc tangent, Arc 2 points —
@@ -169,7 +169,7 @@ gesture is one `Operation::SetProfile` (one undo step), under the open part's sc
 - Delete over a corner takes it away (the outline must stay simple, at least three corners
   or an arc).
 
-An outline that would cross itself is refused, said in the status bar.
+An outline that would cross itself is refused, said in a toast.
 
 ## The shape kept while editing
 

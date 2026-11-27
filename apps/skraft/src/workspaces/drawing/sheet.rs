@@ -70,8 +70,6 @@ pub struct SheetState {
     pub typed: Option<String>,
     /// Esc was taken by the measurements box this frame (what was typed dropped).
     pub esc_eaten: bool,
-    /// Why the value typed was refused, in the status bar until the next one.
-    message: Option<String>,
     /// The views' frames on screen last frame, bottom first: what a press lands on.
     frames: Vec<(Id, egui::Rect)>,
     /// Their boxes in the axes of the level open, last frame.
@@ -281,8 +279,8 @@ fn drop_on_sheet(e: &mut Editor, st: &mut SheetState, board: &Board, from: Id, t
             make_active(st, board, to);
             st.selected = o.elements;
         }
-        Ok(None) => {}
-        Err(m) => st.message = Some(m),
+        // A failure is the editor's toast already.
+        Ok(None) | Err(_) => {}
     }
 }
 
@@ -346,8 +344,8 @@ fn run_ask(e: &mut Editor, st: &mut SheetState, ask: SheetAsk, centre: egui::Pos
                     st.selected = o.elements;
                     st.amend = None;
                 }
-                Ok(None) => {}
-                Err(m) => st.message = Some(m),
+                // A failure is the editor's toast already.
+                Ok(None) | Err(_) => {}
             }
         }
         SheetAsk::CopySheet { sheet, presentation, index } => match e.apply(Operation::CopySheet { sheet, presentation, index }) {
@@ -357,8 +355,8 @@ fn run_ask(e: &mut Editor, st: &mut SheetState, ask: SheetAsk, centre: egui::Pos
                     st.info = InfoOn::Sheet;
                 }
             }
-            Ok(None) => {}
-            Err(m) => st.message = Some(m),
+            // A failure is the editor's toast already.
+            Ok(None) | Err(_) => {}
         },
         SheetAsk::Drop { elements, to, copy } => {
             let d = e.document().drawing();
@@ -374,8 +372,8 @@ fn run_ask(e: &mut Editor, st: &mut SheetState, ask: SheetAsk, centre: egui::Pos
                     st.show_sheet(to);
                     st.selected = o.elements;
                 }
-                Ok(None) => {}
-                Err(m) => st.message = Some(m),
+                // A failure is the editor's toast already.
+                Ok(None) | Err(_) => {}
             }
         }
     }
@@ -652,9 +650,6 @@ impl SheetState {
         if self.framer.is_some() {
             return t!("drawing.hint.frame_view");
         }
-        if let Some(m) = &self.message {
-            return m.clone();
-        }
         let back = || t!("drawing.hint.back");
         match self.tool {
             SheetTool::Select if self.grip.is_some() => t!("drawing.hint.grip"),
@@ -699,7 +694,6 @@ impl SheetState {
     /// `tool` started, what the last one was doing dropped.
     pub fn set_tool(&mut self, tool: SheetTool) {
         self.amend = None;
-        self.message = None;
         self.tool = tool;
         self.picks.clear();
         self.sketch = None;
