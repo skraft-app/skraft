@@ -1492,6 +1492,7 @@ tool:
       offset: "Offset"
     say:
       turned: "Locked: a turned body only stretches along its axis"
+      interior_empty: "No material lies wholly between these two cutting planes: the handle has nothing to move"
       invalid_length: "Invalid length: %{value}"
       min_length: "%{value} is less than the minimum length of %{min}"
       max_compression: "%{value} exceeds the maximum compression of %{max}"

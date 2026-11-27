@@ -964,6 +964,14 @@ impl StretchTool {
             None => cx.doc.stretch_spans(&target.context, &target.occurrences, &target.in_context, DVec3::AXES[k], &cuts),
         }
         .unwrap_or_default();
+        // An interior handle moves the matter wholly in its section: none (the cutters both
+        // across one arc, scaled by its ends), nothing would move
+        // (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+        if let Some(h) = handle
+            && spans.get(h.index).is_some_and(Option::is_none)
+        {
+            return vec![super::refuse(t!("tool.stretch.say.interior_empty"))];
+        }
         let range = move_range(&spans, &shares);
         if let Some(path) = target.single() {
             self.picked = Some(path);

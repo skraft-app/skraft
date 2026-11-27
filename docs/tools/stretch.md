@@ -28,7 +28,8 @@ translated by its share of the move, the matter crossing a cutter is lengthened 
 Options: **centred** (both ends move), **measure** as the overall dimension or as the offset;
 the length is typed (VCB, expressions, [Interaction](interaction.md)); compression stops 1 mm
 before two sections meet; double-click repeats the last measure. Interior handles stretch one
-section and compress the others, the overall dimension kept.
+section and compress the others, the overall dimension kept; one whose section holds no matter
+wholly (two cutters across one arc, scaled by its ends) is refused: it would move nothing.
 
 ## Target
 

@@ -3188,6 +3188,22 @@ fn stretch_tool_shows_the_locks_at_once() {
 }
 
 #[test]
+fn stretch_tool_refuses_an_interior_handle_with_nothing_to_move() {
+    // Holes at 100 and 500, cutters at 200 and 300: nothing lies wholly between them (the
+    // board's long edges cross both), so the handle would move nothing
+    // (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    let (mut e, a) = drilled_board_editor(&[100.0, 500.0]);
+    let on_axis = |x: f64| DVec3::new(x, 150.0, 18.0);
+    e.input(ToolInput::Hover { px: px(&e, on_axis(600.0)) });
+    e.set_copy(true);
+    click(&mut e, DVec3::new(200.0, 100.0, 18.0));
+    e.set_copy(false);
+    click(&mut e, on_axis(230.0));
+    assert!(e.last_notice().contains("rien à déplacer"), "{}", e.last_notice());
+    assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 500.0]));
+}
+
+#[test]
 fn stretch_tool_moves_an_interior_section() {
     let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
     let on_axis = |x: f64| DVec3::new(x, 150.0, 18.0);

@@ -85,3 +85,7 @@ ellipses rather than oblongs — what happens to a round is then what happens to
 - A rounded end cut in its bulge stretches into a half ellipse (its ends, in one section, do not
   move; its tip follows the far section).
 - Two groups touching at a vertex, with different extents, refuse.
+- A group moves by its two ends only: two cutters both across one arc, pulled by the interior
+  handle between them, would leave it as it is. The handle is refused when no matter lies wholly
+  in its section (decided 2026-11-27); cutting the arc at each cutter, each piece scaled on its
+  own, stays possible if the case comes up in the workshop.
