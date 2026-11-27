@@ -154,35 +154,74 @@ impl Editor {
         self.context.is_empty() && self.open_part.is_none() && !self.anything_selected()
     }
 
-    /// The navigator's click on the occurrence `path` leads to: selected already (in the active
-    /// context, no part open), it is taken out of the selection; else selected as
-    /// [`Editor::select_path`] does — added to the selection with `add` (Shift) when it lies in
-    /// the active context.
-    pub fn toggle_path(&mut self, path: &EntityPath, add: bool) {
+    /// The navigator's Cmd-click (Ctrl elsewhere) on the occurrence `path` leads to
+    /// (docs/ui/interface.md#selecting-in-a-list): in the active context (no part open), taken
+    /// out of the selection when selected, else added to it; elsewhere selected alone, as
+    /// [`Editor::select_path`] does.
+    pub fn toggle_path(&mut self, path: &EntityPath) {
         let here = self.context == path.occurrences && self.open_part.is_none();
         if here && self.selection.contains(&path.entity) {
             self.selection.retain(|id| *id != path.entity);
-        } else if here && add && self.document().resolve(path).is_ok() {
+        } else if here && self.document().resolve(path).is_ok() {
             self.selection.push(path.entity);
         } else {
             self.select_path(path);
         }
     }
 
+    /// The navigator's range of occurrences `paths`, all in one assembly
+    /// (docs/ui/interface.md#selecting-in-a-list): selected in its context, in place of the
+    /// selection, or `add`ed to it when that context is the active one.
+    pub fn select_path_range(&mut self, paths: &[EntityPath], add: bool) {
+        let Some(first) = paths.first() else { return };
+        let here = self.context == first.occurrences && self.open_part.is_none();
+        if !(here && add) {
+            self.select_path(first);
+        }
+        if self.context != first.occurrences || self.open_part.is_some() {
+            return;
+        }
+        for p in paths.iter().filter(|p| p.occurrences == first.occurrences) {
+            if !self.selection.contains(&p.entity) && self.document().resolve(p).is_ok() {
+                self.selection.push(p.entity);
+            }
+        }
+    }
+
     /// The navigator's click on the body `body` of the part — or group of bodies — `path`
-    /// leads to (docs/model/bodies.md#body-groups): the part, then the group, opened first when they are
-    /// not; the body then taken out of the selection when selected, else selected alone — added
-    /// to it with `add` (Shift).
-    pub fn toggle_body(&mut self, path: &EntityPath, body: Id, add: bool) {
+    /// leads to (docs/model/bodies.md#body-groups): the part, then the group, opened first when
+    /// they are not; the body then selected alone, or with `toggle` (Cmd, Ctrl elsewhere) taken
+    /// out of the selection when selected, else added to it.
+    pub fn toggle_body(&mut self, path: &EntityPath, body: Id, toggle: bool) {
         if !self.open_container(path, body) {
             return;
         }
-        if self.selection.contains(&body) {
-            self.selection.retain(|id| *id != body);
-        } else if add {
-            self.selection.push(body);
-        } else {
+        if !toggle {
             self.set_selection(vec![body]);
+        } else if self.selection.contains(&body) {
+            self.selection.retain(|id| *id != body);
+        } else {
+            self.selection.push(body);
+        }
+    }
+
+    /// The navigator's range of bodies `bodies` of the part or group `path` leads into: opened as
+    /// for a click, they are selected in place of the selection, or `add`ed to it.
+    pub fn select_body_range(&mut self, path: &EntityPath, bodies: &[Id], add: bool) {
+        let Some(first) = bodies.first() else { return };
+        let was_open = self.open_part_path().as_ref() == Some(path);
+        if !self.open_container(path, *first) {
+            return;
+        }
+        if !(add && was_open) {
+            self.set_selection(Vec::new());
+        }
+        let Ok((_, p, _)) = self.document().resolve_container(path) else { return };
+        let bodies: Vec<Id> = bodies.iter().copied().filter(|b| p.body(*b).is_some()).collect();
+        for b in bodies {
+            if !self.selection.contains(&b) {
+                self.selection.push(b);
+            }
         }
     }
 

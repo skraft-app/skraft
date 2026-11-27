@@ -587,9 +587,12 @@ impl SkraftApp {
             | Action::QuickTool(_)
             | Action::RemoteRetry => {}
             // A body chosen in the navigator: its part opened.
-            Action::SelectBody(path, body, add) => e.toggle_body(&path, body, add),
+            Action::SelectBody(path, body, toggle) => e.toggle_body(&path, body, toggle),
+            Action::SelectBodyRange(path, bodies, add) => e.select_body_range(&path, &bodies, add),
             Action::EditBlend(node) => e.edit_blend(node),
-            Action::SelectPath(p, add) => e.toggle_path(&p, add),
+            Action::SelectPath(p, false) => e.select_path(&p),
+            Action::SelectPath(p, true) => e.toggle_path(&p),
+            Action::SelectPathRange(paths, add) => e.select_path_range(&paths, add),
             Action::SelectParts(paths) => e.select_occurrences(paths),
             Action::SelectModel => e.select_model(),
             Action::ChooseComponent(c) => e.choose_component(c),

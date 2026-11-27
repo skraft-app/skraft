@@ -80,6 +80,7 @@ and [Body groups](bodies.md#body-groups).
   nothing), the scope stays « all ».
 - **The navigator lists every part's bodies** under its row ([Body groups](bodies.md#body-groups)):
   hovering a row draws its body hovered, hovering a body in the view lights its row; a click
-  opens the part and selects the body (Shift adds or removes). The entity info shows what is
+  opens the part and selects the body (Cmd, Ctrl elsewhere, adds or removes; Shift takes a range:
+  [Selecting in a list](../ui/interface.md#selecting-in-a-list)). The entity info shows what is
   selected, a body too ([Bodies](bodies.md)).
 - Not yet: marquee selection of bodies (the marquee takes occurrences).

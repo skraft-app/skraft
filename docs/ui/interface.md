@@ -85,6 +85,33 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   assembly `icons::COMPONENT` (three ISO cubes about one corner, one up and two down, also
   « Créer un assemblage »'s).
 
+### Selecting in a list
+
+The navigators (the model's, the drawing's) select as the system's lists and trees do
+(`kit::list_select`), unlike the 3D view where Shift adds or takes off (SketchUp):
+
+- **A click** selects its row alone, selected already or not (`Action::SelectPath`,
+  `SelectBody`); the row becomes the anchor.
+- **Cmd-click** (Ctrl elsewhere: egui's `command`) adds the row or takes it off; it becomes the
+  anchor.
+- **Shift-click** selects the rows from the anchor to it in place of the selection
+  (`SelectPathRange`, `SelectBodyRange`), the anchor staying; **Cmd+Shift-click** adds them.
+  A range keeps only the rows of the anchor's level: the occurrences of one assembly, the
+  bodies of one part or group, the elements of one container on one sheet — the selection
+  lives in one context. The anchor no longer selected (the selection made in the view), the
+  range starts at the first row selected; none, the click is a plain one.
+- **↑ ↓** select the row above or below the last one clicked or reached (the first selected,
+  else the list's first or last row), **Shift+↑ ↓** extend the range from the anchor over its
+  level, the list scrolled to the row (`list_select::reveal`); **← →** fold and unfold that row.
+  The arrows go to the list last clicked in until a press elsewhere (the view, another card),
+  then to the tool again (`list_select::give_key` in `keys.rs`, before the tool's keys).
+  Cmd+A stays « Tout sélectionner », the active context's.
+- The anchor and that row are kept with the list (`NavigatorState`, `SheetState::tree_marks`), by
+  what the rows stand for, not their place: a fold or an edit moves them, a row gone drops them.
+  **Why:** the system's gestures are what a list's users know (Finder, Explorer, SketchUp's own
+  Outliner); a range across levels would mix what cannot be selected together, so it is filtered
+  rather than refused.
+
 ### The model row
 
 The model is on the navigator's first row: named as its file (« Sans titre »), `icons::MODEL`
@@ -269,6 +296,8 @@ Elsewhere:
 - **`kit::touch::TwoFingers`**: two fingers panning and pinching a stage, hidden from its tools
   (the 3D view's, the sheet's; [Touch screens](touch.md)).
 - **`app::modal`**: a modal box (its frame, its buttons' padding, its title).
+- **`kit::list_select`**: a list's or a tree's selection by the system's gestures, its anchor
+  and its arrow keys ([Selecting in a list](#selecting-in-a-list)).
 - **The shared slots**: the « Navigateur » and « Infos sur l'entité » cards take their content
   from the workspace shown (`workspaces::common::cards`, `workspaces::drawing::cards`).
 - **`ribbon::tab_strip`**: a band of tabs (the ribbon's, the Preferences', the journal's, the

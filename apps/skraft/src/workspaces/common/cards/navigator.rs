@@ -1,6 +1,7 @@
 //! The navigator's tree of the model (docs/ui/interface.md#navigator).
 
 use super::*;
+use crate::kit::list_select;
 
 fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static> {
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
@@ -46,6 +47,87 @@ pub struct NavigatorState {
     /// it was found for.
     pub search: String,
     pub(super) holds: Option<(u64, String, Holds)>,
+    /// The anchor of a range and the arrow keys' row (docs/ui/interface.md#selecting-in-a-list).
+    marks: list_select::Marks<Pickable>,
+}
+
+/// What a navigator row selects: an occurrence, or a body of the part or group a path leads into.
+#[derive(Clone, Debug, PartialEq)]
+enum Pickable {
+    Occurrence(EntityPath),
+    Body(EntityPath, Id),
+}
+
+impl Pickable {
+    fn of(row: &NavigatorRow<'_>) -> Option<Pickable> {
+        match &row.body {
+            None => Some(Pickable::Occurrence(EntityPath::new(row.path.clone(), row.occurrence.id))),
+            Some(b) if b.profile => None,
+            Some(b) => {
+                let path = EntityPath::new(row.path.clone(), row.occurrence.id).in_group(b.group.clone());
+                Some(Pickable::Body(path, b.body.id))
+            }
+        }
+    }
+
+    /// Can `self` and `other` be selected together: occurrences of one assembly, bodies of one
+    /// part or group?
+    fn same(&self, other: &Pickable) -> bool {
+        match (self, other) {
+            (Pickable::Occurrence(p), Pickable::Occurrence(q)) => p.occurrences == q.occurrences,
+            (Pickable::Body(p, _), Pickable::Body(q, _)) => p == q,
+            _ => false,
+        }
+    }
+
+    /// Is it selected: an occurrence in the active context, or open with nothing selected in it;
+    /// a body of the part or group open.
+    fn selected(&self, editor: &Editor) -> bool {
+        match self {
+            Pickable::Occurrence(p) => {
+                let here = editor.context() == p.occurrences.as_slice();
+                let open = editor.open_part() == Some(p.entity) && editor.open_group().is_empty() && editor.selection().is_empty();
+                (here && ((editor.open_part().is_none() && editor.selection().contains(&p.entity)) || open))
+                    || editor.deep_selection().contains(p)
+            }
+            Pickable::Body(p, id) => {
+                editor.open_part_path().as_ref() == Some(p) && editor.showing_machinings() && editor.selection().contains(id)
+            }
+        }
+    }
+}
+
+/// What a click or an arrow key selects in the navigator.
+fn select_action(outcome: list_select::Outcome<Pickable>) -> Option<Action> {
+    use list_select::Outcome;
+    Some(match outcome {
+        Outcome::Only(Pickable::Occurrence(p)) => Action::SelectPath(p, false),
+        Outcome::Toggle(Pickable::Occurrence(p)) => Action::SelectPath(p, true),
+        Outcome::Only(Pickable::Body(p, id)) => Action::SelectBody(p, id, false),
+        Outcome::Toggle(Pickable::Body(p, id)) => Action::SelectBody(p, id, true),
+        Outcome::Rows(rows, add) => match rows.first()? {
+            Pickable::Occurrence(_) => Action::SelectPathRange(
+                rows.into_iter()
+                    .filter_map(|r| match r {
+                        Pickable::Occurrence(p) => Some(p),
+                        Pickable::Body(..) => None,
+                    })
+                    .collect(),
+                add,
+            ),
+            Pickable::Body(p, _) => {
+                let path = p.clone();
+                let bodies = rows
+                    .into_iter()
+                    .filter_map(|r| match r {
+                        Pickable::Body(_, id) => Some(id),
+                        Pickable::Occurrence(_) => None,
+                    })
+                    .collect();
+                Action::SelectBodyRange(path, bodies, add)
+            }
+        },
+    })
 }
 
 /// Whether a definition holds a row a search lets through, by definition.
@@ -195,6 +277,31 @@ pub fn navigator(
         actions.push(Action::HoverMachining(None));
         return;
     }
+    // The rows a click or an arrow key selects, in order (docs/ui/interface.md#selecting-in-a-list).
+    let pickables: Vec<(usize, Pickable)> = rows.iter().enumerate().filter_map(|(k, r)| Some((k, Pickable::of(r)?))).collect();
+    let keys: Vec<Pickable> = pickables.iter().map(|(_, p)| p.clone()).collect();
+    let list = ui.make_persistent_id("navigator_list");
+    let mut reveal = None;
+    match list_select::keys(ui, list, ui.available_rect_before_wrap()) {
+        Some(step @ (list_select::Step::Left | list_select::Step::Right)) => {
+            let target = state.marks.fold_target(&keys, |k| k.selected(editor));
+            let fold = target.and_then(|t| pickables.iter().find(|(_, p)| *p == t)).and_then(|(k, _)| rows[*k].fold);
+            if let Some(f) = fold {
+                match step {
+                    list_select::Step::Right => state.open.insert(f.key),
+                    _ => state.open.remove(&f.key),
+                };
+            }
+        }
+        Some(step) => {
+            if let Some(out) = state.marks.step(&keys, step, |k| k.selected(editor), Pickable::same) {
+                reveal = state.marks.cursor.as_ref().and_then(|c| pickables.iter().find(|(_, p)| p == c)).map(|(k, _)| *k + 1);
+                actions.extend(select_action(out));
+            }
+        }
+        None => {}
+    }
+    let mut clicked: Option<(Pickable, list_select::Gesture)> = None;
     let folds = &mut state.open;
     let salt = ui.make_persistent_id("navigator_folds");
     let selection: std::collections::HashSet<Id> = editor.selection().iter().copied().collect();
@@ -211,6 +318,9 @@ pub fn navigator(
     // Row 0 the model's, the tree's after it.
     area.show_rows(ui, height, rows.len() + 1, |ui, range| {
         ui.set_min_width(ui.available_width());
+        if let Some(k) = reveal {
+            list_select::reveal(ui, range.start, k, height);
+        }
         if range.start == 0 {
             model_row(ui, editor, name, height, actions);
         }
@@ -221,14 +331,19 @@ pub fn navigator(
                     continue;
                 }
                 Some(_) => {
-                    body_row(ui, editor, row, height, (salt, folds), actions, &mut over_body);
+                    body_row(ui, editor, row, height, (salt, folds), actions, (&mut over_body, &mut clicked));
                     continue;
                 }
                 None => {}
             }
-            occurrence_row(ui, cx, row, folds, &mut errors, &mut over, actions);
+            occurrence_row(ui, cx, row, folds, &mut errors, (&mut over, &mut clicked), actions);
         }
     });
+    if let Some((key, gesture)) = clicked {
+        list_select::take_keys(ui.ctx(), list);
+        let out = state.marks.click(&keys, key, gesture, |k| k.selected(editor), Pickable::same);
+        actions.extend(select_action(out));
+    }
     paint_drag_ghost(ui.ctx());
     actions.push(Action::HoverNavigator(over));
     actions.push(Action::HoverMachining(over_body));
@@ -517,7 +632,7 @@ fn occurrence_row(
     row: NavigatorRow<'_>,
     folds: &mut FastSet<egui::Id>,
     errors: &mut FastMap<Id, bool>,
-    over: &mut Option<EntityPath>,
+    (over, clicked): (&mut Option<EntityPath>, &mut Option<(Pickable, list_select::Gesture)>),
     actions: &mut Vec<Action>,
 ) {
     let TreeCx { editor, doc, selection, .. } = cx;
@@ -594,7 +709,7 @@ fn occurrence_row(
     if eye {
         actions.push(Action::SetHidden(path, !o.hidden));
     } else if response.clicked() {
-        actions.push(Action::SelectPath(path, ui.input(|i| i.modifiers.shift)));
+        *clicked = Some((Pickable::Occurrence(path), list_select::gesture(ui.input(|i| i.modifiers))));
     }
 }
 
@@ -1539,7 +1654,7 @@ fn body_row(
     height: f32,
     folds: (egui::Id, &mut FastSet<egui::Id>),
     actions: &mut Vec<Action>,
-    over: &mut Option<Id>,
+    (over, clicked): (&mut Option<Id>, &mut Option<(Pickable, list_select::Gesture)>),
 ) {
     let Some(b) = &row.body else { return };
     let look = body_look(ui, editor, &row, b);
@@ -1587,7 +1702,7 @@ fn body_row(
         let scope = scope_in(editor, &look.path);
         actions.push(Action::Apply(Operation::SetSign { target: look.path, bodies: with, sign, scope }));
     } else if response.clicked() {
-        actions.push(Action::SelectBody(look.path, b.body.id, ui.input(|i| i.modifiers.shift)));
+        *clicked = Some((Pickable::Body(look.path, b.body.id), list_select::gesture(ui.input(|i| i.modifiers))));
     }
 }
 

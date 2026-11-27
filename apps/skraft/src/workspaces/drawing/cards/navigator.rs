@@ -10,6 +10,7 @@ use skraft_tools::Editor;
 
 use crate::commands::Action;
 use crate::kit::icons;
+use crate::kit::list_select::{self, Gesture, Outcome};
 use crate::kit::style::Tip;
 use crate::kit::widgets::{self, Fold, IconButton};
 use crate::workspaces::drawing::sheet::{InfoOn, SheetAsk, SheetState};
@@ -51,6 +52,42 @@ struct ElementRow<'d> {
     /// An occurrence above it is hidden.
     hidden_above: bool,
     fold: Option<Fold>,
+}
+
+/// What an element's row selects: its sheet, the occurrences leading to it, itself.
+pub type ElementKey = (Id, Vec<Id>, Id);
+
+/// Can two rows be picked together: right in one container?
+fn same_level(a: &ElementKey, b: &ElementKey) -> bool {
+    a.0 == b.0 && a.1 == b.1
+}
+
+/// Is the element `k` picked: right in the level open, on the sheet shown?
+fn picked(st: &SheetState, d: &Drawing, k: &ElementKey) -> bool {
+    st.shown(d).is_some_and(|s| s.id == k.0) && k.1 == st.open && st.selected.contains(&k.2)
+}
+
+/// Picks what a click or an arrow key asks.
+fn apply(st: &mut SheetState, d: &Drawing, out: Outcome<ElementKey>) {
+    match out {
+        Outcome::Only((sheet, path, id)) => pick(st, d, sheet, &path, id, false),
+        Outcome::Toggle((sheet, path, id)) => pick(st, d, sheet, &path, id, true),
+        Outcome::Rows(rows, add) => {
+            let Some((sheet, path, _)) = rows.first().cloned() else { return };
+            let kept = add && st.shown(d).is_some_and(|s| s.id == sheet) && st.open == path;
+            let before = if kept { std::mem::take(&mut st.selected) } else { Vec::new() };
+            pick(st, d, sheet, &path, rows[0].2, false);
+            let mut selected = before;
+            let open = st.open.len();
+            for (_, p, id) in &rows {
+                let top = p.get(open).copied().unwrap_or(*id);
+                if d.element(top).is_some_and(|el| !el.hidden && !el.locked) && !selected.contains(&top) {
+                    selected.push(top);
+                }
+            }
+            st.selected = selected;
+        }
+    }
 }
 
 fn key(kind: &str, id: Id) -> egui::Id {
@@ -316,16 +353,56 @@ pub fn show(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title: &str
     let salt = ui.make_persistent_id("drawing_navigator_folds");
     let mut lines = rows(d, &st.tree_open);
     let n = lines.len();
+    // The rows a click or an arrow key picks, in order (docs/ui/interface.md#selecting-in-a-list).
+    let pickables: Vec<(usize, ElementKey)> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(k, r)| match r {
+            Row::Element(e) => Some((k, (e.sheet, e.path.clone(), e.el.id))),
+            _ => None,
+        })
+        .collect();
+    let keys: Vec<ElementKey> = pickables.iter().map(|(_, k)| k.clone()).collect();
+    let list = ui.make_persistent_id("drawing_navigator_list");
+    let mut reveal = None;
+    match list_select::keys(ui, list, ui.available_rect_before_wrap()) {
+        Some(step @ (list_select::Step::Left | list_select::Step::Right)) => {
+            let target = st.tree_marks.fold_target(&keys, |k| picked(st, d, k));
+            let fold = target.and_then(|t| pickables.iter().find(|(_, k)| *k == t)).and_then(|(k, _)| match &lines[*k] {
+                Row::Element(e) => e.fold,
+                _ => None,
+            });
+            if let Some(f) = fold {
+                match step {
+                    list_select::Step::Right => st.tree_open.insert(f.key),
+                    _ => st.tree_open.remove(&f.key),
+                };
+            }
+        }
+        Some(step) => {
+            let mut marks = std::mem::take(&mut st.tree_marks);
+            if let Some(out) = marks.step(&keys, step, |k| picked(st, d, k), same_level) {
+                reveal = marks.cursor.as_ref().and_then(|c| pickables.iter().find(|(_, k)| k == c)).map(|(k, _)| *k);
+                apply(st, d, out);
+            }
+            st.tree_marks = marks;
+        }
+        None => {}
+    }
+    let mut clicked: Option<(ElementKey, Gesture)> = None;
     let mut lines: Vec<Option<Row<'_>>> = lines.drain(..).map(Some).collect();
     area.show_rows(ui, height, n, |ui, range| {
         ui.set_min_width(ui.available_width());
+        if let Some(k) = reveal {
+            list_select::reveal(ui, range.start, k, height);
+        }
         for k in range {
             let Some(row) = lines[k].take() else { continue };
             match row {
                 Row::Document => document_row(ui, height, st, title),
                 Row::Presentation { p, fold } => presentation_row(ui, height, d, st, p, fold, active, salt, actions),
                 Row::Sheet { s, fold } => sheet_row(ui, height, d, st, s, fold, shown, salt, actions),
-                Row::Element(row) => element_row(ui, height, d, st, row, salt, actions),
+                Row::Element(row) => element_row(ui, height, d, st, row, salt, (actions, &mut clicked)),
                 Row::Add => {
                     let tint = ui.visuals().weak_text_color();
                     let name = t!("menu.drawing.new_presentation");
@@ -347,6 +424,13 @@ pub fn show(ui: &mut egui::Ui, editor: &Editor, st: &mut SheetState, title: &str
             }
         }
     });
+    if let Some((key, gesture)) = clicked {
+        list_select::take_keys(ui.ctx(), list);
+        let mut marks = std::mem::take(&mut st.tree_marks);
+        let out = marks.click(&keys, key, gesture, |k| picked(st, d, k), same_level);
+        st.tree_marks = marks;
+        apply(st, d, out);
+    }
     widgets::paint_drag_ghost(ui.ctx());
     // The stage frames what a row asked for at its next frame.
     if st.framing_asked() {
@@ -576,7 +660,7 @@ fn sheet_row(
 /// A click on the row of element `id` under the occurrences `path`: its sheet shown, the levels
 /// open kept as far as they lead to it, what stands for it in the last one picked (Shift adds or
 /// takes it off) unless it is hidden or locked.
-fn pick(st: &mut SheetState, d: &Drawing, sheet: Id, path: &[Id], id: Id, shift: bool) {
+fn pick(st: &mut SheetState, d: &Drawing, sheet: Id, path: &[Id], id: Id, toggle: bool) {
     st.info = InfoOn::Sheet;
     // The camera goes to the sheet, never to the element (docs/ui/drawing.md#framing).
     if st.shown(d).is_some_and(|s| s.id == sheet) {
@@ -590,7 +674,7 @@ fn pick(st: &mut SheetState, d: &Drawing, sheet: Id, path: &[Id], id: Id, shift:
     if d.element(top).is_none_or(|el| el.hidden || el.locked) {
         return;
     }
-    if shift {
+    if toggle {
         match st.selected.iter().position(|x| *x == top) {
             Some(i) => {
                 st.selected.remove(i);
@@ -609,7 +693,7 @@ fn element_row(
     st: &mut SheetState,
     row: ElementRow<'_>,
     salt: egui::Id,
-    actions: &mut Vec<Action>,
+    (actions, clicked): (&mut Vec<Action>, &mut Option<(ElementKey, Gesture)>),
 ) {
     let el = row.el;
     // Right in the level open: picked, hidden, locked and ordered here.
@@ -708,7 +792,7 @@ fn element_row(
         Some((_, _, _, true)) => actions.push(Action::Apply(Operation::MoveElement { element: el.id, index: row.index - 1 })),
         _ => {
             if response.clicked() {
-                pick(st, d, row.sheet, &row.path, el.id, ui.input(|i| i.modifiers.shift));
+                *clicked = Some(((row.sheet, row.path.clone(), el.id), list_select::gesture(ui.input(|i| i.modifiers))));
             }
         }
     }

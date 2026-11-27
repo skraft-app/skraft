@@ -343,8 +343,11 @@ pub enum Action {
     Command(&'static str),
     /// The control channel failed to start: try again (the title bar's mark).
     RemoteRetry,
-    /// A navigator's click: selects or deselects, Shift (`true`) adding to the selection.
+    /// A navigator's click (docs/ui/interface.md#selecting-in-a-list): selects alone, or with
+    /// Cmd (`true`, Ctrl elsewhere) adds or takes off.
     SelectPath(EntityPath, bool),
+    /// A navigator's range of occurrences, of one assembly: selected, or added (`true`).
+    SelectPathRange(Vec<EntityPath>, bool),
     /// A row of the tree drop-up hovered (none: left), or clicked (docs/tools/selection.md).
     TreeHover(Option<usize>),
     TreePick(usize),
@@ -395,8 +398,12 @@ pub enum Action {
     /// bodies shown).
     HoverMachining(Option<Id>),
     /// A body of a part chosen in the navigator (docs/model/bodies.md#body-groups): the part, and the group
-    /// the path names, opened; the body selected or deselected, Shift (`true`) adding it.
+    /// the path names, opened; the body selected alone, or with Cmd (`true`, Ctrl elsewhere)
+    /// added or taken off.
     SelectBody(EntityPath, Id, bool),
+    /// A navigator's range of bodies of the part or group the path names: selected, or added
+    /// (`true`).
+    SelectBodyRange(EntityPath, Vec<Id>, bool),
     /// The body node `Id` of the part (or group) open: opened, its tool started on its edges
     /// (docs/tools/rounds.md).
     EditBlend(Id),
