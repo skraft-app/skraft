@@ -1900,7 +1900,8 @@ error:
     unreadable: "the stretch wrote an invalid solid (%{what})"
   web:
     webgpu: "Skraft needs WebGPU, which this browser does not offer or has turned off. Open it in a recent browser that supports it."
-    adapter: "This browser offers WebGPU, but not for this device's graphics card. Open Skraft in another browser or on another device."
+    adapter: "This browser offers WebGPU, but has turned it off for this device's graphics card. Open Skraft in another browser or on another device."
+    adapter_chrome: "In Chrome, you can also turn it on: in chrome://flags, enable \"Unsafe WebGPU Support\", then restart Chrome."
     start: "Skraft does not start: %{error}"
   worker:
     send: "send: %{error}"

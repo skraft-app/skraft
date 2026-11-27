@@ -145,7 +145,8 @@ On the web, **WebGPU only**: wgpu is built without its WebGL backend (eframe's
 `navigator.gpu` gets a message on the loading screen (`apps/skraft/src/lib.rs`, `start`;
 [Loading the web app](../ui/loading.md#loading-the-web-app)), as does one whose `navigator.gpu`
 gives no adapter — Chrome blocks some GPUs (Samsung's Xclipse, in a Galaxy A55, works once
-`chrome://flags` « Unsafe WebGPU Support » is on) — and a start that fails otherwise.
+`chrome://flags` « Unsafe WebGPU Support » is on; in Chrome, the message says so) — and a start
+that fails otherwise.
 The adapter is asked before eframe starts: where it gets none, wgpu drops its WebGPU backend
 and its error speaks of backends not compiled in.
 **Why:** the shader reads its palette and texture entries from storage buffers, which WebGL2
