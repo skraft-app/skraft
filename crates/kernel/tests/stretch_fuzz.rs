@@ -270,7 +270,8 @@ fn case(seed: u64) -> (String, Outcome) {
     match out.mesh() {
         Ok(_) => {
             let m = mesh_volume(&out);
-            if (m - v).abs() > 2e-2 * v {
+            // A tear loses far more; a flat ellipse's tessellation is off by a few %.
+            if (m - v).abs() > 5e-2 * v {
                 return (what, fail(format!("mesh volume {m} ≠ volume {v}")));
             }
         }
