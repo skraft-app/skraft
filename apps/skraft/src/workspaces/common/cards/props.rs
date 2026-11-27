@@ -10,7 +10,7 @@ use skraft_model::{Document, EntityKind, Operation, PropDef, PropTarget, Units, 
 use super::Action;
 use crate::kit::icons;
 use crate::kit::style::Tip;
-use crate::kit::widgets::{Field, IconButton, Look, OPTION_HEIGHT, cut_label, framed_field};
+use crate::kit::widgets::{Field, IconButton, Look, OPTION_HEIGHT, choice_field, cut_label, framed_field};
 
 /// The kinds a definition offers, in its menu.
 const KINDS: [fn() -> ValueKind; 14] = [
@@ -139,39 +139,6 @@ impl Rows {
 fn heading(ui: &mut egui::Ui, text: String) {
     ui.add_space(6.0);
     ui.label(egui::RichText::new(text).strong());
-}
-
-/// A choice among `options` (none: « — »), framed as the fields, `width` wide: the one picked,
-/// when it changed.
-pub(super) fn choice_field(ui: &mut egui::Ui, id: egui::Id, current: Option<&str>, options: &[String], width: f32) -> Option<String> {
-    ui.vertical(|ui| {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, OPTION_HEIGHT), egui::Sense::click());
-        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-        let open = egui::Popup::is_id_open(ui.ctx(), id);
-        let visuals = ui.visuals();
-        let stroke = super::field_stroke(visuals, open, false, response.hovered());
-        let p = ui.painter();
-        p.rect(rect, visuals.widgets.inactive.corner_radius, visuals.extreme_bg_color, stroke, egui::StrokeKind::Inside);
-        let ink = visuals.text_color();
-        let inner = rect.shrink2(egui::vec2(6.0, 0.0));
-        let icon = egui::Rect::from_center_size(egui::pos2(inner.right() - 5.0, inner.center().y), egui::vec2(14.0, 14.0));
-        icons::chevron(ui, icon.center(), 14.0, ink, 0.0);
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let text = ui.fonts_mut(|f| f.layout_no_wrap(current.unwrap_or("—").to_owned(), font, ink));
-        let clip = inner.with_max_x(icon.left() - 4.0);
-        ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
-        let mut picked = None;
-        egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
-            ui.set_min_width(ui.available_width());
-            for o in options {
-                if ui.selectable_label(current == Some(o.as_str()), o).clicked() && current != Some(o.as_str()) {
-                    picked = Some(o.clone());
-                }
-            }
-        });
-        picked
-    })
-    .inner
 }
 
 /// The editor of a value of `kind` (`choices` a choice's), `width` wide: a check box, a choice,

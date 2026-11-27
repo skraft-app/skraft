@@ -139,7 +139,7 @@ fn coat_rows(ui: &mut egui::Ui, id: Id, m: &skraft_model::Material, width: f32, 
     let labels = [t!("panel.materials.blend_cover"), t!("panel.materials.blend_tint")];
     let current = &labels[usize::from(m.blend == BlendMode::Tint)];
     let salt = ("coat_blend", id);
-    let picked = ui.scope(|ui| super::props::choice_field(ui, ui.make_persistent_id(salt), Some(current), &labels, width)).inner;
+    let picked = ui.scope(|ui| crate::kit::widgets::choice_field(ui, ui.make_persistent_id(salt), Some(current), &labels, width)).inner;
     if let Some(k) = picked.and_then(|p| labels.iter().position(|l| *l == p)) {
         actions.push(Action::Apply(Operation::SetCoat { material: id, blend: blends[k], intensity: m.intensity }));
     }
@@ -352,7 +352,8 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             let labels: Vec<String> = kinds.iter().map(|k| kind_label(*k)).collect();
             let current = kind_label(kind);
             let salt = ("material_kind", id);
-            let picked = ui.scope(|ui| super::props::choice_field(ui, ui.make_persistent_id(salt), Some(&current), &labels, width)).inner;
+            let picked =
+                ui.scope(|ui| crate::kit::widgets::choice_field(ui, ui.make_persistent_id(salt), Some(&current), &labels, width)).inner;
             if let Some(k) = picked.and_then(|p| labels.iter().position(|l| *l == p)) {
                 actions.push(Action::Apply(Operation::SetMaterialKind { material: id, kind: kinds[k] }));
             }

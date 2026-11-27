@@ -721,26 +721,32 @@ pub fn ui(
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 6.0);
                 let (frame, lens) = f.look.frame();
                 ui.horizontal(|ui| {
-                    for (d, key) in DIRECTIONS {
-                        let along = Frame::of(d).forward;
-                        let on = f.look == Look::Standard(d) || (lens.is_some() && (frame.forward - along).length() < 1e-6);
-                        let b = ui.selectable_label(on, crate::workspaces::drawing::cards::info::direction_label(d));
-                        crate::kit::handles::publish(|| format!("view_framer.dir:{key}"), b.rect);
-                        if b.clicked() {
-                            f.look_along(d);
-                        }
+                    use crate::kit::widgets::{Segment, segmented};
+                    // The directions, none lit when the view looks along none of them.
+                    let directions: Vec<Segment> = DIRECTIONS
+                        .iter()
+                        .map(|(d, _)| {
+                            let along = Frame::of(*d).forward;
+                            let on = f.look == Look::Standard(*d) || (lens.is_some() && (frame.forward - along).length() < 1e-6);
+                            Segment::new(&crate::workspaces::drawing::cards::info::direction_label(*d), "", None, on)
+                        })
+                        .collect();
+                    let id = ui.make_persistent_id("view_framer_directions");
+                    if let Some(i) = segmented(ui, id, &directions, |i| format!("view_framer.dir:{}", DIRECTIONS[i].1)) {
+                        f.look_along(DIRECTIONS[i].0);
                     }
                     ui.separator();
-                    let parallel = ui.selectable_label(lens.is_none(), t!("drawing.framer.parallel"));
-                    crate::kit::handles::publish(|| "view_framer.parallel".into(), parallel.rect);
-                    if parallel.clicked() && lens.is_some() {
-                        f.switch_to_parallel();
-                    }
-                    let label = egui::Button::selectable(lens.is_some(), t!("drawing.framer.perspective"));
-                    let perspective = ui.add_enabled(!f.projected, label).on_disabled_hover_text(t!("drawing.framer.has_projections"));
-                    crate::kit::handles::publish_enabled(|| "view_framer.perspective".into(), perspective.rect, !f.projected);
-                    if perspective.clicked() {
-                        f.switch_to_perspective();
+                    // Parallel or perspective; no perspective for a view with projections.
+                    let perspective_tip = if f.projected { t!("drawing.framer.has_projections") } else { String::new() };
+                    let lenses = [
+                        Segment::new(&t!("drawing.framer.parallel"), "", None, lens.is_none()),
+                        Segment::new(&t!("drawing.framer.perspective"), &perspective_tip, None, lens.is_some()).enabled(!f.projected),
+                    ];
+                    let id = ui.make_persistent_id("view_framer_lens");
+                    match segmented(ui, id, &lenses, |i| ["view_framer.parallel", "view_framer.perspective"][i].to_owned()) {
+                        Some(0) => f.switch_to_parallel(),
+                        Some(_) => f.switch_to_perspective(),
+                        None => {}
                     }
                 });
                 ui.horizontal(|ui| {

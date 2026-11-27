@@ -24,11 +24,6 @@ struct DrawingCx<'a> {
     field: f32,
 }
 
-/// A choice of the entity info, `field` wide.
-fn info_combo(field: f32, salt: (&str, u64)) -> egui::ComboBox<'_> {
-    egui::ComboBox::from_id_salt(salt).icon(crate::kit::icons::combo_chevron).width(field)
-}
-
 /// The entity info in « Mise en plan »: the view picked on the sheet shown — its name, what it
 /// shows, from where, at what scale, in what style; a projected view its base and side —, else
 /// the sheet — its name, its paper, the document's projection.
@@ -217,9 +212,9 @@ fn occurrence_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, id: Id, i: &Occurrence,
             Some(Corner::TopRight) => t!("drawing.anchor.top_right"),
         };
         field_label(ui, t!("panel.entity_info.anchor"));
-        info_combo(field, ("drawing_anchor", id.0)).selected_text(label(i.place.corner)).show_ui(ui, |ui| {
+        crate::kit::widgets::ChoiceList::new(("drawing_anchor", id.0), label(i.place.corner)).width(field).show(ui, |list| {
             for c in [None, Some(Corner::BottomLeft), Some(Corner::BottomRight), Some(Corner::TopLeft), Some(Corner::TopRight)] {
-                if ui.selectable_label(i.place.corner == c, label(c)).clicked() && i.place.corner != c {
+                if list.item(i.place.corner == c, label(c)) && i.place.corner != c {
                     actions.push(set_place(i.place.with_corner(c, sheet.paper)));
                 }
             }
@@ -282,9 +277,9 @@ fn view_rows(
         ViewStyle::Rendered => t!("menu.drawing.style_rendered"),
         ViewStyle::Hybrid => t!("menu.drawing.style_hybrid"),
     };
-    info_combo(field, ("drawing_style", id.0)).selected_text(label(view.style)).show_ui(ui, |ui| {
+    crate::kit::widgets::ChoiceList::new(("drawing_style", id.0), label(view.style)).width(field).show(ui, |list| {
         for s in [ViewStyle::Lines, ViewStyle::Rendered, ViewStyle::Hybrid] {
-            if ui.selectable_label(view.style == s, label(s)).clicked() {
+            if list.item(view.style == s, label(s)) {
                 actions.push(set(View { style: s, ..view.clone() }));
             }
         }
@@ -342,15 +337,15 @@ fn base_view_rows(
         Look::Standard(d) => direction_label(*d),
         Look::Camera { .. } => t!("drawing.direction.camera"),
     };
-    info_combo(field, ("drawing_direction", id.0)).selected_text(shown).show_ui(ui, |ui| {
+    crate::kit::widgets::ChoiceList::new(("drawing_direction", id.0), shown).width(field).show(ui, |list| {
         for d in [Direction::Front, Direction::Back, Direction::Left, Direction::Right, Direction::Top, Direction::Bottom, Direction::Iso] {
-            if ui.selectable_label(*look == Look::Standard(d), direction_label(d)).clicked() {
+            if list.item(*look == Look::Standard(d), direction_label(d)) {
                 actions.push(set(base(Look::Standard(d), *scale)));
             }
         }
-        ui.separator();
+        list.separator();
         // The 3D view's camera now, perspective or parallel.
-        if ui.selectable_label(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")).clicked() {
+        if list.item(matches!(look, Look::Camera { .. }), t!("drawing.direction.camera")) {
             // A perspective keeps the frame the view has now.
             let size = d.resolve(id).map_or(glam::DVec2::splat(100.0), |r| {
                 let (lo, hi) = crate::workspaces::drawing::sheet::view_frame(editor, &r);
@@ -376,16 +371,15 @@ fn base_view_rows(
         }
     } else {
         field_label(ui, t!("panel.entity_info.scale"));
-        info_combo(field, ("drawing_scale", id.0)).selected_text(crate::workspaces::drawing::sheet::scale_label(*scale)).show_ui(
-            ui,
-            |ui| {
+        crate::kit::widgets::ChoiceList::new(("drawing_scale", id.0), crate::workspaces::drawing::sheet::scale_label(*scale))
+            .width(field)
+            .show(ui, |list| {
                 for s in crate::workspaces::drawing::sheet::SCALES {
-                    if ui.selectable_label((s - scale).abs() < 1e-12, crate::workspaces::drawing::sheet::scale_label(*s)).clicked() {
+                    if list.item((s - scale).abs() < 1e-12, crate::workspaces::drawing::sheet::scale_label(*s)) {
                         actions.push(set(base(look.clone(), *s)));
                     }
                 }
-            },
-        );
+            });
         ui.end_row();
     }
 }
@@ -438,9 +432,9 @@ fn sheet_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, sheet: &Sheet, actions: &mut
     ui.end_row();
     field_label(ui, t!("panel.entity_info.paper"));
     let shown = named.unwrap_or_else(|| format!("{} × {}", units.number(paper.width), units.number(paper.height)));
-    info_combo(field, ("drawing_paper", id.0)).selected_text(shown).show_ui(ui, |ui| {
+    crate::kit::widgets::ChoiceList::new(("drawing_paper", id.0), shown).width(field).show(ui, |list| {
         for (n, p) in SIZES {
-            if ui.selectable_label(p == landscape(paper), n).clicked() {
+            if list.item(p == landscape(paper), n) {
                 actions.push(set_paper(p, portrait));
             }
         }
@@ -448,9 +442,9 @@ fn sheet_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, sheet: &Sheet, actions: &mut
     ui.end_row();
     field_label(ui, t!("panel.entity_info.orientation"));
     let orientation = |portrait: bool| if portrait { t!("drawing.paper.portrait") } else { t!("drawing.paper.landscape") };
-    info_combo(field, ("drawing_orientation", id.0)).selected_text(orientation(portrait)).show_ui(ui, |ui| {
+    crate::kit::widgets::ChoiceList::new(("drawing_orientation", id.0), orientation(portrait)).width(field).show(ui, |list| {
         for o in [false, true] {
-            if ui.selectable_label(portrait == o, orientation(o)).clicked() && o != portrait {
+            if list.item(portrait == o, orientation(o)) && o != portrait {
                 actions.push(set_paper(paper, o));
             }
         }
@@ -469,9 +463,9 @@ fn sheet_grid_row(ui: &mut egui::Ui, cx: DrawingCx<'_>, sheet: &Sheet, actions: 
     // The grid the points drawn snap to when nothing else is near (docs/ui/drawing.md#snapping).
     field_label(ui, t!("panel.entity_info.grid"));
     let grid_label = |g: f64| if g > 0.0 { format!("{} mm", units.number(g)) } else { t!("drawing.grid_none") };
-    info_combo(field, ("drawing_grid", id.0)).selected_text(grid_label(sheet.grid)).show_ui(ui, |ui| {
+    crate::kit::widgets::ChoiceList::new(("drawing_grid", id.0), grid_label(sheet.grid)).width(field).show(ui, |list| {
         for g in [0.0, 1.0, 2.0, 5.0, 10.0] {
-            if ui.selectable_label(sheet.grid == g, grid_label(g)).clicked() && g != sheet.grid {
+            if list.item(sheet.grid == g, grid_label(g)) && g != sheet.grid {
                 actions.push(Action::Apply(Operation::SetSheet {
                     sheet: id,
                     name: sheet.name.clone(),
@@ -672,17 +666,13 @@ fn presentation_info(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Presen
             Projection::FirstAngle => t!("drawing.projection.first_angle"),
             Projection::ThirdAngle => t!("drawing.projection.third_angle"),
         };
-        egui::ComboBox::from_id_salt(("drawing_projection", p.id.0))
-            .icon(crate::kit::icons::combo_chevron)
-            .width(field)
-            .selected_text(label(p.projection))
-            .show_ui(ui, |ui| {
-                for x in [Projection::FirstAngle, Projection::ThirdAngle] {
-                    if ui.selectable_label(p.projection == x, label(x)).clicked() && x != p.projection {
-                        actions.push(Action::Apply(Operation::SetPresentation { presentation: p.id, name: p.name.clone(), projection: x }));
-                    }
+        crate::kit::widgets::ChoiceList::new(("drawing_projection", p.id.0), label(p.projection)).width(field).show(ui, |list| {
+            for x in [Projection::FirstAngle, Projection::ThirdAngle] {
+                if list.item(p.projection == x, label(x)) && x != p.projection {
+                    actions.push(Action::Apply(Operation::SetPresentation { presentation: p.id, name: p.name.clone(), projection: x }));
                 }
-            });
+            }
+        });
         ui.end_row();
         let used = p.sheets.iter().flat_map(|s| d.field_names(&s.elements)).collect();
         let names = field_rows(used, Some(&p.props));

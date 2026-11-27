@@ -241,8 +241,8 @@ at every level tells where a card or a box lives.
 An element of the interface is built once, where every screen finds it: a screen takes its
 buttons, fields, rows, cards and boxes from the modules below, and what two screens draw alike
 moves there rather than being copied. Before drawing something new, look here first.
-A test keeps it (`kit/guard.rs`): outside `kit/`, no button is built from egui's own
-(`egui::Button`, `ui.button`, `selectable_label`…); a variant the kit lacks (a size, a lit
+A test keeps it (`kit/guard.rs`): outside `kit/`, no button nor drop-down list is built from
+egui's own (`egui::Button`, `ui.button`, `selectable_label`, `egui::ComboBox`…); a variant the kit lacks (a size, a lit
 state, a look) is added to its widget. The files still holding egui's buttons from before are
 listed with their count, a ceiling that only goes down as they move to the kit.
 
@@ -282,7 +282,14 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`overlay::leader`**, a figure's leader to its text — a dot, a slant, a short shelf —, in
   the dim ink, in the accent's when what it points at is picked or typed: the mouse of the
   Preferences to its gestures, « Empreindre »'s tenon to its clearances.
-- **`option_button`** and **`segmented`**, the option bar's toggles and choices.
+- **`option_button`** and **`segmented`**, the option bar's toggles and choices; a few values
+  side by side elsewhere too (the theme in the preferences, the view framer's directions and
+  lens). A segment can be disabled (`Segment::enabled`): dimmed, its tip saying why.
+- **The choices among values listed** (`choice.rs`): **`ChoiceList`**, a drop-down list (the
+  kit's chevron, a width when the row needs one; `keep_open` for a list of check boxes, the
+  journal's « Quoi »), its values added by `item`, `value`, `check` and `separator`;
+  **`choice_field`**, a drop-down framed as the fields (a property's choice, a material's kind);
+  **`choice_item`**, a value's row, lit when chosen, in those lists and in a menu (the tabs' ⋯).
 - **`LabelButton`**, a large button, an icon before its label (the start page's): the main one
   filled and outlined with the selection's colours, the others framed as a field; measured,
   then drawn where its caller lays it out.
