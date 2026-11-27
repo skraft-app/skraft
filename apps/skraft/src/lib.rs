@@ -91,10 +91,17 @@ pub fn start() {
             .expect("no <canvas id=\"skraft\">");
         // WebGPU only, no WebGL (docs/render/display.md#web): without it, a message in place
         // of the app. The preferences are not read yet: the texts in the system's language.
-        if !has_webgpu() {
-            log::error!("Skraft needs WebGPU: navigator.gpu is missing");
+        let support = webgpu_support().await;
+        if !matches!(support, WebGpuSupport::Ready) {
             system::language::apply(None);
-            show_failure(&canvas, &skraft_i18n::t!("error.web.webgpu"));
+            let text = if matches!(support, WebGpuSupport::Missing) {
+                log::error!("Skraft needs WebGPU: navigator.gpu is missing");
+                skraft_i18n::t!("error.web.webgpu")
+            } else {
+                log::error!("Skraft needs WebGPU: navigator.gpu gives no adapter");
+                skraft_i18n::t!("error.web.adapter")
+            };
+            show_failure(&canvas, &text);
             return;
         }
         let options = eframe::WebOptions { wgpu_options: wgpu_options(), ..Default::default() };
@@ -107,14 +114,41 @@ pub fn start() {
     });
 }
 
-/// Whether the browser offers WebGPU (`navigator.gpu`). It may still give no adapter: the start
-/// then fails, and says so.
+/// What the browser offers of WebGPU.
 #[cfg(target_arch = "wasm32")]
-fn has_webgpu() -> bool {
-    let Some(window) = web_sys::window() else { return false };
-    js_sys::Reflect::get(&window, &"navigator".into())
+enum WebGpuSupport {
+    Ready,
+    /// No `navigator.gpu`: an old browser, or WebGPU turned off.
+    Missing,
+    /// `navigator.gpu` but no adapter: the browser blocks this device's GPU (Chrome on a
+    /// Samsung Exynos, for one).
+    NoAdapter,
+}
+
+/// Whether the browser offers WebGPU and an adapter for it. The adapter is asked as wgpu's own
+/// check asks it (`requestAdapter()`, no options): where it gets none, wgpu drops its WebGPU
+/// backend and fails with words about backends that would mislead.
+#[cfg(target_arch = "wasm32")]
+async fn webgpu_support() -> WebGpuSupport {
+    use wasm_bindgen::JsCast;
+    let Some(window) = web_sys::window() else { return WebGpuSupport::Missing };
+    let Some(gpu) = js_sys::Reflect::get(&window, &"navigator".into())
         .and_then(|navigator| js_sys::Reflect::get(&navigator, &"gpu".into()))
-        .is_ok_and(|gpu| !gpu.is_undefined() && !gpu.is_null())
+        .ok()
+        .filter(|gpu| !gpu.is_undefined() && !gpu.is_null())
+    else {
+        return WebGpuSupport::Missing;
+    };
+    let promise = js_sys::Reflect::get(&gpu, &"requestAdapter".into())
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .and_then(|request| request.call0(&gpu).ok())
+        .and_then(|p| p.dyn_into::<js_sys::Promise>().ok());
+    let Some(promise) = promise else { return WebGpuSupport::NoAdapter };
+    match wasm_bindgen_futures::JsFuture::from(promise).await {
+        Ok(adapter) if !adapter.is_undefined() && !adapter.is_null() => WebGpuSupport::Ready,
+        _ => WebGpuSupport::NoAdapter,
+    }
 }
 
 /// `text` on the page's loading screen, failed (`skraftFailed`, web/index.html:

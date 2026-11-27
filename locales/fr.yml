@@ -2084,6 +2084,7 @@ error:
   # The web version cannot run (docs/render/display.md#web): shown in place of the app.
   web:
     webgpu: "Skraft a besoin de WebGPU, que ce navigateur n'offre pas ou a désactivé. Ouvrez-le dans un navigateur récent qui le prend en charge."
+    adapter: "Ce navigateur offre WebGPU, mais pas pour la carte graphique de cet appareil. Ouvrez Skraft dans un autre navigateur ou sur un autre appareil."
     start: "Skraft ne démarre pas : %{error}"
   # The web worker the kernel runs in (browser).
   worker:

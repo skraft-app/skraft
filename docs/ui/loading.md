@@ -81,7 +81,7 @@ When the app cannot run — no WebGPU, or no adapter for it — it says why on t
 theme's colours; the screen is put back if it was already gone, and it keeps hiding the edges
 Safari reads its bars from ([Safe areas](touch.md#safe-areas)). A download that fails shows the
 browser's own words there, smaller. `?webgpu=off` in the page's address hides `navigator.gpu`,
-to try it.
+and `?webgpu=noadapter` makes it give no adapter, to try both.
 
 ## Measured
 

@@ -32,9 +32,13 @@
     // name themselves in the user agent, and go without them (see .edge).
     if (/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|GSA\//.test(navigator.userAgent))
       document.documentElement.classList.add("no-edges");
-    // `?webgpu=off` in the address: a browser without WebGPU, to try what it is shown.
-    if (new URLSearchParams(location.search).get("webgpu") === "off")
+    // `?webgpu=off` in the address: a browser without WebGPU, to try what it is shown;
+    // `?webgpu=noadapter`: one that has it but gives no adapter (a GPU it blocks).
+    const webgpu = new URLSearchParams(location.search).get("webgpu");
+    if (webgpu === "off")
       Object.defineProperty(navigator, "gpu", { value: undefined });
+    else if (webgpu === "noadapter" && navigator.gpu)
+      navigator.gpu.requestAdapter = async () => null;
   </script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
