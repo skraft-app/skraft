@@ -119,11 +119,6 @@ pub fn chevron(ui: &egui::Ui, at: egui::Pos2, side: f32, ink: egui::Color32, ang
     egui::Image::new(CHEVRON_DOWN).tint(ink).rotate(angle, egui::Vec2::splat(0.5)).paint_at(ui, rect);
 }
 
-/// A combo box's drop-down mark (its `icon`): the chevron in place of egui's triangle.
-pub fn combo_chevron(ui: &egui::Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals, _open: bool) {
-    chevron(ui, rect.center(), rect.height().min(14.0), visuals.fg_stroke.color, 0.0);
-}
-
 /// A command's icon on the ribbon (docs/ui/ribbon.md); none for a command the
 /// ribbon does not show.
 pub fn command(id: &str) -> Option<ImageSource<'static>> {

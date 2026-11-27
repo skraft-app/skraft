@@ -114,7 +114,7 @@ Drawn for it — Modelling (workspace), pin, Clear section, Delete guides (`icon
 command to its icon, a test checks every command of the ribbon has one); the standard views
 share the views icon; » is painted. One chevron (`icons::chevron`, an SVG turned as needed)
 marks every fold and drop-down: panels' title bars, navigator rows, ribbon and quick-card menus,
-the Matière picker, combo boxes (`icons::combo_chevron`).
+the Matière picker, the drop-down lists (`widgets::ChoiceList`).
 
 ## Code and texts
 

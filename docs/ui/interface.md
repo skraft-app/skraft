@@ -285,11 +285,15 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`option_button`** and **`segmented`**, the option bar's toggles and choices; a few values
   side by side elsewhere too (the theme in the preferences, the view framer's directions and
   lens). A segment can be disabled (`Segment::enabled`): dimmed, its tip saying why.
-- **The choices among values listed** (`choice.rs`): **`ChoiceList`**, a drop-down list (the
-  kit's chevron, a width when the row needs one; `keep_open` for a list of check boxes, the
-  journal's « Quoi »), its values added by `item`, `value`, `check` and `separator`;
-  **`choice_field`**, a drop-down framed as the fields (a property's choice, a material's kind);
-  **`choice_item`**, a value's row, lit when chosen, in those lists and in a menu (the tabs' ⋯).
+- **The choices among values listed** (`choice.rs`): **`ChoiceList`**, the one drop-down list,
+  framed as the fields (their ground, their outline telling hovered and open, their height),
+  the value shown in it (« — » for none), the kit's chevron at its right end; its values in a
+  menu of the app's style, at least as wide (`keep_open` for a list of check boxes, the
+  journal's « Quoi »), added by `item`, `value`, `check` and `separator`; `choice_field`, a
+  `ChoiceList` among texts. **`choice_item`**, a value's row, lit when chosen, in those lists
+  and in a menu (the tabs' ⋯).
+  **Why:** in a card or a box a list is read as a value, like the fields beside it; egui's
+  combo box drew a button, a second look for the same thing.
 - **`LabelButton`**, a large button, an icon before its label (the start page's): the main one
   filled and outlined with the selection's colours, the others framed as a field; measured,
   then drawn where its caller lays it out.
