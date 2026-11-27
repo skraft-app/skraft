@@ -4,6 +4,8 @@
 //! protocol clicks.
 
 pub(crate) mod cursors;
+#[cfg(test)]
+mod guard;
 pub(crate) mod handles;
 pub(crate) mod icons;
 pub(crate) mod list_select;

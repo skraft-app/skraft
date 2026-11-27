@@ -236,6 +236,10 @@ at every level tells where a card or a box lives.
 An element of the interface is built once, where every screen finds it: a screen takes its
 buttons, fields, rows, cards and boxes from the modules below, and what two screens draw alike
 moves there rather than being copied. Before drawing something new, look here first.
+A test keeps it (`kit/guard.rs`): outside `kit/`, no button is built from egui's own
+(`egui::Button`, `ui.button`, `selectable_label`…); a variant the kit lacks (a size, a lit
+state, a look) is added to its widget. The files still holding egui's buttons from before are
+listed with their count, a ceiling that only goes down as they move to the kit.
 
 In `apps/skraft/src/kit/widgets.rs`:
 
