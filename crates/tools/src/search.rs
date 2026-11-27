@@ -82,3 +82,61 @@ mod tests {
         assert!(!none.is_active() && none.name(["Pied"]), "nothing typed: everything");
     }
 }
+
+/// A name's key for sorting by name: folded as a search matches it ([`fold`]: case and Latin
+/// diacritics ignored), its runs of digits compared as numbers (« Pièce#2 » before
+/// « Pièce#10 »).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NameKey(String);
+
+impl NameKey {
+    pub fn new(name: &str) -> NameKey {
+        NameKey(fold(name))
+    }
+}
+
+impl Ord for NameKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        let (mut a, mut b) = (self.0.as_str(), other.0.as_str());
+        loop {
+            let (Some(x), Some(y)) = (a.chars().next(), b.chars().next()) else {
+                return a.len().cmp(&b.len()).then_with(|| self.0.cmp(&other.0));
+            };
+            if x.is_ascii_digit() && y.is_ascii_digit() {
+                let run = |s: &str| s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+                let (n, m) = (run(a), run(b));
+                // Leading zeros dropped: by length, then digit by digit; any size of number.
+                let (u, v) = (a[..n].trim_start_matches('0'), b[..m].trim_start_matches('0'));
+                let o = u.len().cmp(&v.len()).then_with(|| u.cmp(v));
+                if o != Ordering::Equal {
+                    return o;
+                }
+                (a, b) = (&a[n..], &b[m..]);
+                continue;
+            }
+            if x != y {
+                return x.cmp(&y);
+            }
+            (a, b) = (&a[x.len_utf8()..], &b[y.len_utf8()..]);
+        }
+    }
+}
+
+impl PartialOrd for NameKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod name_key_tests {
+    use super::NameKey;
+
+    #[test]
+    fn names_sort_ignoring_case_and_accents_numbers_as_numbers() {
+        let mut names = vec!["Pièce#10", "pièce#2", "Étagère", "Pied", "etagere 3", "Pièce#1", "Pièce#002"];
+        names.sort_by_key(|n| NameKey::new(n));
+        assert_eq!(names, vec!["Étagère", "etagere 3", "Pièce#1", "Pièce#002", "pièce#2", "Pièce#10", "Pied"]);
+    }
+}
