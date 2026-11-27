@@ -200,18 +200,15 @@ fn item(
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     egui::Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
-        let place = ui.add_enabled(can_place, egui::Button::new(t!("drawing.tree.place")));
-        crate::kit::handles::publish(|| "library:menu:place".into(), place.rect);
-        if place.clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("drawing.tree.place")).enabled(can_place).handle("library:menu:place").show(ui) {
             st.place_composition = Some(id);
         }
         ui.separator();
-        if ui.button(t!("panel.components.rename")).clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("panel.components.rename")).show(ui) {
             Renaming::start(ui, key);
         }
-        let delete = ui.button(t!("panel.components.delete"));
-        crate::kit::handles::publish(|| "library:menu:delete".into(), delete.rect);
-        if delete.tip(t!("panel.compositions.delete_tip")).clicked() {
+        let delete = crate::kit::widgets::MenuEntry::new(t!("panel.components.delete")).handle("library:menu:delete");
+        if delete.tip(t!("panel.compositions.delete_tip")).show(ui) {
             actions.push(Action::Apply(Operation::DeleteComposition { composition: id }));
         }
     });

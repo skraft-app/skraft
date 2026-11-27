@@ -258,6 +258,10 @@ In `apps/skraft/src/kit/widgets.rs`:
   a checked row is lit, or a check box column shows the toggles' states (the view bar's); no
   tip on a row (it would say its label again); the note under them wraps within the rows'
   width, never widening the menu.
+- **`MenuEntry`**, an entry of a menu that is not a command's (a row's right click, a card's
+  item): drawn as `command_item` draws a command's (`style::menu_item`), enabled or not, its
+  handle (`navigator:menu:rename`) and its tip when it has them. A menu never adds egui's
+  `ui.button`.
 - **`unpin_menu`**, the right click on a button these menus pinned: « Retirer de… » (the pin's
   tip), then the bar's own items if it has some (the ribbon's), after a separator.
 - **The one text field**, framed, its outline telling its state, typed two ways:

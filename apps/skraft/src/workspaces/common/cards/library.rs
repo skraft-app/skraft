@@ -340,7 +340,7 @@ fn item(
 fn menu(editor: &Editor, response: &egui::Response, id: Id, rename: egui::Id, actions: &mut Vec<Action>) {
     egui::Popup::context_menu(response).style(crate::kit::style::menu).show(|ui| {
         let mut row = |ui: &mut egui::Ui, label: String, enabled: bool, action: Action| {
-            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+            if crate::kit::widgets::MenuEntry::new(label).enabled(enabled).show(ui) {
                 actions.push(action);
             }
         };
@@ -348,11 +348,11 @@ fn menu(editor: &Editor, response: &egui::Response, id: Id, rename: egui::Id, ac
         row(ui, t!("panel.components.select"), here, Action::SelectOccurrences(id));
         row(ui, t!("panel.components.replace"), editor.can_replace_selection(id), Action::ReplaceSelection(id));
         ui.separator();
-        if ui.button(t!("panel.components.rename")).clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("panel.components.rename")).show(ui) {
             Renaming::start(ui, rename);
         }
-        let delete = ui.add_enabled(editor.can_delete_component(id), egui::Button::new(t!("panel.components.delete")));
-        if delete.tip(t!("panel.components.delete_tip")).clicked() {
+        let delete = crate::kit::widgets::MenuEntry::new(t!("panel.components.delete")).enabled(editor.can_delete_component(id));
+        if delete.tip(t!("panel.components.delete_tip")).show(ui) {
             actions.push(Action::DeleteComponent(id));
         }
     });
