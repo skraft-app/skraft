@@ -681,11 +681,15 @@ fn occurrence_row(
             .unwrap_or_default(),
         false => vec![o.id],
     };
-    if response.drag_started() {
+    // Shift or Cmd held: a pick, never a drag (docs/ui/interface.md#selecting-in-a-list).
+    let picking = list_select::picking(ui.ctx());
+    if response.drag_started() && !picking {
         let shown = if o.name.is_empty() { name.clone() } else { o.name.to_string() };
         set_drag_ghost(ui.ctx(), occurrence_icon(doc, o), shown, with.len());
     }
-    response.dnd_set_drag_payload(PartsDrag { from: path.occurrences.clone(), occurrences: with });
+    if !picking {
+        response.dnd_set_drag_payload(PartsDrag { from: path.occurrences.clone(), occurrences: with });
+    }
     drop_on_occurrence(ui, editor, o, &path, &response, actions);
     // A component's name is never empty, and unique: an emptied one is kept, one taken
     // refused (the failure told); an occurrence's emptied is cleared.
@@ -708,7 +712,7 @@ fn occurrence_row(
     occurrence_menu(editor, selection, o, &path, &response, (rename, rename_occurrence), actions);
     if eye {
         actions.push(Action::SetHidden(path, !o.hidden));
-    } else if response.clicked() {
+    } else if list_select::clicked(ui.ctx(), &response) {
         *clicked = Some((Pickable::Occurrence(path), list_select::gesture(ui.input(|i| i.modifiers))));
     }
 }
@@ -1671,11 +1675,14 @@ fn body_row(
         true => editor.selection().iter().copied().filter(|id| b.siblings.iter().any(|s| s.id == *id)).collect(),
         false => vec![b.body.id],
     };
-    if response.drag_started() {
+    let picking = list_select::picking(ui.ctx());
+    if response.drag_started() && !picking {
         let shown = if b.body.name.is_empty() { b.label() } else { b.body.name.to_string() };
         set_drag_ghost(ui.ctx(), b.icon(), shown, with.len());
     }
-    response.dnd_set_drag_payload(BodiesDrag { from: look.path.clone(), bodies: with.clone() });
+    if !picking {
+        response.dnd_set_drag_payload(BodiesDrag { from: look.path.clone(), bodies: with.clone() });
+    }
     drop_on_body(ui, editor, &row, b, &look, &response, actions);
     let alone = selected && editor.selection().len() == 1;
     let on_own = match (split, response.interact_pointer_pos()) {
@@ -1701,7 +1708,7 @@ fn body_row(
         // Selected (in its part or group, opened): the selected siblings with it.
         let scope = scope_in(editor, &look.path);
         actions.push(Action::Apply(Operation::SetSign { target: look.path, bodies: with, sign, scope }));
-    } else if response.clicked() {
+    } else if list_select::clicked(ui.ctx(), &response) {
         *clicked = Some((Pickable::Body(look.path, b.body.id), list_select::gesture(ui.input(|i| i.modifiers))));
     }
 }

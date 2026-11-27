@@ -762,10 +762,13 @@ fn element_row(
     let response = if row.path.is_empty() && !el.locked {
         let response = response.interact(egui::Sense::click_and_drag());
         let elements = if selected { st.selected.clone() } else { vec![el.id] };
-        if response.drag_started() {
-            widgets::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
+        // Shift or Cmd held: a pick, never a drag (docs/ui/interface.md#selecting-in-a-list).
+        if !list_select::picking(ui.ctx()) {
+            if response.drag_started() {
+                widgets::set_drag_ghost(ui.ctx(), icon_of(el), name.clone(), elements.len());
+            }
+            response.dnd_set_drag_payload(SheetDrag { sheet: row.sheet, elements });
         }
-        response.dnd_set_drag_payload(SheetDrag { sheet: row.sheet, elements });
         response
     } else {
         response
@@ -791,7 +794,7 @@ fn element_row(
         Some((_, _, true, _)) => actions.push(Action::Apply(Operation::MoveElement { element: el.id, index: row.index + 1 })),
         Some((_, _, _, true)) => actions.push(Action::Apply(Operation::MoveElement { element: el.id, index: row.index - 1 })),
         _ => {
-            if response.clicked() {
+            if list_select::clicked(ui.ctx(), &response) {
                 *clicked = Some(((row.sheet, row.path.clone(), el.id), list_select::gesture(ui.input(|i| i.modifiers))));
             }
         }

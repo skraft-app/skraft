@@ -29,6 +29,20 @@ pub fn gesture(m: egui::Modifiers) -> Gesture {
     }
 }
 
+/// Do the modifiers held make a press on a row a pick, never a drag: Shift, and Cmd on macOS
+/// (Ctrl elsewhere is also the copy modifier of a row dragged, decision 0044)?
+pub fn picking(ctx: &egui::Context) -> bool {
+    let m = ctx.input(|i| i.modifiers);
+    m.shift || (m.command && !crate::workspaces::common::viewport::modifiers(ctx, m).copy)
+}
+
+/// Is the row `response` clicked, as a list takes it: a click; or, a pick's modifiers held
+/// ([`picking`]), a press let go on the row after moving a little, which egui takes for a drag.
+pub fn clicked(ctx: &egui::Context, response: &egui::Response) -> bool {
+    response.clicked()
+        || (picking(ctx) && response.drag_stopped() && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| response.rect.contains(p)))
+}
+
 /// What the list selects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome<K> {

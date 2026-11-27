@@ -106,6 +106,9 @@ The navigators (the model's, the drawing's) select as the system's lists and tre
   The arrows go to the list last clicked in until a press elsewhere (the view, another card),
   then to the tool again (`list_select::give_key` in `keys.rs`, before the tool's keys).
   Cmd+A stays « Tout sélectionner », the active context's.
+- **Shift, or Cmd on macOS, held: a row is not dragged** (`list_select::picking`); a press let
+  go on it after moving a little, which egui takes for a drag, is a click (`list_select::clicked`).
+  Ctrl elsewhere drags still: it is the copy modifier of a row dragged.
 - The anchor and that row are kept with the list (`NavigatorState`, `SheetState::tree_marks`), by
   what the rows stand for, not their place: a fold or an edit moves them, a row gone drops them.
   **Why:** the system's gestures are what a list's users know (Finder, Explorer, SketchUp's own
