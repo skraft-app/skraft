@@ -3284,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "skraft"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "console_error_panic_hook",
  "dirs",
@@ -3332,7 +3332,7 @@ dependencies = [
 
 [[package]]
 name = "skraft-control"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "dirs",
  "getrandom 0.4.3",
@@ -3347,14 +3347,14 @@ dependencies = [
 
 [[package]]
 name = "skraft-i18n"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "rust-i18n",
 ]
 
 [[package]]
 name = "skraft-import"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "glam",
  "skraft-kernel",
@@ -3363,7 +3363,7 @@ dependencies = [
 
 [[package]]
 name = "skraft-kernel"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "glam",
  "rmp-serde",
@@ -3381,7 +3381,7 @@ dependencies = [
 
 [[package]]
 name = "skraft-kernel-worker"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "js-sys",
  "skraft-kernel",
@@ -3391,7 +3391,7 @@ dependencies = [
 
 [[package]]
 name = "skraft-mcp"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "glam",
  "serde_json",
@@ -3403,7 +3403,7 @@ dependencies = [
 
 [[package]]
 name = "skraft-model"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -3418,7 +3418,7 @@ dependencies = [
 
 [[package]]
 name = "skraft-render"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3430,14 +3430,14 @@ dependencies = [
 
 [[package]]
 name = "skraft-theme"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "skraft-tools"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "glam",
  "pollster",
