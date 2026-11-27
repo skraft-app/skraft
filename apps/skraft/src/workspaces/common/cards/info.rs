@@ -209,14 +209,18 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                     let targets = || vec![EntityPath::new(editor.context().to_vec(), o.id)];
                     field_label(ui, t!("panel.entity_info.material"));
                     let on_part = |m: &skraft_model::Material| m.family() == Family::Material;
-                    if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part) {
+                    if let Some(m) =
+                        material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part, t!("panel.materials.none_material"))
+                    {
                         let op = Operation::PaintParts { targets: targets(), layer: Family::Material, material: m, scope: Scope::All };
                         actions.push(Action::Apply(op));
                     }
                     ui.end_row();
                     field_label(ui, t!("panel.entity_info.coloration"));
                     let seen = |m: &skraft_model::Material| m.family() == Family::Coloration;
-                    if let Some(m) = material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen) {
+                    if let Some(m) =
+                        material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen, t!("panel.materials.none"))
+                    {
                         let op = Operation::PaintParts { targets: targets(), layer: Family::Coloration, material: m, scope: Scope::All };
                         actions.push(Action::Apply(op));
                     }
@@ -347,13 +351,16 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
             // The part's own, placed or not: every occurrence of it shows them.
             field_label(ui, t!("panel.entity_info.material"));
             let on_part = |m: &skraft_model::Material| m.family() == Family::Material;
-            if let Some(m) = material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part) {
+            if let Some(m) =
+                material_choice(ui, doc, ("part_material", c.id), p.material, field, on_part, t!("panel.materials.none_material"))
+            {
                 actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Material, material: m }));
             }
             ui.end_row();
             field_label(ui, t!("panel.entity_info.coloration"));
             let seen = |m: &skraft_model::Material| m.family() == Family::Coloration;
-            if let Some(m) = material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen) {
+            let none = t!("panel.materials.none");
+            if let Some(m) = material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen, none) {
                 actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Coloration, material: m }));
             }
             ui.end_row();

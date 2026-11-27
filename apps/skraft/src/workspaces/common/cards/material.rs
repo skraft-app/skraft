@@ -33,8 +33,9 @@ pub(crate) fn kind_label(kind: MaterialKind) -> String {
     }
 }
 
-/// A material picked among those `keep` lets through (« Aucune » first), framed as a
-/// [`framed_field`]: its name and a downward triangle. `Some(choice)` when it changed.
+/// A material picked among those `keep` lets through (`none` first, the word agreeing with the
+/// row's: « Aucun » matériau, « Aucune » coloration), framed as a [`framed_field`]: its name and
+/// a downward triangle. `Some(choice)` when it changed.
 pub(super) fn material_choice(
     ui: &mut egui::Ui,
     doc: &Document,
@@ -42,8 +43,9 @@ pub(super) fn material_choice(
     current: Option<Id>,
     width: f32,
     keep: impl Fn(&skraft_model::Material) -> bool,
+    none: String,
 ) -> Option<Option<Id>> {
-    item_choice(ui, doc, salt, current, width, keep, (t!("panel.materials.none"), true))
+    item_choice(ui, doc, salt, current, width, keep, (none, true))
 }
 
 /// An item to pick among those `keep` lets through, the field showing `title` (« Aucune »
@@ -59,8 +61,8 @@ pub(super) fn material_choice_titled(
     item_choice(ui, doc, salt, None, width, keep, (title, false))
 }
 
-/// [`material_choice`]'s field and menu: `empty` the text shown for none, and whether « Aucune »
-/// is offered.
+/// [`material_choice`]'s field and menu: `empty` the text shown for none, and whether it is
+/// offered.
 fn item_choice(
     ui: &mut egui::Ui,
     doc: &Document,
@@ -99,7 +101,7 @@ fn item_choice(
         egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(ui.available_width());
             if offer_none {
-                ui.selectable_value(&mut picked, None, t!("panel.materials.none"));
+                ui.selectable_value(&mut picked, None, empty.clone());
             }
             for (id, m) in doc.materials().filter(|(_, m)| keep(m)) {
                 ui.horizontal(|ui| {

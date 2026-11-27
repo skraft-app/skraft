@@ -938,6 +938,7 @@ panel:
     count_tip_plural: "%{count} parts of the model show it"
     purge_tip: "Delete all unused materials"
     none: "None"
+    none_material: "None"
     new: "New Material"
     new_covering: "New Covering"
     new_coloration: "New Coloration"

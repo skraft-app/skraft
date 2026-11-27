@@ -1031,6 +1031,7 @@ panel:
     count_tip_plural: "%{count} pièces du modèle la montrent"
     purge_tip: "Supprimer toutes les matières inutilisées"
     none: "Aucune"
+    none_material: "Aucun"
     new: "Nouveau matériau"
     new_covering: "Nouveau revêtement"
     new_coloration: "Nouvelle coloration"
