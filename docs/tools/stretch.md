@@ -355,7 +355,11 @@ the record back into the kernel, which checks its geometry; a refusal cancels th
   - exact on the NURBS form SolidCore keeps with every analytic curve and surface: its control
     points are mapped, its parameters kept, so the pcurves on the group's faces stand; the face
     takes the mapped NURBS as its surface, the edge says it is an ellipse (`scaled_conic`, on its
-    principal axes). A plane, a line or a net of the group is mapped as such;
+    principal axes, the second from the normal: SolidCore reads a frame square only within
+    ~3e-16). A line or a net of the group is mapped as such; a plane is written again on square
+    unit axes, which its parametrisation no longer has and the kernel's plane cannot hold, its
+    domain and pcurves mapped by the same affine map of (u, v) (`square_plane`) — a chamfer
+    across a cutter along the thickness;
   - the faces lengthened around a group have its edges' pcurves mapped in their (u, v), affine
     there too (`FaceMap::along_at`);
   - a vertex moves as its group; where that differs from its section's move, every other face

@@ -268,6 +268,59 @@ fn what_crosses_curved_is_scaled() {
 }
 
 #[test]
+fn a_chamfer_across_a_cutter_is_scaled() {
+    // A board 400 × 300 × 50, its top edges chamfered 20 (the app's body node), thickened across
+    // its chamfers along Z read from a turned frame (its noise, 1e-16): the chamfers are scaled,
+    // their planes' slanted axes no longer unit, and no longer square by that noise times the
+    // scale, which the kernel's plane cannot hold. Each is written again on unit square axes, its
+    // pcurves with it.
+    use skraft_kernel::names::{Blend, NodeOp, TreeBody, TreeNode};
+    use skraft_kernel::{Job, Output, Primitive, Task, profile, run};
+    let (l, w, t, c) = (400.0, 300.0, 50.0, 20.0);
+    let mut corners = profile::polygon(&[glam::DVec2::ZERO, glam::DVec2::new(l, 0.0), glam::DVec2::new(l, w), glam::DVec2::new(0.0, w)]);
+    profile::settle_ids(&mut corners);
+    let prism = Primitive::Prism { origin: DVec3::ZERO, profile: corners, height: t };
+    let leaf = TreeBody {
+        id: 1,
+        negative: false,
+        intersect: false,
+        placement: DAffine3::IDENTITY,
+        node: TreeNode::Leaf { solid: 0, recipe: Some(prism.clone()) },
+    };
+    let picks = vec![[l / 2.0, 0.0, t], [l, w / 2.0, t], [l / 2.0, w, t], [0.0, w / 2.0, t]];
+    let job = Job {
+        inputs: vec![prism.build().unwrap().into()],
+        tasks: vec![Task::Node { children: vec![leaf], op: NodeOp::blend_of(Blend::Chamfer, c, Vec::new()), picks }],
+    };
+    let Some(Output::Node { solid: chamfered, .. }) = run(&job).unwrap().pop() else { panic!("the chamfered board") };
+    let d = 300.0;
+    let axis = DVec3::new(-1.1877578532930653e-16, -1.884519498393009e-16, 1.0);
+    let s = read_back(&Stretch::new(axis, vec![t - c / 2.0], vec![0.0, d]).unwrap().apply(&chamfered).unwrap());
+    assert_close(bounds(&s).1.z, t + d, 1e-9);
+    // The chamfers' band, c high, grown to c + d: its matter scaled by (c + d) / c.
+    let band = |s: &Solid, z0: f64, z1: f64| {
+        let slab = Solid::new_box(DVec3::new(-1.0, -1.0, z0), DVec3::new(l + 2.0, w + 2.0, z1 - z0)).unwrap();
+        s.boolean(&slab, BooleanOp::Intersection).unwrap().volume().unwrap()
+    };
+    let inside = band(&chamfered, t - c, t);
+    assert_close(s.volume().unwrap(), chamfered.volume().unwrap() + inside * d / c, 1e-6);
+}
+
+#[test]
+fn a_scaled_arc_keeps_a_square_frame() {
+    // A board carved by a large cylinder, compressed across the arc along an axis a hair off X
+    // (a turned frame's): the ellipse's frame square to rounding, else the kernel refuses it
+    // ("the frame's axes are not unit and square").
+    let board = Solid::new_box(DVec3::ZERO, DVec3::new(396.93783738585364, 237.37428288556868, 38.038596832646)).unwrap();
+    let cylinder =
+        Solid::new_cylinder(DVec3::new(115.32155070381755, 367.2756827467284, -5.0), 232.59534655971154, 48.038596832646).unwrap();
+    let carved = board.boolean(&cylinder, BooleanOp::Difference).unwrap();
+    let axis = DVec3::new(1.0, -1.6653345369377348e-16, -2.379301982956869e-16);
+    let s = read_back(&Stretch::new(axis, vec![129.6671852667689], vec![0.0, -291.2253859679609]).unwrap().apply(&carved).unwrap());
+    assert!(s.volume().unwrap() < carved.volume().unwrap());
+}
+
+#[test]
 fn a_hole_across_a_cutter_goes_oval() {
     // Ø 50 through the board at x = 200: scaled over x 175 … 225, the board lengthened around it.
     let hole = Solid::new_cylinder(DVec3::new(200.0, 150.0, -5.0), 25.0, 30.0).unwrap();

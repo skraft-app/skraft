@@ -684,19 +684,56 @@ fn scaled_conic(frame: &Frame, radii: [f64; 2], s: &Scale, a: DVec3) -> Curve {
     let phi = 0.5 * (2.0 * u.dot(v)).atan2(u.length_squared() - v.length_squared());
     let (c, si) = (phi.cos(), phi.sin());
     let (p, q) = (u * c + v * si, v * c - u * si);
-    let frame = Frame { origin: o.to_array(), x_axis: p.normalize().to_array(), y_axis: q.normalize().to_array() };
+    // The second axis from the normal: square to the rounding of a unit vector, which the kernel
+    // requires (`q` alone is off by the noise of the axis, ~1e-15).
+    let x = p.normalize();
+    let frame = Frame { origin: o.to_array(), x_axis: x.to_array(), y_axis: p.cross(q).normalize().cross(x).to_array() };
     Curve::Ellipse { frame, radii: [p.length(), q.length()] }
 }
 
-/// A face of a group scaled: its NURBS form (or its plane, its net) mapped, its (u, v) kept;
-/// the NURBS form becomes the face's surface. An analytic surface without its NURBS form cannot.
+/// A face of a group scaled: its NURBS form (or its net) mapped, its (u, v) kept, the NURBS form
+/// becoming the face's surface; a plane squared again ([`square_plane`]). An analytic surface
+/// without its NURBS form cannot.
 fn scale_face(f: &mut Face, s: &Scale, a: DVec3) -> Result<(), ()> {
     if let Some(mut n) = f.nurbs.take() {
         scale_surface(&mut n, s, a)?;
         f.surface = n;
         return Ok(());
     }
-    scale_surface(&mut f.surface, s, a)
+    match f.surface {
+        Surface::Plane { origin, u_axis, v_axis } => {
+            square_plane(f, s.point(a, v3(origin)), s.vector(a, v3(u_axis)), s.vector(a, v3(v_axis)))
+        }
+        Surface::PlaneThrough { origin, u_point, v_point } => {
+            let o = v3(origin);
+            square_plane(f, s.point(a, o), s.vector(a, v3(u_point) - o), s.vector(a, v3(v_point) - o))
+        }
+        _ => scale_surface(&mut f.surface, s, a),
+    }
+}
+
+/// A scaled plane, `o + u U + v V`: its axes no longer unit nor square, which the kernel's plane
+/// cannot hold. Written on the unit square axes `X = U / |U|`, `Y = N × X` (`N` the unit normal
+/// `U × V`, kept), its domain and pcurves mapped by the same affine map of (u, v)
+/// (exact for their control points).
+fn square_plane(f: &mut Face, o: DVec3, u: DVec3, v: DVec3) -> Result<(), ()> {
+    let x = u.try_normalize().ok_or(())?;
+    // From the normal rather than `V − (V·X) X`, which loses digits when `U` and `V` close up.
+    let y = u.cross(v).try_normalize().ok_or(())?.cross(x);
+    let (uu, vu, vv) = (u.dot(x), v.dot(x), v.dot(y));
+    let map = move |p: DVec2| DVec2::new(p.x * uu + p.y * vu, p.y * vv);
+    f.surface = Surface::Plane { origin: o.to_array(), u_axis: x.to_array(), v_axis: y.to_array() };
+    for lp in &mut f.loops {
+        let Loop::Edges { edges } = lp else { continue };
+        for oe in edges {
+            map_pcurve(&mut oe.pcurve, map);
+        }
+    }
+    let [[u0, u1], [v0, v1]] = f.domain;
+    let corners = [(u0, v0), (u1, v0), (u0, v1), (u1, v1)].map(|(a, b)| map(DVec2::new(a, b)));
+    let (lo, hi) = corners.iter().fold((corners[0], corners[0]), |(lo, hi), c| (lo.min(*c), hi.max(*c)));
+    f.domain = [[lo.x, hi.x], [lo.y, hi.y]];
+    Ok(())
 }
 
 fn scale_surface(sf: &mut Surface, s: &Scale, a: DVec3) -> Result<(), ()> {
