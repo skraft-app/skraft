@@ -89,6 +89,14 @@ level, and a tool's options and the bodies' sign could only be set through the w
 on itself, to 1e-9. **Why:** going through the GPU's `f32` matrix, a box clicked at 600 × 400
 came out 599.99995.
 
+What the tool infers at a world point's pixel is that point, exactly, when it lands within a
+thousandth of a pixel of it (`Editor::set_pilot_points`, in `Cx::query`): a box clicked at
+400 × 300 is 400 × 300, not 399.99999999999955. Farther, the inference stands (an endpoint
+snapped to, a face before the point). The tools' own rays (Stretch's grips, Rotate's
+protractor, Copy along a grid, Measure) still go through the pixel. **Why:** the round trip,
+exact to 1e-9, still left its dust in the B-rep and the cut list dimensions (issue #7,
+2026-11-27).
+
 ### Journal and recording
 
 The editor keeps a **journal** (`crates/tools/src/editor/journal.rs`, `Editor::journal`): a ring

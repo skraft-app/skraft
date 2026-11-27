@@ -684,7 +684,17 @@ pub struct Cx<'a> {
     pub previewed: &'a std::collections::HashMap<EntityPath, (Id, DAffine3)>,
     /// A line the tool draws itself and infers on ([`Tool::infer_line`]), in the axes.
     pub tool_line: Option<(DVec3, DVec3)>,
+    /// The world points a pilot meant at pixels ([`Editor::set_pilot_points`]): what is
+    /// inferred there is them, exactly.
+    ///
+    /// [`Editor::set_pilot_points`]: crate::Editor::set_pilot_points
+    pub pilot_points: &'a [(DVec2, DVec3)],
 }
+
+/// How near on screen, in pixels, a point inferred at a pilot's pixel must be to the world
+/// point it meant to be taken as it: far below what a screen tells apart, far above the
+/// rounding of the pixel's round trip (docs/control-protocol.md).
+const PILOT_PX: f64 = 1e-3;
 
 impl Cx<'_> {
     pub fn ray(&self, px: DVec2) -> Ray {
@@ -1126,7 +1136,13 @@ impl Cx<'_> {
             tool_line: self.tool_line.map(|(o, d)| (self.to_world(o), self.axes().matrix3.mul_vec3(d).normalize())),
             box_corners,
         };
-        infer::infer(self.scene, self.camera, self.size, px, &q)
+        let mut inferred = infer::infer(self.scene, self.camera, self.size, px, &q)?;
+        if let Some(&(_, at)) = self.pilot_points.iter().find(|(p, _)| *p == px)
+            && inferred.point.distance(at) <= self.camera.world_per_pixel(self.size, at) * PILOT_PX
+        {
+            inferred.point = at;
+        }
+        Some(inferred)
     }
 
     /// The saved value of the toggle `key` (off when never set).

@@ -281,4 +281,18 @@ mod tests {
         assert!(matches!(b.call(&Call::new("app.save", json!({ "path": "rel.skraft" }))), Err(Error::BadParams(_))));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn world_points_are_taken_exactly() {
+        // Issue #7: 400 came back 399.99999999999955 through the pixel.
+        let mut b = Headless::new(None).unwrap();
+        json_of(
+            &mut b,
+            "tool.input",
+            json!({ "inputs": [{ "tool": "box" }, { "click": { "at": [0, 0, 0] } }, { "click": { "at": [400, 300, 0] } }, { "vcb": "18" }] }),
+        );
+        json_of(&mut b, "app.wait", json!({ "idle": true }));
+        let g = json_of(&mut b, "model.geometry", Value::Null);
+        assert_eq!(g["parts"][0]["dims"], json!([400.0, 300.0, 18.0]));
+    }
 }

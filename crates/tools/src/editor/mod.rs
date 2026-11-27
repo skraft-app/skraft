@@ -233,6 +233,8 @@ pub struct Editor {
     reference: Option<EdgeRef>,
     /// Where the cursor last was: the tool follows it again when a lock changes.
     last_hover: Option<DVec2>,
+    /// The world points a pilot meant at pixels ([`Editor::set_pilot_points`]).
+    pilot_points: Vec<(DVec2, DVec3)>,
     /// The tools' saved settings (the option bar's, docs/ui/interface.md), by tool id.
     tool_settings: BTreeMap<String, OptionValues>,
     /// The material the paint tool paints with (docs/render/look.md).
@@ -363,6 +365,7 @@ impl Editor {
             now: 0.0,
             reference: None,
             last_hover: None,
+            pilot_points: Vec::new(),
             tool_settings: BTreeMap::new(),
             paint: None,
             paint_family: skraft_model::Family::Material,
@@ -755,6 +758,13 @@ impl Editor {
         self.size = size.max(DVec2::ONE);
     }
 
+    /// The world points a pilot meant at the pixels it gives (`tool.input` at world points,
+    /// docs/control-protocol.md): a point inferred at one of these pixels within a thousandth
+    /// of a pixel of its world point is that point, exactly. Kept until the next ones.
+    pub fn set_pilot_points(&mut self, points: Vec<(DVec2, DVec3)>) {
+        self.pilot_points = points;
+    }
+
     pub fn viewport_size(&self) -> DVec2 {
         self.size
     }
@@ -841,6 +851,7 @@ impl Editor {
             family: self.paint_family(),
             previewed: &self.stretch_swaps,
             tool_line: tool.infer_line(),
+            pilot_points: &self.pilot_points,
         }
     }
 
