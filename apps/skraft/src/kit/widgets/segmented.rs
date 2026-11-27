@@ -13,17 +13,24 @@ pub struct Segment {
     tip: String,
     icon: Option<egui::ImageSource<'static>>,
     selected: bool,
+    enabled: bool,
 }
 
 impl Segment {
     /// `icon`: an option's icon by its name (`icons::option`).
     pub(crate) fn new(label: &str, tip: &str, icon: Option<&'static str>, selected: bool) -> Self {
-        Segment { label: label.to_owned(), tip: tip.to_owned(), icon: icon.and_then(icons::option), selected }
+        Segment { label: label.to_owned(), tip: tip.to_owned(), icon: icon.and_then(icons::option), selected, enabled: true }
     }
 
     /// A value shown by `icon`, `label` in its tip.
     pub fn image(label: &str, tip: &str, icon: egui::ImageSource<'static>, selected: bool) -> Self {
-        Segment { label: label.to_owned(), tip: tip.to_owned(), icon: Some(icon), selected }
+        Segment { label: label.to_owned(), tip: tip.to_owned(), icon: Some(icon), selected, enabled: true }
+    }
+
+    /// Whether it can be chosen: disabled, it is dimmed and its tip says why.
+    pub(crate) fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 }
 
@@ -59,10 +66,11 @@ pub fn segmented_sized(
         .iter()
         .enumerate()
         .map(|(i, s)| {
-            let response = ui.interact(place(i), id.with(i), egui::Sense::click());
-            crate::kit::handles::publish(|| handle(i), place(i));
-            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, s.selected, &s.label));
-            if response.hovered() && !s.selected {
+            let sense = if s.enabled { egui::Sense::click() } else { egui::Sense::hover() };
+            let response = ui.interact(place(i), id.with(i), sense);
+            crate::kit::handles::publish_enabled(|| handle(i), place(i), s.enabled);
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, s.enabled, s.selected, &s.label));
+            if response.hovered() && !s.selected && s.enabled {
                 let visuals = ui.style().interact(&response);
                 ui.painter().rect_filled(place(i), radius, visuals.weak_bg_fill.gamma_multiply(alpha));
             }
@@ -86,9 +94,10 @@ pub fn segmented_sized(
     let mut clicked = None;
     for (i, (s, response)) in segments.iter().zip(responses).enumerate() {
         let ink = if s.selected { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
+        let ink = if s.enabled { ink } else { ink.gamma_multiply(0.35) };
         faces[i].paint(ui, place(i), icon, ink);
         let (text, more) = face_tip(&faces[i], &s.label, &s.tip);
-        if response.tip_more(text, more).clicked() && !s.selected {
+        if response.tip_more(text, more).clicked() && !s.selected && s.enabled {
             clicked = Some(i);
         }
     }
