@@ -5,7 +5,7 @@
 //! A product with one body and nothing else is a part; a product with several bodies, or bodies and
 //! products, is an assembly holding one part per body (a component made of several solids — a
 //! cabinet of boards, a frame of tubes — is several parts); a product of products is an assembly. A
-//! body's colour becomes a coloration (one per colour) of its part; a product's material
+//! body's colour becomes a finish (one per colour) of its part; a product's material
 //! designation a material (generic, one per name) of its parts; a product bought a component
 //! bought (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
 
@@ -40,10 +40,10 @@ impl Document {
         if let Ok(c) = doc.component_mut(root) {
             c.name = name.to_owned();
         }
-        let mut colorations: HashMap<[u8; 3], Id> = HashMap::new();
-        let mut coloration = |doc: &mut Document, color: Option<[u8; 3]>| {
+        let mut finishes: HashMap<[u8; 3], Id> = HashMap::new();
+        let mut finish = |doc: &mut Document, color: Option<[u8; 3]>| {
             color.map(|c| {
-                *colorations.entry(c).or_insert_with(|| {
+                *finishes.entry(c).or_insert_with(|| {
                     let id = doc.fresh_id();
                     let hex = format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
                     doc.materials.insert(id, Material::new(t!("default_name.step_color", hex = hex), c));
@@ -73,7 +73,7 @@ impl Document {
             {
                 let base = product_name.clone().or_else(|| Some(body.name.clone()).filter(|n| !n.is_empty()));
                 let mut part = doc.plain_part(Arc::new(body.solid.clone()));
-                part.coloration = coloration(&mut doc, body.color);
+                part.finish = finish(&mut doc, body.color);
                 part.material = material(&mut doc, &p.material);
                 let id = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),
@@ -91,7 +91,7 @@ impl Document {
                 let base =
                     Some(body.name.clone()).filter(|n| !n.is_empty()).or_else(|| product_name.as_ref().map(|n| format!("{n} {}", b + 1)));
                 let mut part = doc.plain_part(Arc::new(body.solid.clone()));
-                part.coloration = coloration(&mut doc, body.color);
+                part.finish = finish(&mut doc, body.color);
                 part.material = material(&mut doc, &p.material);
                 let part = doc.insert_component(
                     &base.clone().unwrap_or_else(|| t!("default_name.part")),

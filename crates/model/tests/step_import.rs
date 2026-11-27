@@ -32,7 +32,7 @@ fn a_step_file_becomes_parts_and_assemblies() {
     assert!(board.is_part() && board.named);
     assert_eq!(frag.occurrence_count(board.id), 2);
     // The body's colour on its part, which both occurrences show.
-    let m = frag.material(board.as_part().unwrap().coloration.unwrap()).unwrap();
+    let m = frag.material(board.as_part().unwrap().finish.unwrap()).unwrap();
     assert_eq!(m.color, [204, 153, 102]);
     assert_eq!(frag.materials().count(), 1);
     assert_eq!(frag.root_assembly().occurrences().len(), 1);
@@ -59,7 +59,7 @@ fn a_product_bought_and_its_material_designation_are_read() {
     assert_eq!(board.source, Source::Bought);
     let oak = frag.material(board.as_part().unwrap().material.unwrap()).unwrap();
     assert_eq!((oak.name.as_str(), oak.kind), ("Chêne", Some(MaterialKind::Generic)));
-    assert!(board.as_part().unwrap().coloration.is_some(), "its colour still a coloration over it");
+    assert!(board.as_part().unwrap().finish.is_some(), "its colour still a finish over it");
     let cabinet = frag.components().find(|c| c.name == "Caisson").unwrap();
     assert_eq!(cabinet.source, Source::Made);
     // Without them: made, no material.

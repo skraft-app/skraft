@@ -317,11 +317,11 @@ loading:
   skip: "Continuer sans attendre"
   cancel: "Annuler"
 
-# Deleting a coat that schemes lay (docs/decisions/0057).
+# Deleting a coat that sequences lay (docs/decisions/0057).
 delete_coat:
   title: "Supprimer la couche ?"
-  question: "« %{name} » est utilisée dans %{count} schéma : elle en sera retirée."
-  question_plural: "« %{name} » est utilisée dans %{count} schémas : elle en sera retirée."
+  question: "« %{name} » est utilisée dans %{count} séquence : elle en sera retirée."
+  question_plural: "« %{name} » est utilisée dans %{count} séquences : elle en sera retirée."
   delete: "Supprimer"
   cancel: "Annuler"
 
@@ -928,7 +928,7 @@ panel:
     # What a part is made of: a material of a part's type (docs/render/look.md).
     material: "Matériau"
     # What colours a part, over its material.
-    coloration: "Coloration"
+    finish: "Finition"
     # Where a part or an assembly comes from: what the parts list counts of it
     # (docs/ui/parts-list.md#rows).
     source: "Provenance"
@@ -1011,7 +1011,7 @@ panel:
     # what covers a face, what colours it.
     materials_tab: "Matériaux"
     coverings_tab: "Revêtements"
-    colorations_tab: "Colorations"
+    finishes_tab: "Finitions"
     color: "Couleur"
     # A material's colour and texture side by side, the texture winning (docs/render/look.md#textures).
     look: "Aspect"
@@ -1034,7 +1034,7 @@ panel:
     none_material: "Aucun"
     new: "Nouveau matériau"
     new_covering: "Nouveau revêtement"
-    new_coloration: "Nouvelle coloration"
+    new_finish: "Nouvelle finition"
     paint_tip: "Peindre avec cette matière"
     unpaint_tip: "Dépeindre : le pot de peinture retire la matière"
     color_tip: "Couleur"
@@ -1050,22 +1050,22 @@ panel:
     blend_tint: "Teintant"
     intensity: "Intensité"
     intensity_tip: "Couvrant : son opacité ; teintant : la force de sa teinte (de 0 à 100 %)"
-    # A scheme's coats, from the bottom up.
+    # A sequence's coats, from the bottom up.
     coats: "Couches"
     coat_add: "Ajouter une couche"
-    coat_remove_tip: "Retirer du schéma"
+    coat_remove_tip: "Retirer de la séquence"
     coat_up_tip: "Monter d'un cran"
     coat_down_tip: "Descendre d'un cran"
     # An item's family (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
     family:
       material: "Matériau"
       covering: "Revêtement"
-      coloration: "Coloration"
+      finish: "Finition"
     # A material's or a covering's type: how it is counted and cut.
     kind_label: "Catégorie"
     kind:
       coat: "Couche"
-      scheme: "Schéma"
+      sequence: "Séquence"
       generic: "Générique"
       generic_covering: "Générique"
       solid: "Bois massif"
@@ -1894,7 +1894,7 @@ default_name:
   chamfer: "Chanfrein"
   material: "Matériau %{number}"
   covering: "Revêtement %{number}"
-  coloration: "Coloration %{number}"
+  finish: "Finition %{number}"
   # A file name proposed when saving, without its extension.
   file: "modele"
   # An imported SketchUp definition holding both faces and components: its faces make
@@ -1995,7 +1995,7 @@ error:
     nothing_reached: "aucun outil n'atteint une cible"
     no_such_face: "pas de telle face"
     material_layer: "cette matière ne se pose pas là"
-    coloration_texture: "une coloration n'a pas de texture, seulement une couleur"
+    finish_texture: "une finition n'a pas de texture, seulement une couleur"
     no_bodies: "aucun corps désigné"
     ungroup_negative: "un usinage composé qui épargne de la matière ne s'éclate pas"
     flatten_failed: "une forme en échec ou vide ne s'aplatit pas : à corriger d'abord"

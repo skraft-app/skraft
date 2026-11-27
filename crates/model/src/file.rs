@@ -370,7 +370,7 @@ impl Document {
     }
 
     /// A document just read: checked, its automatic names settled, the images no material uses
-    /// dropped (a coloration's texture is not read: [`crate::document::Catalog`]).
+    /// dropped (a finish's texture is not read: [`crate::document::Catalog`]).
     fn settled(mut self) -> Result<Document> {
         self.prune_assets();
         self.check()?;
@@ -418,7 +418,7 @@ impl Document {
             if m.texture.as_ref().is_some_and(|t| !t.is_valid() || !self.assets.contains_key(&t.image)) {
                 return Err(Error::File(FileError::BadTexture(*id)));
             }
-            // A scheme lays coats of the catalog, never schemes (docs/decisions/0057).
+            // A sequence lays coats of the catalog, never sequences (docs/decisions/0057).
             if m.coats.iter().any(|c| self.materials.get(c).is_none_or(|c| c.kind != Some(crate::MaterialKind::Coat))) {
                 return Err(Error::File(FileError::UnknownMaterial(*id)));
             }

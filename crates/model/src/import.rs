@@ -31,10 +31,10 @@ enum Laid {
     Face,
 }
 
-/// The type a SketchUp material takes where it is laid (none: a coloration), by OpenCutList's
+/// The type a SketchUp material takes where it is laid (none: a finish), by OpenCutList's
 /// type when it has one (docs/io/sketchup-import.md#materials): a material on an instance, a
-/// covering on a face where its type is one; else, a coloration for what only colours or does
-/// not go there, a generic material on an instance, a coloration on a face.
+/// covering on a face where its type is one; else, a finish for what only colours or does
+/// not go there, a generic material on an instance, a finish on a face.
 fn kind_of(ocl: Option<u8>, laid: Laid) -> Option<MaterialKind> {
     match (laid, ocl) {
         (Laid::Instance, Some(2)) => Some(MaterialKind::Sheet),
@@ -60,7 +60,7 @@ struct Items {
 impl Items {
     /// The item SketchUp's material `m` is where it is `laid`, made on first use with its
     /// texture, its image among the assets: laid at its real size, the image's width along the
-    /// part's length (docs/render/look.md#textures). A coloration keeps its colour alone, the
+    /// part's length (docs/render/look.md#textures). A finish keeps its colour alone, the
     /// image's mean.
     fn item(&mut self, doc: &mut Document, skp: &SketchUpImport, m: usize, laid: Laid) -> Option<Id> {
         let source = skp.materials.get(m)?;
@@ -71,7 +71,7 @@ impl Items {
         let id = doc.fresh_id();
         let mut material = Material::of_kind(source.name.clone(), source.color, kind);
         if let Some(t) = &source.texture
-            && material.family() != Family::Coloration
+            && material.family() != Family::Finish
             && let Some(asset) = crate::Asset::new(t.image.clone())
         {
             let texture = crate::Texture { image: asset.id(), size: t.size, rotation: 0.0 };
@@ -155,7 +155,7 @@ impl Document {
                     report.parts += 1;
                     let name = if p.loose { t!("default_name.loose_faces", name = name_of(p.definition)) } else { name_of(p.definition) };
                     let mut part = doc.plain_part(Arc::new(solid.clone()));
-                    // Its painted faces: a covering, else a coloration.
+                    // Its painted faces: a covering, else a finish.
                     for &(face, m) in &p.painted {
                         let Some(item) = items.item(&mut doc, skp, m, Laid::Face) else { continue };
                         match doc.material(item).map(|x| x.family()) {

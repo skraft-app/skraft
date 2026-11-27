@@ -270,7 +270,7 @@ mod tests {
         let targets = vec![skraft_model::EntityPath::root(g)];
         e.apply(Operation::PaintParts {
             targets,
-            layer: skraft_model::Family::Coloration,
+            layer: skraft_model::Family::Finish,
             material: Some(oak),
             scope: skraft_model::Scope::All,
         })

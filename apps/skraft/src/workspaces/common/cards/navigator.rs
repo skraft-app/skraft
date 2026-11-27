@@ -402,7 +402,7 @@ fn occurrence_line(
             Some(false) => return (rename_field(ui, rename, name), None),
             None => {}
         }
-        // What a part shows, if anything, before its name: its material, its coloration, and a
+        // What a part shows, if anything, before its name: its material, its finish, and a
         // mark when faces carry their own.
         if let Ok(p) = doc.part(o.component) {
             material_marks(ui, doc, p, greyed);
@@ -601,17 +601,17 @@ fn occurrence_row(
 /// The gap between a navigator row's material marks: closer than the row's items, one group.
 const MARKS_GAP: f32 = 3.0;
 
-/// A navigator row's materials: the part's material, then its coloration, each its swatch as
-/// the « Matières » card and the material fields draw it (a scheme its coats); then, when faces
-/// carry a covering or a coloration of their own, a swatch cut across, the most used of them in
+/// A navigator row's materials: the part's material, then its finish, each its swatch as
+/// the « Matières » card and the material fields draw it (a sequence its coats); then, when faces
+/// carry a covering or a finish of their own, a swatch cut across, the most used of them in
 /// its lower half. Faded on a hidden row (`greyed`); each names what it shows in its tip.
 fn material_marks(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Part, greyed: bool) {
     let own = |m: &Option<Id>| m.filter(|m| doc.material(*m).is_ok());
-    let swatches: Vec<Id> = [own(&p.material), own(&p.coloration)].into_iter().flatten().collect();
+    let swatches: Vec<Id> = [own(&p.material), own(&p.finish)].into_iter().flatten().collect();
     // The faces' own items, the most used first, those the part shows already left out.
     let mut faces: Vec<(Id, usize)> = Vec::new();
     for m in p.coverings.values().chain(p.faces.values()) {
-        if Some(*m) == p.material || Some(*m) == p.coloration || doc.material(*m).is_err() {
+        if Some(*m) == p.material || Some(*m) == p.finish || doc.material(*m).is_err() {
             continue;
         }
         match faces.iter_mut().find(|(f, _)| f == m) {
@@ -648,10 +648,10 @@ fn material_marks(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Part, gre
 }
 
 /// The mark of faces carrying their own items: a faint swatch cut across, its lower right half
-/// the colour of `m` (a scheme: its top coat).
+/// the colour of `m` (a sequence: its top coat).
 fn paint_faces_mark(ui: &egui::Ui, doc: &Document, r: egui::Rect, m: Id) {
     let color = match doc.material(m) {
-        Ok(x) if x.is_scheme() => doc.coats_of(m).last().map_or(x.color, |(_, c)| c.color),
+        Ok(x) if x.is_sequence() => doc.coats_of(m).last().map_or(x.color, |(_, c)| c.color),
         Ok(x) => x.color,
         Err(_) => return,
     };

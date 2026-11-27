@@ -60,7 +60,7 @@ pub const TEXTURE_SIZE: u32 = 1024;
 /// The mip levels of a layer, down to one texel.
 const TEXTURE_MIPS: u32 = TEXTURE_SIZE.ilog2() + 1;
 
-/// A palette entry without coloration ([`Style::overlays`]): `A` 1, `B` 0.
+/// A palette entry without finish ([`Style::overlays`]): `A` 1, `B` 0.
 pub const NO_OVERLAY: [[f32; 4]; 2] = [[1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]];
 
 /// A palette entry without texture ([`Style::textures`]).
@@ -372,7 +372,7 @@ pub struct Style<'a> {
     /// Each palette entry's texture ([`texture_entry`], [`NO_TEXTURE`]); entries past its end
     /// have none.
     pub textures: &'a [[f32; 4]],
-    /// Each palette entry's coloration (docs/render/look.md#palette-and-materials): two per
+    /// Each palette entry's finish (docs/render/look.md#palette-and-materials): two per
     /// entry, `A` then `B` (rgb), what is under (its colour or texture) shown as `A·x + B`;
     /// entries past its end have none ([`NO_OVERLAY`]).
     pub overlays: &'a [[f32; 4]],
@@ -1045,7 +1045,7 @@ pub struct Renderer {
     palette: Dynamic,
     /// The palette entries' textures ([`Style::textures`]).
     texture_entries: Dynamic,
-    /// The palette entries' colorations ([`Style::overlays`]).
+    /// The palette entries' finishes ([`Style::overlays`]).
     overlays: Dynamic,
     /// The images of the textures, one layer each ([`Renderer::set_textures`]), and their keys.
     layers: TextureLayers,

@@ -18,7 +18,7 @@ placed, in which material, of which size, how many.
   parts); a component « Existant » is **no row, not gone through** (a wall, a fridge). The source
   is chosen in the entity info (« Provenance »).
 - **One row per component** so reached: its occurrences, at any depth. Its material is the
-  part's (`Part::material`, what it is made of, not its coloration: two copies in two materials
+  part's (`Part::material`, what it is made of, not its finish: two copies in two materials
   are two parts); an assembly bought has none (« — »): what identifies it (a reference, a
   supplier, a price) comes later. Hidden occurrences count: they are in the model. Components
   not placed are not listed.

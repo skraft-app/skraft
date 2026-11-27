@@ -74,18 +74,18 @@ A material used by an instance or a face becomes an item of the document's catal
 colour (a texture's average colour), and its **texture**, the image (PNG or JPEG, as the file
 holds it) among the document's assets laid at the real size SketchUp gives it
 ([Textures](../render/look.md#textures): a box projection in the part's axes, not SketchUp's
-per-face placement) — but for a coloration, which has its colour alone. Its family comes from **where it is laid**, and from **OpenCutList's
+per-face placement) — but for a finish, which has its colour alone. Its family comes from **where it is laid**, and from **OpenCutList's
 type** of it when it has one (`ladb_opencutlist` › `type`, `SketchUpMaterial::ocl_type`):
 
 | Type (OCL) | On an instance | On a face |
 |---|---|---|
-| none, 5 hardware (bought, later) | material « Générique » | coloration |
-| 1 solid wood | material « Bois massif » | coloration |
-| 2 sheet good | material « Panneau » | coloration |
-| 3 dimensional | material « Profilé » | coloration |
-| 4 edge | coloration (its look) | covering « Chant » |
-| 6 veneer | coloration (its look) | covering « Placage » |
-| 7 machining | coloration | coloration |
+| none, 5 hardware (bought, later) | material « Générique » | finish |
+| 1 solid wood | material « Bois massif » | finish |
+| 2 sheet good | material « Panneau » | finish |
+| 3 dimensional | material « Profilé » | finish |
+| 4 edge | finish (its look) | covering « Chant » |
+| 6 veneer | finish (its look) | covering « Placage » |
+| 7 machining | finish | finish |
 
 One item per material and type (`Items`, `crates/model/src/import.rs`): a material laid both
 ways is two items of one name. SketchUp 2026 keeps a material's dictionaries in its
@@ -98,7 +98,7 @@ takes the one of the nearest instance above it that has one
 (`Document::settle_occurrence_paints`); a definition reached in several stays one part for the
 one most of its placements take, and gets a copy for each other, made from the part as it was
 — the instance pointed at its copy where it stands, the assemblies on the way made their own
-only when their copies differ. A **face's** goes on its part, its covering or its coloration
+only when their copies differ. A **face's** goes on its part, its covering or its finish
 (`Part::coverings`, `Part::faces`, by the face's index in the solid's record): the material of
 its side facing out — a face SketchUp holds reversed shows its back —, none when only its inner
 side is painted (unseen in SketchUp too). The kernel finds each face again in the built solid by

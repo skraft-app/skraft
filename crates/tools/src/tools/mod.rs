@@ -296,10 +296,10 @@ pub struct PaintPreview {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaintTarget {
     /// Parts or assemblies (every part below them), by their paths from the root, their
-    /// material or their coloration (`layer`), and whether the parts' other copies take it too.
+    /// material or their finish (`layer`), and whether the parts' other copies take it too.
     Parts { paths: Vec<EntityPath>, layer: skraft_model::Family, scope: skraft_model::Scope },
     /// One face of a part, by the path of the occurrence it is seen on, its covering or its
-    /// coloration (`layer`): every occurrence of the part shows it.
+    /// finish (`layer`): every occurrence of the part shows it.
     Face { path: EntityPath, face: u32, layer: skraft_model::Family },
 }
 
@@ -943,7 +943,7 @@ impl Cx<'_> {
         self.part_material(p)
     }
 
-    /// The item on top of what the part `path` (from the root) leads to shows: its coloration,
+    /// The item on top of what the part `path` (from the root) leads to shows: its finish,
     /// else its material, if it is a known one.
     pub fn part_material(&self, path: &EntityPath) -> Option<Id> {
         let (_, part, _) = self.doc.resolve_part(path).ok()?;
@@ -952,7 +952,7 @@ impl Cx<'_> {
     }
 
     /// The item on top of what `face` of the part `path` leads to shows (« Prélever »): its
-    /// coloration (the face's, else the part's), else its covering, else the part's material
+    /// finish (the face's, else the part's), else its covering, else the part's material
     /// (docs/render/look.md).
     pub fn material_shown(&self, path: &EntityPath, face: u32) -> Option<Id> {
         let (_, part, _) = self.doc.resolve_part(path).ok()?;

@@ -1004,7 +1004,7 @@ impl Editor {
                 let mut shown = q.faces_shown().get(face).copied().unwrap_or(q.shown());
                 match layer {
                     skraft_model::Family::Covering => shown.under = paint.material.or(q.material),
-                    _ => shown.over = paint.material.or(q.coloration),
+                    _ => shown.over = paint.material.or(q.finish),
                 }
                 let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part) else { return };
                 for p in places.iter().filter(|p| self.scene.is_shown(p)) {

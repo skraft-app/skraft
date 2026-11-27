@@ -49,7 +49,7 @@ pub struct DefinitionMesh {
     /// Changes with the mesh and with the faces' materials.
     pub revision: u64,
     pub parts: Vec<PartMesh>,
-    /// What single faces show (by face index), over the part's: their coloration, else their
+    /// What single faces show (by face index), over the part's: their finish, else their
     /// covering (docs/render/look.md).
     pub faces: BTreeMap<u32, Seen>,
 }
@@ -61,7 +61,7 @@ pub struct Placement {
     pub path: Vec<Id>,
     /// Part to world.
     pub transform: DAffine3,
-    /// What its faces without anything of their own show: the part's coloration over its
+    /// What its faces without anything of their own show: the part's finish over its
     /// material.
     pub material: Seen,
     /// Hidden by the user: it, or an occurrence above it, out of the active path (what is

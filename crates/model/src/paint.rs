@@ -23,7 +23,7 @@ impl Document {
         }
     }
 
-    /// Paints `layer` (a part's material or its coloration) with `material` (`None`: unpaints) of the parts `targets` lead to from the root, an
+    /// Paints `layer` (a part's material or its finish) with `material` (`None`: unpaints) of the parts `targets` lead to from the root, an
     /// assembly's every part below it at any depth, hidden ones included. Under « only this
     /// one », a part some of whose placements are not painted gets a copy for those that are
     /// (one per part, as [`Document::separate`] makes it).
@@ -73,7 +73,7 @@ impl Document {
 
     /// Gives the parts of a document whose occurrences carried items of the catalog (a SketchUp
     /// file's instances, docs/io/sketchup-import.md) those items, each where its family goes
-    /// (a material, a coloration): `painted` by (assembly, occurrence), a part taking the
+    /// (a material, a finish): `painted` by (assembly, occurrence), a part taking the
     /// nearest one above it. A part reached in several keeps the
     /// one most of its placements take; the others get a copy of it each.
     pub(crate) fn settle_occurrence_paints(&mut self, painted: &FastMap<(Id, Id), Id>) -> Result<()> {
@@ -164,7 +164,7 @@ impl Document {
             let Some(layer) = layer.or_else(|| material.and_then(|m| self.material(m).ok()).map(|m| m.family())) else { continue };
             let now = match layer {
                 Family::Material => self.part(own)?.material,
-                _ => self.part(own)?.coloration,
+                _ => self.part(own)?.finish,
             };
             if now != *material
                 && let Some(slot) = self.part_mut(own)?.slot_mut(layer)

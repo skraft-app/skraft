@@ -379,7 +379,7 @@ pub enum Action {
     PaintWith(Option<Id>),
     /// The family « Aucune » is chosen in: what the paint tool takes off.
     PaintFamily(skraft_model::Family),
-    /// Delete this item of the catalog: a coat that schemes lay asks first (decision 0057).
+    /// Delete this item of the catalog: a coat that sequences lay asks first (decision 0057).
     DeleteMaterial(Id),
     /// Pick an image for this material's texture (docs/render/look.md#textures).
     PickTexture(Id),

@@ -85,7 +85,7 @@ impl SkraftApp {
         }
     }
 
-    /// Deleting a coat that schemes lay: it leaves them, once confirmed (decision 0057).
+    /// Deleting a coat that sequences lay: it leaves them, once confirmed (decision 0057).
     pub(super) fn delete_coat_prompt(&mut self, ctx: &egui::Context) {
         let Some((doc, coat, count)) = self.deleting_coat else { return };
         let Some(name) = self.docs.by_id_mut(doc).and_then(|d| d.editor.document().material(coat).ok().map(|m| m.name.clone())) else {

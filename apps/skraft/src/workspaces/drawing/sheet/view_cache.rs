@@ -155,7 +155,7 @@ fn materials_of(e: &Editor, parts: &[(Id, Vec<Placed>)]) -> std::collections::BT
             seen.extend(dm.faces.values().copied());
         }
     }
-    // What is under, and the coats of the colorations over it.
+    // What is under, and the coats of the finishes over it.
     let doc = e.document();
     let coats =
         |s: &skraft_model::Seen| s.over.map(|o| doc.coats_of(o).into_iter().map(|(id, _)| id).collect::<Vec<Id>>()).unwrap_or_default();

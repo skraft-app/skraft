@@ -434,7 +434,7 @@ pub enum Operation {
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
     /// A new item of the catalog (docs/render/look.md): a material or a covering of `kind`, a
-    /// coloration without one.
+    /// finish without one.
     AddMaterial {
         name: String,
         color: [u8; 3],
@@ -449,7 +449,7 @@ pub enum Operation {
     /// Sets a coat's blend and intensity (0 to 1); changes in a row to one coat undo in one go
     /// (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
     SetCoat { material: Id, blend: BlendMode, intensity: f32 },
-    /// Sets the coats a scheme lays, from the bottom up: coats of the catalog, never schemes.
+    /// Sets the coats a sequence lays, from the bottom up: coats of the catalog, never sequences.
     SetCoats { material: Id, coats: Vec<Id> },
     /// Removes a material: what was painted with it is not any more.
     DeleteMaterial { material: Id },
@@ -492,7 +492,7 @@ pub enum Operation {
     /// Shows every occurrence hidden, in every assembly.
     ShowAll,
     /// Paints faces of a part's shape, by their index in its record, on `layer` — their veneer
-    /// or edge, or their coloration — (every occurrence of the part shows it; `None`: they show
+    /// or edge, or their finish — (every occurrence of the part shows it; `None`: they show
     /// what is under again).
     PaintFaces {
         part: Id,
@@ -1161,8 +1161,8 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::SetTexture { material, texture, image, color } => {
-                if texture.is_some() && self.material(*material)?.family() == crate::Family::Coloration {
-                    return Err(Error::Invalid(Refusal::ColorationTexture));
+                if texture.is_some() && self.material(*material)?.family() == crate::Family::Finish {
+                    return Err(Error::Invalid(Refusal::FinishTexture));
                 }
                 if let Some(a) = image {
                     self.assets.insert(a.id(), a.clone());
@@ -1211,7 +1211,7 @@ impl Document {
                     return Err(Error::Invalid(Refusal::MaterialLayer));
                 }
                 let m = self.materials.get_mut(material).ok_or(Error::NotFound(*material))?;
-                if !m.is_scheme() {
+                if !m.is_sequence() {
                     return Err(Error::Invalid(Refusal::MaterialLayer));
                 }
                 m.coats = coats.clone();
@@ -1219,9 +1219,9 @@ impl Document {
             }
             Operation::DeleteMaterial { material } => {
                 self.materials.remove(material).ok_or(Error::NotFound(*material))?;
-                // A coat leaves the schemes laying it (the interface said how many first).
-                for scheme in self.schemes_with(*material) {
-                    if let Some(m) = self.materials.get_mut(&scheme) {
+                // A coat leaves the sequences laying it (the interface said how many first).
+                for sequence in self.sequences_with(*material) {
+                    if let Some(m) = self.materials.get_mut(&sequence) {
                         m.coats.retain(|c| c != material);
                     }
                 }
@@ -1236,7 +1236,7 @@ impl Document {
                     let p = self.part_mut(id)?;
                     p.faces.retain(|_, m| m != material);
                     p.coverings.retain(|_, m| m != material);
-                    for slot in [&mut p.material, &mut p.coloration] {
+                    for slot in [&mut p.material, &mut p.finish] {
                         if *slot == Some(*material) {
                             *slot = None;
                         }
@@ -1393,7 +1393,7 @@ impl Document {
                     shape: None,
                     failed: Default::default(),
                     material: None,
-                    coloration: None,
+                    finish: None,
                     coverings: Default::default(),
                     faces: Default::default(),
                 };
