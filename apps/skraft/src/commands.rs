@@ -193,6 +193,8 @@ pub const COMMANDS: &[Command] = &[
     c("tool.round", || t!("tool.round.name"), M::Solids, None),
     c("tool.chamfer", || t!("tool.chamfer.name"), M::Solids, None),
     c("debug.crash_kernel", || t!("menu.debug.crash_kernel"), M::Debug, None),
+    // Every widget of the kit in its states (docs/ui/interface.md#the-kits-gallery).
+    c("debug.kit_gallery", || t!("menu.debug.kit_gallery"), M::Debug, None),
 ];
 
 /// How many recent files the File menu keeps (`file.recent.1` to `file.recent.4`).

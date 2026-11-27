@@ -50,6 +50,7 @@ impl SkraftApp {
                 | "app.about"
                 | "view.render_stats" => true,
                 "app.journal" => true,
+                "debug.kit_gallery" => self.debug_menu,
                 "view.next_tab" | "view.previous_tab" => self.docs.len() > 0,
                 "app.quit" | "app.remote_control" | "app.updates" => !cfg!(target_arch = "wasm32"),
                 _ if let Some(k) = commands::recent_slot(id) => k < self.prefs.recent_files.len(),
@@ -103,7 +104,7 @@ impl SkraftApp {
             id if crate::workspaces::drawing::sheet::style_of(id).is_some() => {
                 !crate::workspaces::drawing::sheet::selected_views(e, &d.sheet).is_empty()
             }
-            "debug.crash_kernel" => self.debug_menu,
+            "debug.crash_kernel" | "debug.kit_gallery" => self.debug_menu,
             "view.next_tab" | "view.previous_tab" => self.docs.len() > 1,
             "view.home" => true,
             "app.quit" | "app.remote_control" | "app.updates" => !cfg!(target_arch = "wasm32"),
@@ -140,6 +141,7 @@ impl SkraftApp {
                 return Some(self.docs.active()?.sheet.tool == tool);
             }
             "app.journal" => return Some(self.journal_window.is_some()),
+            "debug.kit_gallery" => return Some(self.kit_gallery.is_some()),
             #[cfg(not(target_arch = "wasm32"))]
             "app.remote_control" => return Some(self.remote.is_on()),
             _ => {}
@@ -264,6 +266,13 @@ impl SkraftApp {
             }
             "app.journal" => {
                 self.journal_window = match self.journal_window {
+                    Some(_) => None,
+                    None => Some(Default::default()),
+                };
+                true
+            }
+            "debug.kit_gallery" => {
+                self.kit_gallery = match self.kit_gallery {
                     Some(_) => None,
                     None => Some(Default::default()),
                 };

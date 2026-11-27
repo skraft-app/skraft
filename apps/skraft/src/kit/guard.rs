@@ -53,3 +53,72 @@ fn no_button_is_built_outside_the_kit() {
         wrong.join("\n")
     );
 }
+
+/// What `kit/widgets.rs` gives that is no widget of its own, so not in the gallery: a widget's
+/// parts and settings, what it answers, its constants, the helpers that paint for it.
+const NOT_IN_GALLERY: &[&str] = &[
+    "Confirm",
+    "KeypadAct",
+    "PinEvent",
+    "OPTION_HEIGHT",
+    "VEIL_RADIUS",
+    "BADGE",
+    "RENAMING",
+    "veil",
+    "menu_open",
+    "field_stroke",
+    "is_toggle",
+    "badge_rect",
+    "picture_ground",
+    "band_color",
+    "set_drag_ghost",
+    "paint_drag_ghost",
+];
+
+/// The names `kit/widgets.rs` gives: its re-exports and its own public items.
+fn widget_names(src: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut uses = String::new();
+    let mut in_use = false;
+    for line in src.lines().map(str::trim) {
+        if line.starts_with("pub(crate) use ") {
+            in_use = true;
+        }
+        if in_use {
+            uses.push_str(line);
+            in_use = !line.ends_with(';');
+            continue;
+        }
+        for prefix in ["pub fn ", "pub const ", "pub enum ", "pub struct "] {
+            if let Some(rest) = line.strip_prefix(prefix) {
+                names.push(rest.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap().to_owned());
+            }
+        }
+    }
+    for group in uses.split("pub(crate) use ").filter(|g| !g.is_empty()) {
+        let inner = group.split_once('{').map_or(group, |(_, i)| i);
+        names.extend(inner.trim_end_matches(';').trim_end_matches('}').split(',').map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()));
+    }
+    names
+}
+
+#[test]
+fn every_widget_is_in_the_gallery() {
+    let src = |p: &str| std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(p)).unwrap();
+    let gallery = src("dialogs/kit_gallery.rs");
+    let uses = |name: &str| {
+        gallery.match_indices(name).any(|(i, _)| {
+            let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+            !word(gallery[..i].chars().next_back()) && !word(gallery[i + name.len()..].chars().next())
+        })
+    };
+    let mut names = widget_names(&src("kit/widgets.rs"));
+    names.extend(["color_box", "paint_swatch"].map(str::to_owned));
+    let missing: Vec<&String> = names.iter().filter(|n| !NOT_IN_GALLERY.contains(&n.as_str()) && !uses(n)).collect();
+    assert!(names.len() > 40, "the names of kit/widgets.rs were not read: {names:?}");
+    assert!(
+        missing.is_empty(),
+        "Every widget of the kit is shown in its gallery (dialogs/kit_gallery.rs, docs/ui/interface.md#the-kits-gallery): \
+         add its specimens there, or list it in NOT_IN_GALLERY when it is no widget of its own.\n{missing:?}"
+    );
+}

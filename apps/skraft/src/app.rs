@@ -85,6 +85,8 @@ pub struct SkraftApp {
     updates: crate::dialogs::update::Updates,
     /// The journal window, while open (`app.journal`).
     journal_window: Option<crate::dialogs::journal_window::JournalWindow>,
+    /// The kit's gallery, while open (`debug.kit_gallery`).
+    kit_gallery: Option<crate::dialogs::kit_gallery::KitGallery>,
     /// The side panel being dragged to another place.
     panel_drag: Option<PanelDrag>,
     /// The shortcuts in use (the defaults with the user's changes).
@@ -357,6 +359,7 @@ impl SkraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             updates: crate::dialogs::update::Updates::new(&cc.egui_ctx),
             journal_window: None,
+            kit_gallery: None,
             capturing: None,
             shortcut_search: String::new(),
             palette: None,
