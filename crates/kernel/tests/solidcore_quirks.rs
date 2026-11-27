@@ -104,3 +104,59 @@ fn a_circle_edge_a_hair_short_of_one_turn_cannot_be_written_back() {
         "fixed upstream? the disc's edge has no sliver arc or its body is written back: drop its workaround and this test"
     );
 }
+
+/// **A sphere reflected across a slanted plane comes out inside out.** Through a reflection
+/// whose matrix is symmetric (here across the vertical plane at ~49° from X; determinant −1),
+/// a sphere's volume comes out negative: its face is not turned over. Mirrors across X, Y or Z,
+/// alone or after a turn, come out right; so do boxes and cylinders.
+///
+/// No workaround: found by the stretch's random test (`stretch_fuzz.rs`), which counts it apart.
+#[test]
+fn a_sphere_reflected_across_a_slanted_plane_comes_out_inside_out() {
+    use glam::DMat3;
+    let mut k = kernel();
+    let b = prim::create_sphere(&mut k, Point3::new(0.0, 0.0, 0.0), 184.20729390532807).unwrap();
+    let m = DMat3::from_cols(
+        DVec3::new(0.17097429738960046, -0.98527548920702, 0.0),
+        DVec3::new(-0.98527548920702, -0.17097429738960046, 0.0),
+        DVec3::Z,
+    );
+    let mut b = transformed(&mut k, b, &DAffine3::from_mat3(m));
+    let v = solidcore::mass::integrator::properties::brep_volume_default(&k, &mut b, 1e-6).unwrap();
+    assert!(v < 0.0, "fixed upstream? the reflected sphere's volume is {v}: drop the case from stretch_fuzz.rs, then this test");
+}
+
+/// **A turn undone by glam's `inverse()` cannot be written back on a filleted prism.** A
+/// prism with fillets turned about Z and shifted far from the origin, then moved by
+/// `DAffine3::inverse` of that placement: writing the result fails ("a conic's NURBS is off its
+/// own frame and radii"). The same move as the transposed turn (the exact inverse) passes.
+///
+/// No workaround: the stretch's random test (`stretch_fuzz.rs`) measures in the frame stretched
+/// rather than moving the result back.
+#[test]
+fn a_turn_undone_by_its_computed_inverse_refuses_a_fillet() {
+    use glam::{DMat3, DVec2};
+    use skraft_kernel::{Solid, profile};
+    let (l, w, t) = (44.414383655095705, 125.81405566145175, 11.185254487771697);
+    let corners = profile::polygon(&[DVec2::ZERO, DVec2::new(l, 0.0), DVec2::new(l, w), DVec2::new(0.0, w)]);
+    let prism = Solid::new_prism(DVec3::ZERO, &profile::with_fillets(&corners, 3.8112282029142546), t).unwrap();
+    let turn = DMat3::from_cols(
+        DVec3::new(0.09942102223787042, 0.9950454564175333, 0.0),
+        DVec3::new(-0.9950454564175333, 0.09942102223787042, 0.0),
+        DVec3::Z,
+    );
+    let place = DAffine3::from_mat3_translation(turn, DVec3::new(432.5136528931441, 516.3013073979525, -678.8423399687913));
+    let placed = prism.transformed(&place).unwrap();
+    let back = |t: &DAffine3| {
+        let mut k = kernel();
+        let b = solidcore_convert::brep::to_kernel_body(&mut k, placed.record(), true).unwrap();
+        let mut b = transformed(&mut k, b, t);
+        solidcore_convert::brep::to_record(&mut k, &mut b).map(|_| ())
+    };
+    let exact = DAffine3::from_mat3_translation(turn.transpose(), -(turn.transpose() * place.translation));
+    assert!(back(&exact).is_ok(), "the exact inverse is written back");
+    assert!(
+        back(&place.inverse()).is_err_and(|e| e.to_string().contains("off its own frame")),
+        "fixed upstream? the computed inverse is written back: drop this test"
+    );
+}

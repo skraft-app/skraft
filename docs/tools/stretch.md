@@ -317,14 +317,18 @@ On the part's recipe — its bodies ([Bodies](../model/bodies.md)) —, not on i
 
 Rewriting the record: a pure function on `solidcore_record::brep::Brep` (no kernel), a
 **piecewise translation** along the axis, what crosses a cutter lengthened or scaled, in `kernel::Stretch` (`crates/kernel/src/stretch.rs`:
-`apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines
-and arcs of circles and ellipses, conservative for curved faces —, `section_spans`,
+`apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines,
+arcs of circles and ellipses and ruled faces (planes, cylinders, cones, a net of one straight
+segment along a parameter: a cylinder once scaled, a prism's arc side, whose net's hull can lie
+far outside it), conservative for other curved faces —, `section_spans`,
 `piece_moves`). An arc counts only along its own angles, not its whole circle's: a cutter
 beside a concave arc, where only its circle would pass, crosses straight matter alone. The
 arc is the edge's interval (the circle's angle), or, when the edge is parameterised on a NURBS
 form, the side of its ends where that form's first inner control point lies.
-`Solid::stretched` reads the rewritten record back into the kernel, which validates it; a
-refusal cancels the stretch.
+`apply` checks the rewritten record as data (parameter ranges, references, topology), as the
+kernel does before reading it: a fault is the stretch's, never the solid's, and refuses it
+naming the edge or face at fault (`StretchError::Unreadable`). `Solid::stretched` then reads
+the record back into the kernel, which checks its geometry; a refusal cancels the stretch.
 
 - An element (vertex, edge, face) entirely in one section is **translated** with it: points,
   curves and surfaces with their NURBS form; pcurves and domains unchanged.
@@ -353,7 +357,11 @@ refusal cancels the stretch.
   - exact on the NURBS form SolidCore keeps with every analytic curve and surface: its control
     points are mapped, its parameters kept, so the pcurves on the group's faces stand; the face
     takes the mapped NURBS as its surface, the edge says it is an ellipse (`scaled_conic`, on its
-    principal axes). A plane, a line or a net of the group is mapped as such;
+    principal axes, the second from the normal: SolidCore reads a frame square only within
+    ~3e-16). A line or a net of the group is mapped as such; a plane is written again on square
+    unit axes, which its parametrisation no longer has and the kernel's plane cannot hold, its
+    domain and pcurves mapped by the same affine map of (u, v) (`square_plane`) — a chamfer
+    across a cutter along the thickness;
   - the faces lengthened around a group have its edges' pcurves mapped in their (u, v), affine
     there too (`FaceMap::along_at`);
   - a vertex moves as its group; where that differs from its section's move, every other face
@@ -363,6 +371,14 @@ refusal cancels the stretch.
 - `section_spans` leaves a group's edges out and counts its two ends in their sections: the
   compression stops before a group flattens, and the preview blends between its ends as the
   group is scaled.
+- **Checked at random** (`crates/kernel/tests/stretch_fuzz.rs`): shapes (boards, fillets, arc
+  sides, holes, bores, carved arcs, cylinders, spheres, rounds, chamfers) placed anyhow,
+  stretched along their own axes (axis noise included) or any, as placed or in their own frame,
+  numbers drawn: each result either refused or read back, its volume moved as the moves, its mesh
+  like its volume, its length grown by them, still an operand, and the opposite stretch giving
+  the original back. Compressions stay within the tool's limit (`apply` itself does not check
+  that sections overlap). Seeds replayable, cases dumped as jobs; the failures of known families
+  are counted, not failed (listed in the test).
 - **What the kernel's records hold** (checked on boxes and cylinders stretched and compressed,
   read back, then used as a blank and as a tool in a subtraction): the box's planes carry no
   NURBS form and linear pcurves in mm; its lines run t ∈ [0, 1] from start to end, a

@@ -1895,6 +1895,7 @@ error:
     unsupported: "a face crossing a cut has a shape the stretch cannot change"
     collapsed: "compression too strong: the material would vanish"
     meets: "a curved shape stretched across a cut touches material that only moves"
+    unreadable: "the stretch wrote an invalid solid (%{what})"
   web:
     webgpu: "Skraft needs WebGPU, which this browser does not offer or has turned off. Open it in a recent browser that supports it."
     start: "Skraft does not start: %{error}"

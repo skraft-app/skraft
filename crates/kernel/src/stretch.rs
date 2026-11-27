@@ -14,7 +14,9 @@
 //!   as the kernel writes a prism's arc sides (stretched like a cylinder's net).
 //!
 //! Anything else across a cutter refuses the stretch ([`StretchError`]), as OpenCutList refuses
-//! a curve crossing a cutter. The result is only checked by the kernel when it reads the record
+//! a curve crossing a cutter. The rewritten record is checked as data ([`Record::validate_built`]:
+//! parameter ranges, references, topology), a fault naming the edge or face at fault
+//! ([`StretchError::Unreadable`]); its geometry is checked by the kernel when it reads the record
 //! back (the recipe task does).
 //!
 //! Extents along the axis are taken from the vertices and the curves, plus the surface for faces
@@ -28,7 +30,7 @@ use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 use solidcore_record::brep::blend::{BlendDefinition, BlendDefinitionRecord, NurbsCurveRecord, NurbsSurfaceRecord, SupportRecord};
-use solidcore_record::brep::{Brep as Record, Curve, Curve2, Edge, Face, Frame, Loop, Surface};
+use solidcore_record::brep::{Brep as Record, Curve, Curve2, Edge, Face, Frame, Loop, Surface, check_interval, knot_domain};
 
 use crate::Solid;
 
@@ -57,6 +59,9 @@ pub enum StretchError {
     /// This face, scaled across a cutter, meets matter that only moves where it would have to
     /// move otherwise (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
     Meets(u32),
+    /// The rewritten record is not valid data (a parameter interval past its curve's knots…):
+    /// a fault of the stretch, never of the solid. Says what and where.
+    Unreadable(String),
 }
 
 impl std::fmt::Display for StretchError {
@@ -68,6 +73,7 @@ impl std::fmt::Display for StretchError {
             StretchError::Unsupported(_) => t!("error.stretch.unsupported"),
             StretchError::Collapsed => t!("error.stretch.collapsed"),
             StretchError::Meets(_) => t!("error.stretch.meets"),
+            StretchError::Unreadable(what) => t!("error.stretch.unreadable", what = what),
         };
         f.write_str(&text)
     }
@@ -440,6 +446,7 @@ impl Stretch {
             }
             map.finish(self, f)?;
         }
+        check(&r)?;
         Ok(Solid::from_record(r))
     }
 
@@ -522,8 +529,9 @@ impl Stretch {
     }
 
     /// A face's extent along the axis: its boundary, plus its surface where the boundary does not
-    /// hold its extremes. On a plane, a cylinder or a cone, a · p is linear along each straight line
-    /// of the surface, so its extremes lie on the boundary.
+    /// hold its extremes. On a plane, a cylinder, a cone or any ruled net ([`ruled`]: a cylinder
+    /// once scaled, a prism's arc side), a · p is monotonic along each straight line of the
+    /// surface, so its extremes lie on the boundary.
     fn face_span(&self, r: &Record, fi: usize, edges: &[Span]) -> Span {
         let f = &r.faces[fi];
         let a = self.axis;
@@ -536,6 +544,7 @@ impl Stretch {
         }
         let surface = match &f.surface {
             Surface::Plane { .. } | Surface::PlaneThrough { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => Span::EMPTY,
+            _ if ruled(f.parameters()) => Span::EMPTY,
             _ => surface_span(a, f.parameters()),
         };
         span.union(surface)
@@ -677,19 +686,56 @@ fn scaled_conic(frame: &Frame, radii: [f64; 2], s: &Scale, a: DVec3) -> Curve {
     let phi = 0.5 * (2.0 * u.dot(v)).atan2(u.length_squared() - v.length_squared());
     let (c, si) = (phi.cos(), phi.sin());
     let (p, q) = (u * c + v * si, v * c - u * si);
-    let frame = Frame { origin: o.to_array(), x_axis: p.normalize().to_array(), y_axis: q.normalize().to_array() };
+    // The second axis from the normal: square to the rounding of a unit vector, which the kernel
+    // requires (`q` alone is off by the noise of the axis, ~1e-15).
+    let x = p.normalize();
+    let frame = Frame { origin: o.to_array(), x_axis: x.to_array(), y_axis: p.cross(q).normalize().cross(x).to_array() };
     Curve::Ellipse { frame, radii: [p.length(), q.length()] }
 }
 
-/// A face of a group scaled: its NURBS form (or its plane, its net) mapped, its (u, v) kept;
-/// the NURBS form becomes the face's surface. An analytic surface without its NURBS form cannot.
+/// A face of a group scaled: its NURBS form (or its net) mapped, its (u, v) kept, the NURBS form
+/// becoming the face's surface; a plane squared again ([`square_plane`]). An analytic surface
+/// without its NURBS form cannot.
 fn scale_face(f: &mut Face, s: &Scale, a: DVec3) -> Result<(), ()> {
     if let Some(mut n) = f.nurbs.take() {
         scale_surface(&mut n, s, a)?;
         f.surface = n;
         return Ok(());
     }
-    scale_surface(&mut f.surface, s, a)
+    match f.surface {
+        Surface::Plane { origin, u_axis, v_axis } => {
+            square_plane(f, s.point(a, v3(origin)), s.vector(a, v3(u_axis)), s.vector(a, v3(v_axis)))
+        }
+        Surface::PlaneThrough { origin, u_point, v_point } => {
+            let o = v3(origin);
+            square_plane(f, s.point(a, o), s.vector(a, v3(u_point) - o), s.vector(a, v3(v_point) - o))
+        }
+        _ => scale_surface(&mut f.surface, s, a),
+    }
+}
+
+/// A scaled plane, `o + u U + v V`: its axes no longer unit nor square, which the kernel's plane
+/// cannot hold. Written on the unit square axes `X = U / |U|`, `Y = N × X` (`N` the unit normal
+/// `U × V`, kept), its domain and pcurves mapped by the same affine map of (u, v)
+/// (exact for their control points).
+fn square_plane(f: &mut Face, o: DVec3, u: DVec3, v: DVec3) -> Result<(), ()> {
+    let x = u.try_normalize().ok_or(())?;
+    // From the normal rather than `V − (V·X) X`, which loses digits when `U` and `V` close up.
+    let y = u.cross(v).try_normalize().ok_or(())?.cross(x);
+    let (uu, vu, vv) = (u.dot(x), v.dot(x), v.dot(y));
+    let map = move |p: DVec2| DVec2::new(p.x * uu + p.y * vu, p.y * vv);
+    f.surface = Surface::Plane { origin: o.to_array(), u_axis: x.to_array(), v_axis: y.to_array() };
+    for lp in &mut f.loops {
+        let Loop::Edges { edges } = lp else { continue };
+        for oe in edges {
+            map_pcurve(&mut oe.pcurve, map);
+        }
+    }
+    let [[u0, u1], [v0, v1]] = f.domain;
+    let corners = [(u0, v0), (u1, v0), (u0, v1), (u1, v1)].map(|(a, b)| map(DVec2::new(a, b)));
+    let (lo, hi) = corners.iter().fold((corners[0], corners[0]), |(lo, hi), c| (lo.min(*c), hi.max(*c)));
+    f.domain = [[lo.x, hi.x], [lo.y, hi.y]];
+    Ok(())
 }
 
 fn scale_surface(sf: &mut Surface, s: &Scale, a: DVec3) -> Result<(), ()> {
@@ -920,6 +966,35 @@ impl FaceMap {
     }
 }
 
+/// The rewritten record checked as data, as the kernel checks it before reading it: on a fault,
+/// the first edge or face whose parameter interval leaves its natural range, else the check's
+/// own message. Linear in the record, no geometry evaluated. An empty solid ([`Solid::empty`], no
+/// shells) is no SolidCore record and stays as it is.
+fn check(r: &Record) -> Result<(), StretchError> {
+    if r.faces.is_empty() {
+        return Ok(());
+    }
+    let Err(e) = r.validate_built() else { return Ok(()) };
+    let edge = r.edges.iter().enumerate().find_map(|(i, edge)| {
+        check_interval(&edge.interval, edge.parameters().natural()).err().map(|e| format!("edge {i}: {e} ({:?})", edge.interval))
+    });
+    let face = || {
+        r.faces.iter().enumerate().find_map(|(i, f)| {
+            let natural = match f.parameters() {
+                Surface::Spline { u_knots, v_knots, points } => {
+                    [knot_domain(u_knots, points.len()), knot_domain(v_knots, points.first().map_or(0, Vec::len))]
+                }
+                Surface::RationalSpline { u_knots, v_knots, homogeneous } => {
+                    [knot_domain(u_knots, homogeneous.len()), knot_domain(v_knots, homogeneous.first().map_or(0, Vec::len))]
+                }
+                _ => return None,
+            };
+            (0..2).find_map(|d| check_interval(&f.domain[d], natural[d]).err()).map(|e| format!("face {i}: {e} ({:?})", f.domain))
+        })
+    };
+    Err(StretchError::Unreadable(edge.or_else(face).unwrap_or_else(|| e.to_string())))
+}
+
 /// A closed interval along the axis; empty when `lo > hi`.
 #[derive(Clone, Copy, Debug)]
 struct Span {
@@ -954,6 +1029,22 @@ fn conic_span(a: DVec3, frame: &Frame, radii: [f64; 2]) -> Span {
 /// The extent along `a` of a whole surface, conservatively: a sphere, a torus or a ball's
 /// sphere; a spline's control hull; everything for a revolution (never treated as rigid
 /// across a cutter that moves).
+/// A net of one straight segment along one of its parameters (two control points, degree 1, any
+/// weights): a ruled surface, each line of it straight. Its net's hull can lie far outside it
+/// (an elliptic arc's middle control points), so its extent is its boundary's.
+fn ruled(s: &Surface) -> bool {
+    let one_segment = |knots: &[f64], count: usize| count == 2 && knots.len() == 4;
+    match s {
+        Surface::Spline { u_knots, v_knots, points } => {
+            one_segment(u_knots, points.len()) || one_segment(v_knots, points.first().map_or(0, Vec::len))
+        }
+        Surface::RationalSpline { u_knots, v_knots, homogeneous } => {
+            one_segment(u_knots, homogeneous.len()) || one_segment(v_knots, homogeneous.first().map_or(0, Vec::len))
+        }
+        _ => false,
+    }
+}
+
 fn surface_span(a: DVec3, s: &Surface) -> Span {
     match s {
         Surface::Sphere { frame, radius } => Span { lo: a.dot(v3(frame.origin)), hi: a.dot(v3(frame.origin)) }.grow(*radius),
