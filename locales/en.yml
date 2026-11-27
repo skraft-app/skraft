@@ -1459,7 +1459,7 @@ tool:
       side: "Click the side's new place, or type a distance · the neighboring sides follow · %{copy_key}: add a corner there instead · Esc: cancel"
       bulge: "Click the arc's bulge, or type its height · near the chord: straight · Esc: cancel"
       radius: "Click the disk's radius, or type it · Esc: cancel"
-      fillet: "Click the fillet's radius, or type it · on the corner: sharp · Esc: cancel"
+      fillet: "Click the fillet's radius, or type it · on the corner: sharp · Shift: the last radius · double-click: the last radius · Esc: cancel"
     vcb:
       distance: "Distance"
       bulge: "Bulge"

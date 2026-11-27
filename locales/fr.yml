@@ -1600,7 +1600,7 @@ tool:
       side: "Cliquer la nouvelle place du côté, ou taper une distance · les côtés voisins suivent · %{copy_key} : ajouter un coin à la place · Échap : annuler"
       bulge: "Cliquer le bombé de l'arc, ou taper sa flèche · près de la corde : droit · Échap : annuler"
       radius: "Cliquer le rayon du disque, ou le taper · Échap : annuler"
-      fillet: "Cliquer le rayon du congé, ou le taper · sur le coin : vif · Échap : annuler"
+      fillet: "Cliquer le rayon du congé, ou le taper · sur le coin : vif · Maj : le dernier rayon · double-clic : le dernier rayon · Échap : annuler"
     vcb:
       distance: "Distance"
       bulge: "Flèche"
