@@ -3407,6 +3407,7 @@ version = "0.0.7"
 dependencies = [
  "base64 0.22.1",
  "blake3",
+ "flate2",
  "glam",
  "serde",
  "serde_json",
