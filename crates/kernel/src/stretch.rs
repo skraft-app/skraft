@@ -204,6 +204,19 @@ impl Stretch {
         Some(MeshMoves { faces: plan.faces, groups: plan.groups.iter().map(|g| g.scale).collect(), edges: plan.edge_group })
     }
 
+    /// The extents along the axis of the solid's closed curves (a hole's, a round section's
+    /// circles): where a cutter would make them oval (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    pub fn closed_curve_spans(&self, solid: &Solid) -> Vec<(f64, f64)> {
+        let r = solid.record();
+        r.edges
+            .iter()
+            .filter(|e| e.vertices[0] == e.vertices[1])
+            .map(|e| self.edge_span(r, e))
+            .filter(|s| s.lo < s.hi)
+            .map(|s| (s.lo, s.hi))
+            .collect()
+    }
+
     /// What the stretch does to a solid, piece by piece: the move of each vertex, then of
     /// each end of each edge's and each face's extent along the axis. Two stretches giving one
     /// list (up to a move of all) give one solid (up to that move): whatever is not here — where

@@ -116,8 +116,8 @@ thread_local! {
     static CUTTERS: RefCell<HashMap<Option<Id>, [Vec<f64>; 3]>> = RefCell::default();
 }
 
-fn load_cutters(key: Option<Id>) -> [Vec<f64>; 3] {
-    CUTTERS.with_borrow(|c| c.get(&key).cloned()).unwrap_or_else(|| [vec![0.5], vec![0.5], vec![0.5]])
+fn load_cutters(key: Option<Id>) -> Option<[Vec<f64>; 3]> {
+    CUTTERS.with_borrow(|c| c.get(&key).cloned())
 }
 
 fn store_cutters(key: Option<Id>, cutters: &[Vec<f64>; 3]) {
@@ -193,6 +193,26 @@ struct Target {
     /// One part (or body) that is its box exactly, square to the axes: no dotted box drawn
     /// before the stretch (it would only redraw its edges).
     filled: bool,
+    /// Per axis, the cutter it takes when none is kept: the middle, else the nearest ratio clear
+    /// of its holes and round sections (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    defaults: [f64; 3],
+}
+
+/// The ratio nearest the middle of `lo..hi` clear of the extents `closed` (1 mm away), the
+/// middle when none is.
+fn clear_ratio(lo: f64, hi: f64, closed: &[(f64, f64)]) -> f64 {
+    let len = hi - lo;
+    if len <= MIN {
+        return 0.5;
+    }
+    let m = KEEP / len;
+    let spans: Vec<(f64, f64)> = closed.iter().map(|(a, b)| ((a - lo) / len - m, (b - lo) / len + m)).collect();
+    let free = |r: f64| (SAME_CUT..=1.0 - SAME_CUT).contains(&r) && spans.iter().all(|(a, b)| r <= *a || r >= *b);
+    std::iter::once(0.5)
+        .chain(spans.iter().flat_map(|(a, b)| [*a, *b]))
+        .filter(|r| free(*r))
+        .min_by(|x, y| (x - 0.5).abs().total_cmp(&(y - 0.5).abs()))
+        .unwrap_or(0.5)
 }
 
 /// The axes of a box `lo..hi` a turned body spans whole across its axis: `turned`, each such
@@ -265,7 +285,11 @@ impl Target {
             .collect();
         let fixed = fixed_axes(&turned, lo, hi);
         let filled = matches!(&occs[..], [o] if cx.doc.part(o.component).is_ok_and(|p| fills(p.shape(), to_target * o.transform)));
-        Some(Target { context, occurrences, bodies: None, group: Vec::new(), keep, in_context, frame, lo, hi, fixed, filled })
+        let defaults = std::array::from_fn(|k| {
+            let closed = cx.doc.closed_curve_spans(occs.iter().map(|o| (o.component, to_target * o.transform)), DVec3::AXES[k]);
+            clear_ratio(lo[k], hi[k], &closed)
+        });
+        Some(Target { context, occurrences, bodies: None, group: Vec::new(), keep, in_context, frame, lo, hi, fixed, filled, defaults })
     }
 
     /// The bodies `ids` of the part `path` places (docs/model/bodies.md): along the body's own axes (one, and
@@ -287,9 +311,22 @@ impl Target {
         let (lo, hi) = super::handle::bodies_bounds(cx, &part, &bodies, in_part)?;
         let fixed = fixed_axes(&turned_bodies(cx, &part, in_part.inverse(), Some(&ids)), lo, hi);
         let filled = matches!(&bodies[..], [b] if fills(part.solid_of(b), in_part.inverse() * b.placement));
+        let defaults = std::array::from_fn(|k| {
+            let closed: Vec<(f64, f64)> = bodies
+                .iter()
+                .filter_map(|b| {
+                    let t = in_part.inverse() * b.placement;
+                    let s = skraft_model::kernel::Stretch::new(DVec3::AXES[k], Vec::new(), vec![0.0]).ok()?.in_frame(&t);
+                    let at = DVec3::AXES[k].dot(t.translation);
+                    Some(s.closed_curve_spans(part.solid_of(b)).into_iter().map(move |(a, b)| (a + at, b + at)))
+                })
+                .flatten()
+                .collect();
+            clear_ratio(lo[k], hi[k], &closed)
+        });
         let (context, occurrences) = (path.occurrences.clone(), vec![path.entity]);
         let group = path.group.clone();
-        Some(Target { context, occurrences, bodies: Some(ids), group, keep, in_context: in_part, frame, lo, hi, fixed, filled })
+        Some(Target { context, occurrences, bodies: Some(ids), group, keep, in_context: in_part, frame, lo, hi, fixed, filled, defaults })
     }
 
     /// The path of the part (or group) whose bodies are stretched.
@@ -363,7 +400,7 @@ impl Target {
     fn load_cutters(&self, cx: &Cx<'_>) -> [Vec<f64>; 3] {
         let Keep::Component { id, map } = &self.keep else {
             let Keep::Session(key) = &self.keep else { unreachable!() };
-            return load_cutters(*key);
+            return load_cutters(*key).unwrap_or_else(|| self.defaults.map(|r| vec![r]));
         };
         let behavior = cx.doc.component(*id).map(|c| c.behavior.clone()).unwrap_or_default();
         std::array::from_fn(|k| {
@@ -371,7 +408,8 @@ impl Target {
             if behavior.no_stretch.locks(j) {
                 return Vec::new();
             }
-            let own = behavior.cutters.as_ref().map(|c| c[j].clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![0.5]);
+            let fresh = if flip { 1.0 - self.defaults[k] } else { self.defaults[k] };
+            let own = behavior.cutters.as_ref().map(|c| c[j].clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![fresh]);
             sanitized(if flip { reversed(&own) } else { own }, false)
         })
     }
@@ -1678,5 +1716,14 @@ mod tests {
         // Kept on a component: none left locks the axis.
         assert!(sanitized(vec![1.0], true).is_empty());
         assert_eq!(reversed(&[0.25, 0.5]), vec![0.5, 0.75]);
+    }
+
+    #[test]
+    fn the_default_cutter_keeps_clear_of_holes() {
+        // A hole across the middle of a 600 long board: the cutter 1 mm before it.
+        assert!((clear_ratio(0.0, 600.0, &[(275.0, 325.0)]) - 274.0 / 600.0).abs() < 1e-12);
+        // None in the way, or no room anywhere: the middle.
+        assert_eq!(clear_ratio(0.0, 600.0, &[(100.0, 150.0)]), 0.5);
+        assert_eq!(clear_ratio(0.0, 100.0, &[(0.0, 100.0)]), 0.5);
     }
 }

@@ -21,7 +21,8 @@ Decision records: [Stretch after OpenCutList's Smart Reshape](../decisions/0008-
 ## What it does
 
 As in OCL: the box has a grip on each of its 6 faces; pulling one stretches along that axis,
-the opposite face anchored. **Cutters** — planes across the axis, one in the middle by default,
+the opposite face anchored. **Cutters** — planes across the axis, one in the middle by default
+(moved to the nearest place clear of the target's holes and round sections, when there is one),
 added, moved or removed by the user — split the target into **sections**: each section is
 translated by its share of the move, the matter crossing a cutter is lengthened or shortened.
 Options: **centred** (both ends move), **measure** as the overall dimension or as the offset;

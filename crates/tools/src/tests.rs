@@ -3053,6 +3053,16 @@ fn stretch_tool_draws_its_box_dotted_but_around_a_box() {
 }
 
 #[test]
+fn stretch_tool_puts_its_cutter_clear_of_a_hole_in_the_middle() {
+    // A Ø 10 hole at x = 300 of a 600 board: the cutter 1 mm before it, so the hole moves whole
+    // and stays round (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    let (mut e, a) = drilled_board_editor(&[300.0]);
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("700".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 700.0), vec![400.0]), "{}", e.status());
+}
+
+#[test]
 fn stretch_tool_pulls_a_grip() {
     let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
     // The grip at the centre of the end face, taken near it on screen: the overall length

@@ -214,6 +214,34 @@ impl Document {
         Ok(spans)
     }
 
+    /// The extents along `axis` of the closed curves (holes, round sections) of the parts the
+    /// components `placed` hold, each placed in the stretch's axes ([`Stretch::closed_curve_spans`]):
+    /// where the tool keeps its default cutter clear of.
+    pub fn closed_curve_spans(&self, placed: impl IntoIterator<Item = (Id, DAffine3)>, axis: DVec3) -> Vec<(f64, f64)> {
+        let mut out = Vec::new();
+        let Ok(s) = Stretch::new(axis, Vec::new(), vec![0.0]) else { return out };
+        for (component, t) in placed {
+            self.collect_closed_spans(component, &s.in_frame(&t), s.axis().dot(t.translation), &mut out, 0);
+        }
+        out
+    }
+
+    fn collect_closed_spans(&self, component: Id, s: &Stretch, shift: f64, out: &mut Vec<(f64, f64)>, depth: usize) {
+        let Ok(c) = self.component(component) else { return };
+        if depth > MAX_DEPTH {
+            return;
+        }
+        match &c.kind {
+            ComponentKind::Part(p) => out.extend(s.closed_curve_spans(p.shape()).into_iter().map(|(lo, hi)| (lo + shift, hi + shift))),
+            ComponentKind::Assembly(a) => {
+                for o in a.occurrences() {
+                    let at = s.axis().dot(o.transform.translation);
+                    self.collect_closed_spans(o.component, &s.in_frame(&o.transform), shift + at, out, depth + 1);
+                }
+            }
+        }
+    }
+
     /// [`Document::stretch_spans`] for bodies of the part `target` places, the stretch's axes
     /// placed by `frame` in the part's ([`Operation::StretchBodies`](crate::Operation::StretchBodies)).
     pub fn body_stretch_spans(
