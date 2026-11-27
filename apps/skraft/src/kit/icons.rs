@@ -16,6 +16,7 @@ icon!(TURN, "turn");
 icon!(EXTRUSION, "extrusion");
 icon!(REVOLUTION, "revolution");
 icon!(SOLID, "solid");
+icon!(PART, "part");
 icon!(PROFILE, "profile");
 icon!(MOVE, "move");
 icon!(ROTATE, "rotate");
