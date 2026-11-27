@@ -323,8 +323,10 @@ and arcs of circles and ellipses, conservative for curved faces —, `section_sp
 beside a concave arc, where only its circle would pass, crosses straight matter alone. The
 arc is the edge's interval (the circle's angle), or, when the edge is parameterised on a NURBS
 form, the side of its ends where that form's first inner control point lies.
-`Solid::stretched` reads the rewritten record back into the kernel, which validates it; a
-refusal cancels the stretch.
+`apply` checks the rewritten record as data (parameter ranges, references, topology), as the
+kernel does before reading it: a fault is the stretch's, never the solid's, and refuses it
+naming the edge or face at fault (`StretchError::Unreadable`). `Solid::stretched` then reads
+the record back into the kernel, which checks its geometry; a refusal cancels the stretch.
 
 - An element (vertex, edge, face) entirely in one section is **translated** with it: points,
   curves and surfaces with their NURBS form; pcurves and domains unchanged.

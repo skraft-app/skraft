@@ -14,7 +14,9 @@
 //!   as the kernel writes a prism's arc sides (stretched like a cylinder's net).
 //!
 //! Anything else across a cutter refuses the stretch ([`StretchError`]), as OpenCutList refuses
-//! a curve crossing a cutter. The result is only checked by the kernel when it reads the record
+//! a curve crossing a cutter. The rewritten record is checked as data ([`Record::validate_built`]:
+//! parameter ranges, references, topology), a fault naming the edge or face at fault
+//! ([`StretchError::Unreadable`]); its geometry is checked by the kernel when it reads the record
 //! back (the recipe task does).
 //!
 //! Extents along the axis are taken from the vertices and the curves, plus the surface for faces
@@ -28,7 +30,7 @@ use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 use skraft_i18n::t;
 use solidcore_record::brep::blend::{BlendDefinition, BlendDefinitionRecord, NurbsCurveRecord, NurbsSurfaceRecord, SupportRecord};
-use solidcore_record::brep::{Brep as Record, Curve, Curve2, Edge, Face, Frame, Loop, Surface};
+use solidcore_record::brep::{Brep as Record, Curve, Curve2, Edge, Face, Frame, Loop, Surface, check_interval, knot_domain};
 
 use crate::Solid;
 
@@ -57,6 +59,9 @@ pub enum StretchError {
     /// This face, scaled across a cutter, meets matter that only moves where it would have to
     /// move otherwise (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
     Meets(u32),
+    /// The rewritten record is not valid data (a parameter interval past its curve's knots…):
+    /// a fault of the stretch, never of the solid. Says what and where.
+    Unreadable(String),
 }
 
 impl std::fmt::Display for StretchError {
@@ -68,6 +73,7 @@ impl std::fmt::Display for StretchError {
             StretchError::Unsupported(_) => t!("error.stretch.unsupported"),
             StretchError::Collapsed => t!("error.stretch.collapsed"),
             StretchError::Meets(_) => t!("error.stretch.meets"),
+            StretchError::Unreadable(what) => t!("error.stretch.unreadable", what = what),
         };
         f.write_str(&text)
     }
@@ -440,6 +446,7 @@ impl Stretch {
             }
             map.finish(self, f)?;
         }
+        check(&r)?;
         Ok(Solid::from_record(r))
     }
 
@@ -918,6 +925,35 @@ impl FaceMap {
         }
         Ok(())
     }
+}
+
+/// The rewritten record checked as data, as the kernel checks it before reading it: on a fault,
+/// the first edge or face whose parameter interval leaves its natural range, else the check's
+/// own message. Linear in the record, no geometry evaluated. An empty solid ([`Solid::empty`], no
+/// shells) is no SolidCore record and stays as it is.
+fn check(r: &Record) -> Result<(), StretchError> {
+    if r.faces.is_empty() {
+        return Ok(());
+    }
+    let Err(e) = r.validate_built() else { return Ok(()) };
+    let edge = r.edges.iter().enumerate().find_map(|(i, edge)| {
+        check_interval(&edge.interval, edge.parameters().natural()).err().map(|e| format!("edge {i}: {e} ({:?})", edge.interval))
+    });
+    let face = || {
+        r.faces.iter().enumerate().find_map(|(i, f)| {
+            let natural = match f.parameters() {
+                Surface::Spline { u_knots, v_knots, points } => {
+                    [knot_domain(u_knots, points.len()), knot_domain(v_knots, points.first().map_or(0, Vec::len))]
+                }
+                Surface::RationalSpline { u_knots, v_knots, homogeneous } => {
+                    [knot_domain(u_knots, homogeneous.len()), knot_domain(v_knots, homogeneous.first().map_or(0, Vec::len))]
+                }
+                _ => return None,
+            };
+            (0..2).find_map(|d| check_interval(&f.domain[d], natural[d]).err()).map(|e| format!("face {i}: {e} ({:?})", f.domain))
+        })
+    };
+    Err(StretchError::Unreadable(edge.or_else(face).unwrap_or_else(|| e.to_string())))
 }
 
 /// A closed interval along the axis; empty when `lo > hi`.
