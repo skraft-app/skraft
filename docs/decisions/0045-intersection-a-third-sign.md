@@ -27,8 +27,9 @@ third sign, where a node (0042) would add an ordered operation for nothing.
   body limits** (two templates laid over each other). Their union limits by grouping them in a
   ∩ group, whose children are positive (as a negative group's: the shape it limits by).
 - **No ∩ node**, nor a mirror node (a mirror is a placement): `NodeOp` keeps its blends.
-- **The sign chosen**: the navigator's sign button cycles `+ → − → ∩ → +`; the drawing tools'
-  « Solide » in an open part gains a third choice, « Intersecter ».
+- **The sign chosen**: the navigator's sign button cycles `− → + → ∩ → −`, the order of the
+  drawing tools' choices; the drawing tools' « Solide » in an open part gains a third choice,
+  « Intersecter ».
 - **Shown**, in an open part, as a ghost of a third hue (a blue-green), beside the blanks' very
   light ghosts and the machinings' red ones; the ∩ icon on its navigator row.
 - **The « Intersecter » tool** does as « Soustraire »: each tool part comes into the target as
