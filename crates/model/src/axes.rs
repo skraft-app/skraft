@@ -169,10 +169,11 @@ pub(crate) struct Born {
     pub axes: Option<DAffine3>,
 }
 
-/// `primitive` for a part oriented by OpenCutList's rule ([`drawn_axes`]). A box, and a prism whose
-/// blue axis is its height, are built in those axes and stay plain parts, at no cost, their
-/// origin at their low corner as any part drawn; the others are given new axes once made, about
-/// their origin.
+/// `primitive` for a part oriented by OpenCutList's rule ([`drawn_axes`]). A box or a prism whose
+/// blue axis is its height is turned in its plane, built in those axes and stays a plain part, at
+/// no cost, its origin at its low corner as any part drawn; the others are given new axes once
+/// made, about their origin, so that their profile stays the outline drawn (a tall box's
+/// rectangle, as a tall prism's or cylinder's).
 pub(crate) fn oriented(primitive: &Primitive) -> Born {
     let (local, at) = primitive.at_origin();
     let here = DAffine3::from_translation(at);
@@ -181,12 +182,13 @@ pub(crate) fn oriented(primitive: &Primitive) -> Born {
     };
     let a = DAffine3::from_mat3(m);
     let into = a.inverse();
+    let flat = m.z_axis.abs_diff_eq(DVec3::Z, 1e-12);
     match &local {
-        Primitive::Box { size, .. } => {
+        Primitive::Box { size, .. } if flat => {
             let turned = into.transform_vector3(*size);
             Born { primitive: Primitive::Box { origin: turned.min(DVec3::ZERO), size: turned.abs() }, placed: here * a, axes: None }
         }
-        Primitive::Prism { profile, height, .. } if m.z_axis.abs_diff_eq(DVec3::Z, 1e-12) => {
+        Primitive::Prism { profile, height, .. } if flat => {
             let corners = profile.iter().map(|c| profile::Corner { p: into.transform_point3(c.p.extend(0.0)).truncate(), ..*c }).collect();
             Born { primitive: Primitive::Prism { origin: DVec3::ZERO, profile: corners, height: *height }, placed: here * a, axes: None }
         }
