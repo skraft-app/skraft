@@ -164,7 +164,7 @@ impl Editor {
         let value = match vcb::read(&spec, text, &self.document().settings().units, &self.axes_transform()) {
             Ok(v) => v,
             Err(message) => {
-                self.message = Some(message);
+                self.notify(super::NoticeKind::Error, message, None);
                 return true;
             }
         };

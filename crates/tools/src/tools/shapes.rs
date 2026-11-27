@@ -840,14 +840,14 @@ impl BoxTool {
         // A fillet too big for the base made: the step stays, to change it.
         let r = cx.length(FILLET);
         if size.x >= MIN && size.y >= MIN && !fillet_fits(size.x, size.y, r) {
-            return vec![Command::Say(t!("tool.box.say.fillet_too_big"))];
+            return vec![super::refuse(t!("tool.box.say.fillet_too_big"))];
         }
         self.state = BoxState::First;
         if d.x.abs() < MIN || d.y.abs() < MIN || z1 - z0 < MIN {
-            return vec![Command::Say(t!("tool.box.say.empty"))];
+            return vec![super::refuse(t!("tool.box.say.empty"))];
         }
         if size.x < MIN || size.y < MIN {
-            return vec![Command::Say(t!("tool.shape.say.offset_empty"))];
+            return vec![super::refuse(t!("tool.shape.say.offset_empty"))];
         }
         let (origin, placement) = if f.aligned() {
             // In the axes: corners as clicked, no rounding through a frame.
@@ -869,7 +869,7 @@ impl BoxTool {
         let BoxState::Height { f, dir, p2, centered, .. } = self.state else { return vec![] };
         if h.abs() < MIN {
             self.state = BoxState::Height { f, dir, p2, centered, h };
-            return vec![Command::Say(t!("tool.box.say.empty"))];
+            return vec![super::refuse(t!("tool.box.say.empty"))];
         }
         let (f, p2) = base(f, p2, centered);
         self.finish(cx, f, p2, h)
@@ -933,7 +933,7 @@ impl Tool for BoxTool {
             (ToolInput::Click { .. }, BoxState::Base { f, dir, p2 }) => {
                 let d = f.local(p2);
                 if d.x.abs() < MIN || d.y.abs() < MIN {
-                    return vec![Command::Say(t!("tool.box.say.empty_base"))];
+                    return vec![super::refuse(t!("tool.box.say.empty_base"))];
                 }
                 self.state = BoxState::Height { f, dir, p2, centered: self.centered, h: 0.0 };
             }
@@ -956,7 +956,7 @@ impl Tool for BoxTool {
                 let k = if self.centered { 0.5 } else { 1.0 };
                 let (w, l) = (v[0], v[1]);
                 if w.abs() < MIN || l.abs() < MIN {
-                    return vec![Command::Say(t!("tool.box.say.base_lengths"))];
+                    return vec![super::refuse(t!("tool.box.say.base_lengths"))];
                 }
                 let p2 = if f.aligned() { f.o + DVec3::new(w * k, l * k, 0.0) } else { f.at(DVec3::new(w * k, l * k, 0.0)) };
                 self.state = BoxState::Height { f, dir, p2, centered: self.centered, h: 0.0 };
@@ -1224,12 +1224,12 @@ impl CylinderTool {
         self.state = CylState::Center;
         let (z0, z1) = span(h, self.pull_centered);
         if r < MIN || z1 - z0 < MIN {
-            return vec![Command::Say(t!("tool.cylinder.say.empty"))];
+            return vec![super::refuse(t!("tool.cylinder.say.empty"))];
         }
         // The radius moved by the offset (in Diameter mode too: the outline moves).
         let r = r + cx.length(OFFSET);
         if r < MIN {
-            return vec![Command::Say(t!("tool.shape.say.offset_empty"))];
+            return vec![super::refuse(t!("tool.shape.say.offset_empty"))];
         }
         let (origin, placement) = if f.aligned() {
             (DVec3::new(f.o.x, f.o.y, f.o.z + z0), DAffine3::IDENTITY)
@@ -1245,7 +1245,7 @@ impl CylinderTool {
         let CylState::Height { f, rim, .. } = self.state else { return vec![] };
         if h.abs() < MIN {
             self.state = CylState::Height { f, rim, h };
-            return vec![Command::Say(t!("tool.cylinder.say.empty"))];
+            return vec![super::refuse(t!("tool.cylinder.say.empty"))];
         }
         self.finish(cx, f, rim.length(), h)
     }
@@ -1317,7 +1317,7 @@ impl Tool for CylinderTool {
             (ToolInput::Value(VcbValue::Lengths(v)), CylState::Radius { f, rim }) => {
                 let r = if self.diameter { v[0] / 2.0 } else { v[0] };
                 if r < MIN {
-                    return vec![Command::Say(t!("tool.cylinder.say.zero_radius"))];
+                    return vec![super::refuse(t!("tool.cylinder.say.zero_radius"))];
                 }
                 // The typed radius, the way the cursor gave.
                 self.state = CylState::Height { f, rim: rim.try_normalize().unwrap_or(DVec3::X) * r, h: 0.0 };

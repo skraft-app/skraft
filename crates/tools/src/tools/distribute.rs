@@ -248,7 +248,7 @@ impl DistributeTool {
         match v {
             VcbValue::Counts(c) => match c.first().copied().flatten().map(Self::count) {
                 Some(Ok(n)) => p.number = n,
-                Some(Err(say)) => return vec![Command::Say(say)],
+                Some(Err(say)) => return vec![super::refuse(say)],
                 None => return vec![],
             },
             VcbValue::Spacings(s) => p.spacings = s.clone(),
@@ -290,7 +290,7 @@ impl Tool for DistributeTool {
         };
         // The last distribute again (OCL's double-click), on what is picked now.
         if let ToolInput::DoubleClick { .. } = input {
-            let Some(p) = self.previous.clone() else { return vec![Command::Say(t!("tool.distribute.say.nothing_to_repeat"))] };
+            let Some(p) = self.previous.clone() else { return vec![super::refuse(t!("tool.distribute.say.nothing_to_repeat"))] };
             (self.number, self.spacings) = (p.number, p.spacings.clone());
             return self.finish(cx, t, p);
         }
@@ -316,7 +316,7 @@ impl Tool for DistributeTool {
             }
             (State::End { .. }, ToolInput::Value(VcbValue::Counts(c))) => match c.first().copied().flatten().map(Self::count) {
                 Some(Ok(n)) => self.number = n,
-                Some(Err(say)) => return vec![Command::Say(say)],
+                Some(Err(say)) => return vec![super::refuse(say)],
                 None => {}
             },
             (State::End { .. }, ToolInput::Value(VcbValue::Spacings(s))) => self.spacings = s.clone(),

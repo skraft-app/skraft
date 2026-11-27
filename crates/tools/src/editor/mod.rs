@@ -655,6 +655,12 @@ impl Editor {
         std::mem::take(&mut self.notices)
     }
 
+    /// A toast saying why a gesture or a value was refused (docs/ui/interface.md#toasts), for
+    /// what the editor does not run itself (the drawing's sheet).
+    pub fn refuse(&mut self, why: String) {
+        self.notify(NoticeKind::Error, why, None);
+    }
+
     pub(super) fn notify(&mut self, kind: NoticeKind, title: String, detail: Option<String>) {
         self.push_notice(Notice { kind, title, detail, action: None, also: None });
     }
@@ -664,6 +670,12 @@ impl Editor {
             self.notices.remove(0);
         }
         self.notices.push(notice);
+    }
+
+    /// The last notice's title (empty: none yet), for the tests: what a toast says.
+    #[cfg(test)]
+    pub(crate) fn last_notice(&self) -> String {
+        self.notices.last().map(|n| n.title.clone()).unwrap_or_default()
     }
 
     pub fn status(&self) -> String {
@@ -937,7 +949,7 @@ impl Editor {
         let OptionValue::Length(current) = option.value else { return };
         match measure::coordinate(text, &self.document().settings().units, current) {
             Ok(v) => self.set_tool_option(option.key, OptionValue::Length(v)),
-            Err(e) => self.message = Some(t!("tool.vcb.refused", label = option.label, text = text.trim(), error = e)),
+            Err(e) => self.notify(NoticeKind::Error, t!("tool.vcb.refused", label = option.label, text = text.trim(), error = e), None),
         }
     }
 
@@ -1243,7 +1255,7 @@ impl Editor {
                 match vcb::read(&spec, &text, &self.document().settings().units, &self.axes_transform()) {
                     Ok(v) => ToolInput::Value(v),
                     Err(message) => {
-                        self.message = Some(message);
+                        self.notify(NoticeKind::Error, message, None);
                         return;
                     }
                 }
@@ -1675,7 +1687,7 @@ impl Editor {
                 Some(b) if !b.hit_by(&self.camera.ray(px, self.size)) => self.exit(),
                 _ => self.clear_selection(),
             },
-            Command::Say(s) => self.message = Some(s),
+            Command::Notify(kind, s) => self.notify(kind, s, None),
             Command::Imprint { sources, receivers, shown } => {
                 self.imprint_shown = Some(*shown);
                 self.ask_imprint(sources, receivers);
@@ -1709,7 +1721,7 @@ impl Editor {
                     let after = if matches!(*op, Operation::At { .. } | Operation::Batch(_)) { After::Nothing } else { After::Select };
                     let _ = self.start(*op, after, true);
                 } else {
-                    self.message = Some(t!("status.copy_not_last"));
+                    self.notify(NoticeKind::Error, t!("status.copy_not_last"), None);
                 }
             }
         }

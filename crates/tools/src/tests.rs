@@ -129,7 +129,7 @@ fn typed_expressions_lists_and_points() {
     e.input(ToolInput::Hover { px: px(&e, DVec3::new(100.0, 50.0, 0.0)) });
     e.input(ToolInput::Vcb("2*300=".into()));
     e.input(ToolInput::Vcb("2m*3m".into()));
-    assert_eq!(e.status(), "Hauteur — « 2m*3m » : unités incompatibles");
+    assert_eq!(e.last_notice(), "Hauteur — « 2m*3m » : unités incompatibles");
     e.input(ToolInput::Vcb("200/2".into()));
     let id = drawn(&e);
     let (lo, hi) = bounds_of(&e, &EntityPath::root(id));
@@ -267,9 +267,9 @@ fn shape_offset_moves_the_outline() {
     click(&mut e, DVec3::new(-500.0, -500.0, 0.0));
     e.input(ToolInput::Vcb("100;100;10".into()));
     assert_eq!(drawn(&e), before);
-    assert_eq!(e.status(), "Le décalage ne laisse rien de la forme");
+    assert_eq!(e.last_notice(), "Le décalage ne laisse rien de la forme");
     e.input(ToolInput::Vcb("2°x".into()));
-    assert!(e.status().starts_with("Décalage — « 2° »"), "{}", e.status());
+    assert!(e.last_notice().starts_with("Décalage — « 2° »"), "{}", e.last_notice());
     assert_eq!(offset(&e), Some(OptionValue::Length(-100.0)));
 
     // The cylinder shares it (as OCL's, docs/tools/draw-options.md); its radius grows by it, in Diameter
@@ -2468,7 +2468,7 @@ fn the_tape_measures_and_draws_guides() {
     click(&mut e, c + radial * 100.0);
     hover(&mut e, c + radial * 40.0);
     e.input(ToolInput::Vcb("150".into()));
-    assert_eq!(e.status(), "Le cercle n'aurait plus de rayon : pas de guide");
+    assert_eq!(e.last_notice(), "Le cercle n'aurait plus de rayon : pas de guide");
     assert_eq!(guides(&e).len(), 3);
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
 
@@ -2557,7 +2557,7 @@ fn the_tape_draws_the_kind_of_guide_chosen() {
     // A circle of no radius: refused.
     click(&mut e, DVec3::new(300.0, 200.0, 100.0));
     e.input(ToolInput::Vcb("0".into()));
-    assert_eq!(e.status(), "Le cercle n'aurait plus de rayon : pas de guide");
+    assert_eq!(e.last_notice(), "Le cercle n'aurait plus de rayon : pas de guide");
     assert_eq!(guides(&e).len(), 6);
 
     // Changed in between: what the first click starts follows (circle, then auto: a measure).
@@ -3073,7 +3073,7 @@ fn stretch_tool_pulls_a_grip() {
     e.set_tool_option("centered", OptionValue::Toggle(true));
     click(&mut e, DVec3::new(700.0, 150.0, 18.0));
     e.input(ToolInput::Vcb("100".into()));
-    assert!(e.status().contains("longueur minimale"), "{}", e.status());
+    assert!(e.last_notice().contains("longueur minimale"), "{}", e.last_notice());
     e.input(ToolInput::Vcb("900".into()));
     // The origin's end moved by −100: the origin follows it (OCL's anchor), the part's axes
     // with it — in the world, the board spans −100..800, its holes at 0, 150, 700.
@@ -3227,7 +3227,7 @@ fn stretch_tool_moves_an_interior_section() {
     // Too far towards the start (away from the grip of the blue axis, at the centre): the gap to the matter before (105–295) keeps 1 mm.
     click(&mut e, on_axis(260.0));
     e.input(ToolInput::Vcb("-200".into()));
-    assert!(e.status().contains("compression maximale de 189"), "{}", e.status());
+    assert!(e.last_notice().contains("compression maximale de 189"), "{}", e.last_notice());
     e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
 
     // Shift held over the handle: its start taken anywhere, here the far hole's centre (a
@@ -3268,7 +3268,7 @@ fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
     // The red axis locked (→): across it, the cylinder cannot stretch.
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     click(&mut e, DVec3::new(50.0, 0.0, 200.0));
-    assert!(e.status().contains("traverse une coupe"), "{}", e.status());
+    assert!(e.last_notice().contains("traverse une coupe"), "{}", e.last_notice());
     let before = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank().clone();
 
     // Along its axis it stretches — the top grip, nearer the eye than the bottom one under it;
@@ -3582,7 +3582,7 @@ fn stretch_tool_in_the_context_axes_refuses_a_part_turned_across_a_cutter() {
     click(&mut e, DVec3::new(70.0, 70.0, 18.0));
     let s = std::f64::consts::FRAC_1_SQRT_2;
     click(&mut e, DVec3::new(200.0 * s, 125.0 * s, 9.0));
-    assert!(e.status().contains("traverse une coupe"), "{}", e.status());
+    assert!(e.last_notice().contains("traverse une coupe"), "{}", e.last_notice());
 }
 
 #[test]
@@ -3975,7 +3975,7 @@ fn turn_by_an_axis_and_a_half_profile() {
         click(&mut e, DVec3::new(x, y, 0.0));
     }
     assert_eq!(e.document().assembly(e.document().root()).unwrap().occurrences().len(), before, "refused");
-    assert!(e.status().contains("traverse"), "{}", e.status());
+    assert!(e.last_notice().contains("traverse"), "{}", e.last_notice());
     // Esc takes the corners back, then the axis, end first.
     for _ in 0..3 {
         key(&mut e, Key::Escape);
@@ -4223,11 +4223,11 @@ fn prism_refuses_a_crossed_outline_and_too_few_corners() {
     e.set_tool(ToolKind::Prism);
     corners(&mut e, &[(0.0, 0.0), (200.0, 0.0)]);
     key(&mut e, Key::Enter);
-    assert!(e.status().contains("trois points"), "{}", e.status());
+    assert!(e.last_notice().contains("trois points"), "{}", e.last_notice());
     // A bow tie.
     corners(&mut e, &[(0.0, 200.0), (200.0, 200.0)]);
     key(&mut e, Key::Enter);
-    assert!(e.status().contains("se croise"), "{}", e.status());
+    assert!(e.last_notice().contains("se croise"), "{}", e.last_notice());
     // Esc takes the last corner away: a triangle closes.
     key(&mut e, Key::Escape);
     key(&mut e, Key::Enter);
@@ -4355,11 +4355,11 @@ fn prism_offset_moves_the_outline_made() {
     corners(&mut e, &u);
     key(&mut e, Key::Enter);
     e.input(ToolInput::Vcb("10".into()));
-    assert!(e.status().contains("croiser"), "{}", e.status());
+    assert!(e.last_notice().contains("croiser"), "{}", e.last_notice());
     // Inward past its middle: nothing left.
     e.input(ToolInput::Vcb("-80x".into()));
     e.input(ToolInput::Vcb("10".into()));
-    assert!(e.status().contains("ne laisse rien"), "{}", e.status());
+    assert!(e.last_notice().contains("ne laisse rien"), "{}", e.last_notice());
     // Inward by 5: made.
     e.input(ToolInput::Vcb("-5x".into()));
     e.input(ToolInput::Vcb("10".into()));
@@ -4548,7 +4548,7 @@ fn box_fillet_rounds_the_corners_made() {
     click(&mut e, DVec3::new(400.0, 0.0, 0.0));
     e.input(ToolInput::Vcb("100;50;18".into()));
     assert_eq!(drawn(&e), before);
-    assert_eq!(e.status(), "Congé trop grand : au plus la moitié du petit côté de la base faite");
+    assert_eq!(e.last_notice(), "Congé trop grand : au plus la moitié du petit côté de la base faite");
     assert_eq!(e.vcb().map(|(l, _)| l), Some("Hauteur".into()), "the height step stays");
     e.input(ToolInput::Vcb("5r".into()));
     e.input(ToolInput::Vcb("18".into()));
@@ -4706,7 +4706,7 @@ fn profile_corner_deleted_crossing_refused_disc_radius() {
     let to = px(&e, DVec3::new(300.0, -100.0, 18.0));
     e.input(ToolInput::Drag { px: to });
     e.input(ToolInput::DragEnd { px: to, mods: Modifiers::default() });
-    assert!(e.status().contains("croiserait"), "{}", e.status());
+    assert!(e.last_notice().contains("croiserait"), "{}", e.last_notice());
     assert_eq!(blank_profile(&e, id), before);
     key(&mut e, Key::Escape);
     // Delete over a corner: a triangle.
@@ -4771,7 +4771,7 @@ fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
     assert_eq!(fillet_grips(&e), 1, "a rounded corner's grip always shows");
     click(&mut e, m);
     e.input(ToolInput::Vcb("400".into()));
-    assert!(e.status().contains("trop grand"), "{}", e.status());
+    assert!(e.last_notice().contains("trop grand"), "{}", e.last_notice());
     // Brought back onto the corner: sharp again.
     click(&mut e, DVec3::new(600.0, 300.0, 18.0));
     assert_eq!(blank_profile(&e, id).profile[2].fillet, 0.0);
@@ -6103,7 +6103,8 @@ fn under_parts_an_assembly_is_made_in_the_parts_assembly() {
     e.select_paths(vec![EntityPath::new(vec![asm], a), EntityPath::root(c)]);
     e.make_assembly();
     assert_eq!(e.history().journal().count(), steps);
-    assert_eq!(e.status(), "Les éléments à regrouper doivent être dans un même assemblage");
+    assert_eq!(e.last_notice(), "Les éléments à regrouper doivent être dans un même assemblage");
+    e.take_notices();
     // Both in the same one: a new assembly there, selected by its path, offered its name.
     e.select_paths(vec![EntityPath::new(vec![asm], a), EntityPath::new(vec![asm], b)]);
     e.make_assembly();

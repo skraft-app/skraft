@@ -373,7 +373,7 @@ impl Editor {
         let guides: Vec<Id> =
             self.document().component(self.guide_component()).map(|c| c.guides.iter().map(|g| g.id).collect()).unwrap_or_default();
         if guides.is_empty() {
-            self.message = Some(t!("status.no_guides"));
+            self.notify(super::NoticeKind::Error, t!("status.no_guides"), None);
             return;
         }
         self.selection.retain(|id| !guides.contains(id));
@@ -392,7 +392,7 @@ impl Editor {
             return self.make_assembly_deep();
         }
         if self.selection.is_empty() {
-            self.message = Some(t!("status.nothing_to_group"));
+            self.notify(super::NoticeKind::Error, t!("status.nothing_to_group"), None);
             return;
         }
         let op = Operation::MakeAssembly { context: self.context_definition(), entities: self.selection.clone(), name: None };
@@ -405,7 +405,7 @@ impl Editor {
         let crate::tools::Moved::Deep { mut groups, unique } = self.cx().moved_deep(&self.deep, &self.deep_guides) else { return };
         let one = groups.len() == 1 && groups[0].part.is_none();
         let Some(g) = groups.pop().filter(|_| one) else {
-            self.message = Some(t!("status.group_one_assembly"));
+            self.notify(super::NoticeKind::Error, t!("status.group_one_assembly"), None);
             return;
         };
         let make = Operation::MakeAssembly { context: Id(0), entities: g.entities, name: None };
@@ -505,7 +505,7 @@ impl Editor {
             return;
         }
         let Some((target, bodies)) = self.selected_bodies().filter(|(_, b)| !b.is_empty()) else {
-            self.message = Some(t!("status.nothing_to_group"));
+            self.notify(super::NoticeKind::Error, t!("status.nothing_to_group"), None);
             return;
         };
         let _ = self.start(Operation::GroupBodies { target, bodies, scope: self.part_scope }, After::SelectNamed, false);

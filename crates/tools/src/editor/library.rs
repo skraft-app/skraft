@@ -160,7 +160,7 @@ impl Editor {
         }
         let paths: Vec<EntityPath> = paths.into_iter().filter(|p| p.occurrences.starts_with(&self.context)).collect();
         if paths.is_empty() {
-            self.message = Some(t!("status.no_occurrence_here"));
+            self.notify(super::NoticeKind::Error, t!("status.no_occurrence_here"), None);
             return;
         }
         self.tool.reset();
