@@ -312,7 +312,7 @@ fn source_row(ui: &mut egui::Ui, c: &skraft_model::Component, width: f32, action
     let labels = Source::ALL.map(label);
     let current = label(c.source);
     let id = ui.make_persistent_id(("info_source", c.id));
-    let picked = ui.scope(|ui| super::props::choice_field(ui, id, Some(&current), &labels, width)).inner;
+    let picked = ui.scope(|ui| crate::kit::widgets::choice_field(ui, id, Some(&current), &labels, width)).inner;
     if let Some(k) = picked.and_then(|p| labels.iter().position(|l| *l == p))
         && Source::ALL[k] != c.source
     {

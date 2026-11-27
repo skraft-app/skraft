@@ -228,7 +228,7 @@ fn end_buttons(ui: &mut egui::Ui, s: &Strip<'_>, mut x: f32, y: f32, more: bool,
             .tip(t!("tabs.more_tip"));
         egui::Popup::menu(&more).style(crate::kit::style::menu).show(|ui| {
             for (i, tab) in tabs.iter().enumerate() {
-                if ui.selectable_label(shown == Some(i), tab.title()).clicked() {
+                if crate::kit::widgets::choice_item(ui, shown == Some(i), tab.title()).clicked() {
                     chosen = Some(i);
                 }
             }

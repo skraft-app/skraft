@@ -128,14 +128,11 @@ impl SkraftApp {
         crate::kit::style::settings_section(ui, &t!("prefs.model.units"));
         crate::kit::style::settings_grid(ui, "model_units", |ui| {
             ui.label(t!("prefs.model.lengths"));
-            egui::ComboBox::from_id_salt("length_unit")
-                .icon(crate::kit::icons::combo_chevron)
-                .selected_text(s.units.length.name())
-                .show_ui(ui, |ui| {
-                    for u in LengthUnit::ALL {
-                        ui.selectable_value(&mut s.units.length, u, u.name());
-                    }
-                });
+            crate::kit::widgets::ChoiceList::new("length_unit", s.units.length.name()).show(ui, |list| {
+                for u in LengthUnit::ALL {
+                    list.value(&mut s.units.length, u, u.name());
+                }
+            });
             ui.end_row();
             ui.label(t!("prefs.model.decimals"));
             ui.add(egui::Slider::new(&mut s.units.decimals, 0..=6));
@@ -394,17 +391,15 @@ fn general_settings(ui: &mut egui::Ui, prefs: &mut Preferences) {
         ui.label(t!("prefs.general.language"));
         let before = prefs.locale.clone();
         let system = t!("prefs.general.language_system", language = skraft_i18n::locale_name(crate::system::language::system()));
-        egui::ComboBox::from_id_salt("locale")
-            .icon(crate::kit::icons::combo_chevron)
-            .selected_text(prefs.locale.as_deref().map_or_else(|| system.clone(), skraft_i18n::locale_name))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut prefs.locale, None, system);
-                ui.separator();
-                for l in skraft_i18n::available_locales() {
-                    let name = skraft_i18n::locale_name(&l);
-                    ui.selectable_value(&mut prefs.locale, Some(l), name);
-                }
-            });
+        let shown = prefs.locale.as_deref().map_or_else(|| system.clone(), skraft_i18n::locale_name);
+        crate::kit::widgets::ChoiceList::new("locale", shown).show(ui, |list| {
+            list.value(&mut prefs.locale, None, system);
+            list.separator();
+            for l in skraft_i18n::available_locales() {
+                let name = skraft_i18n::locale_name(&l);
+                list.value(&mut prefs.locale, Some(l), name);
+            }
+        });
         if prefs.locale != before {
             crate::system::language::apply(prefs.locale.as_deref());
         }
@@ -492,11 +487,17 @@ const ZOOMS: [f32; 8] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
 fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &str) {
     egui::Grid::new("interface").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(t!("prefs.interface.theme"));
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut prefs.theme, Choice::System, t!("prefs.interface.system"));
-            ui.selectable_value(&mut prefs.theme, Choice::Light, t!("prefs.interface.light"));
-            ui.selectable_value(&mut prefs.theme, Choice::Dark, t!("prefs.interface.dark"));
-        });
+        // The three values side by side (docs/ui/interface.md#widgets).
+        let themes = [
+            (Choice::System, t!("prefs.interface.system"), "system"),
+            (Choice::Light, t!("prefs.interface.light"), "light"),
+            (Choice::Dark, t!("prefs.interface.dark"), "dark"),
+        ];
+        let segments: Vec<_> = themes.iter().map(|(c, l, _)| crate::kit::widgets::Segment::new(l, "", None, prefs.theme == *c)).collect();
+        let id = ui.make_persistent_id("prefs_theme");
+        if let Some(i) = crate::kit::widgets::segmented(ui, id, &segments, |i| format!("prefs.theme:{}", themes[i].2)) {
+            prefs.theme = themes[i].0;
+        }
         ui.end_row();
         ui.label(t!("prefs.interface.palette"));
         // The cards show the variant the theme draws now.
@@ -513,14 +514,11 @@ fn interface_settings(ui: &mut egui::Ui, prefs: &mut Preferences, workspace: &st
         ui.end_row();
         ui.label(t!("prefs.interface.zoom"));
         let percent = |zoom: f32| t!("window.zoom", percent = (zoom * 100.0).round() as i32);
-        egui::ComboBox::from_id_salt("ui_zoom").icon(crate::kit::icons::combo_chevron).selected_text(percent(prefs.zoom)).show_ui(
-            ui,
-            |ui| {
-                for zoom in ZOOMS {
-                    ui.selectable_value(&mut prefs.zoom, zoom, percent(zoom));
-                }
-            },
-        );
+        crate::kit::widgets::ChoiceList::new("ui_zoom", percent(prefs.zoom)).show(ui, |list| {
+            for zoom in ZOOMS {
+                list.value(&mut prefs.zoom, zoom, percent(zoom));
+            }
+        });
         ui.end_row();
         ui.label(t!("prefs.interface.ribbon_labels"));
         ui.checkbox(&mut prefs.ribbon.labels, "");

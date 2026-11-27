@@ -1,5 +1,5 @@
-//! The guard of « built once » (docs/ui/interface.md#widgets): outside `kit/`, no button is
-//! built from egui's own — a screen takes the kit's (`IconButton`, `segmented`,
+//! The guard of « built once » (docs/ui/interface.md#widgets): outside `kit/`, no button nor
+//! drop-down list is built from egui's own — a screen takes the kit's (`IconButton`, `segmented`,
 //! `option_button`, `LabelButton`, `confirm_buttons`…), and a variant missing (a size, a lit
 //! state, a look) is added to the kit's widget. The files still holding egui's buttons from
 //! before are listed with their count, a ceiling that only goes down: a file moved to the kit
@@ -8,6 +8,7 @@
 /// What builds a button from egui's own.
 const RAW: &[&str] = &[
     "egui::Button::",
+    "egui::ComboBox",
     "egui::ImageButton",
     "egui::SelectableLabel",
     ".button(",
@@ -23,22 +24,22 @@ const CEILINGS: &[(&str, usize)] = &[
     ("app/dialogs.rs", 2),
     ("app/documents.rs", 1),
     ("app/layout.rs", 1),
-    ("app/settings.rs", 9),
+    ("app/settings.rs", 2),
     ("dialogs/about.rs", 1),
-    ("dialogs/journal_window.rs", 3),
-    ("dialogs/nav_prefs.rs", 10),
+    ("dialogs/journal_window.rs", 2),
+    ("dialogs/nav_prefs.rs", 5),
     ("dialogs/update.rs", 3),
-    ("window/tabs.rs", 2),
+    ("window/tabs.rs", 1),
     ("window/titlebar.rs", 2),
     ("workspaces/common/cards/catalog.rs", 1),
     ("workspaces/common/cards/info.rs", 1),
     ("workspaces/common/cards/materials.rs", 1),
     ("workspaces/common/cards/navigator.rs", 2),
-    ("workspaces/common/cards/props.rs", 3),
+    ("workspaces/common/cards/props.rs", 2),
     ("workspaces/common/viewport/options.rs", 1),
     ("workspaces/common/viewport/view_bar.rs", 2),
-    ("workspaces/drawing/cards/info.rs", 11),
-    ("workspaces/drawing/dialogs/view_framer.rs", 5),
+    ("workspaces/drawing/cards/info.rs", 2),
+    ("workspaces/drawing/dialogs/view_framer.rs", 2),
 ];
 
 /// The raw buttons of `src` (comment lines left out). A call with no argument is not egui's

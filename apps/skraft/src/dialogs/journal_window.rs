@@ -170,30 +170,24 @@ fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
     let entries: Vec<&Entry> = journal.since(0).filter(|e| shown.shows(e)).collect();
     // What and who, each a list: the row fits a phone's window.
     let filters = |ui: &mut egui::Ui| {
-        egui::ComboBox::from_id_salt("journal_what")
-            .selected_text(shown.what_label())
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show_ui(ui, |ui| {
-                ui.checkbox(&mut shown.inputs, t!("journal.show.inputs"));
+        crate::kit::widgets::ChoiceList::new("journal_what", shown.what_label())
+            .keep_open()
+            .show(ui, |list| {
+                list.check(&mut shown.inputs, t!("journal.show.inputs"), None);
                 // Among the inputs.
-                ui.horizontal(|ui| {
-                    ui.add_space(ui.spacing().indent);
-                    ui.add_enabled(shown.inputs, egui::Checkbox::new(&mut shown.hovers, t!("journal.show.hovers")));
-                });
-                ui.checkbox(&mut shown.tools, t!("journal.show.tools"));
-                ui.checkbox(&mut shown.operations, t!("journal.show.operations"));
-                ui.checkbox(&mut shown.jobs, t!("journal.show.jobs"));
+                let inputs = shown.inputs;
+                list.check(&mut shown.hovers, t!("journal.show.hovers"), Some(inputs));
+                list.check(&mut shown.tools, t!("journal.show.tools"), None);
+                list.check(&mut shown.operations, t!("journal.show.operations"), None);
+                list.check(&mut shown.jobs, t!("journal.show.jobs"), None);
             })
-            .response
             .tip(t!("journal.what_tip"));
-        egui::ComboBox::from_id_salt("journal_origin")
-            .selected_text(t!("journal.who", who = shown.origin.label()))
-            .show_ui(ui, |ui| {
+        crate::kit::widgets::ChoiceList::new("journal_origin", t!("journal.who", who = shown.origin.label()))
+            .show(ui, |list| {
                 for who in [Who::All, Who::User, Who::Pilot] {
-                    ui.selectable_value(&mut shown.origin, who, who.label());
+                    list.value(&mut shown.origin, who, who.label());
                 }
             })
-            .response
             .tip(t!("journal.who_tip"));
     };
     let copy = |ui: &mut egui::Ui| {

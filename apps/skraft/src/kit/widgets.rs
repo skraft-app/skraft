@@ -4,6 +4,7 @@
 use crate::kit::icons;
 
 mod button;
+mod choice;
 pub(crate) mod color;
 mod field;
 mod form;
@@ -15,6 +16,7 @@ mod tree;
 pub(crate) use button::{
     Confirm, IconButton, LabelButton, Look, OPTION_HEIGHT, VEIL_RADIUS, backed, confirm_buttons, option_button, unframed, veil,
 };
+pub(crate) use choice::{ChoiceList, choice_field, choice_item};
 pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, live_field, rename_field};
 pub(crate) use form::{FormField, form_message, form_row, warning_box};
 pub(crate) use keypad::{KeypadAct, keypad};
