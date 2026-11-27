@@ -224,7 +224,7 @@ moves there rather than being copied. Before drawing something new, look here fi
 In `apps/skraft/src/kit/widgets.rs`:
 
 - **`IconButton`**, the one icon button: a size, an icon and a `Look`. `Plain` has no frame (a
-  navigator row's), `Framed` egui's frame (the entity info's), `Veil` a veil of its ink when
+  navigator row's), `Framed` egui's frame (the entity info's; lit, a segment chosen's frame and its icon in the accent: the navigator's by name), `Veil` a veil of its ink when
   hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
   floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
   is dimmed rather than disabled. `natural` keeps an icon's own colours (the app's mark in the

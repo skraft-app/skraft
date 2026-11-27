@@ -245,13 +245,20 @@ impl IconButton {
     }
 
     /// egui's button frame, drawn here: egui's button aligns its image on the layout's (at the
-    /// top of a row laid out top-down), the icon here always in the middle.
+    /// top of a row laid out top-down), the icon here always in the middle. Lit, it looks as a
+    /// segmented control's segment chosen (a toggle on: the grid / list one's): the selection's
+    /// frame, its icon in the accent.
     fn framed(self, ui: &mut egui::Ui) -> egui::Response {
         let sense = if self.enabled { egui::Sense::click() } else { egui::Sense::hover() };
         let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(self.side), sense);
-        let visuals = if self.enabled { *ui.style().interact(&response) } else { ui.visuals().widgets.inactive };
+        let visuals = match (self.enabled, self.lit) {
+            (false, _) => ui.visuals().widgets.inactive,
+            (true, false) => *ui.style().interact(&response),
+            (true, true) => ui.style().interact_selectable(&response, true),
+        };
         ui.painter().rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
-        let mut ink = self.ink.unwrap_or_else(|| ui.visuals().text_color());
+        let accent = self.lit.then(|| ui.visuals().selection.stroke.color);
+        let mut ink = self.ink.or(accent).unwrap_or_else(|| ui.visuals().text_color());
         if !self.enabled {
             ink = ink.gamma_multiply(0.35);
         }
