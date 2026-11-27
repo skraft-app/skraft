@@ -945,6 +945,52 @@ impl std::fmt::Debug for Assembly {
     }
 }
 
+/// How an occurrence shows, set by the user (docs/tools/interaction.md#hiding-and-wireframe).
+/// Everything under an occurrence takes its state, the deepest one along a path winning;
+/// [`Visibility::Hidden`] above beats [`Visibility::Wireframe`] below it.
+///
+/// Ordered by how much each takes away — shown < wireframe < hidden — so `max` is the
+/// stronger of two states (exploding an assembly into its content).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Visibility {
+    /// Drawn, picked, inferred on and framed: the usual state.
+    #[default]
+    Shown,
+    /// « Filaire »: drawn see-through, as a reference to draw from — neither picked, inferred
+    /// on nor hovered, so the cursor passes through it — but framed by zoom extents, and
+    /// marked where it is when the navigator selects it.
+    Wireframe,
+    /// Neither drawn, picked, inferred on nor framed.
+    Hidden,
+}
+
+impl Visibility {
+    /// The usual state (serialising skips it).
+    pub fn is_shown(&self) -> bool {
+        *self == Visibility::Shown
+    }
+
+    /// Drawn see-through and inert.
+    pub fn is_wireframe(&self) -> bool {
+        *self == Visibility::Wireframe
+    }
+
+    /// Not drawn at all.
+    pub fn is_hidden(&self) -> bool {
+        *self == Visibility::Hidden
+    }
+
+    /// The state the navigator's eye cycles to next: shown → wireframe → hidden → shown.
+    pub fn next(&self) -> Visibility {
+        match self {
+            Visibility::Shown => Visibility::Wireframe,
+            Visibility::Wireframe => Visibility::Hidden,
+            Visibility::Hidden => Visibility::Shown,
+        }
+    }
+}
+
 /// A component placed: one copy of a part or an assembly (docs/model/data-model.md).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Occurrence {
@@ -956,10 +1002,12 @@ pub struct Occurrence {
     /// From the component's axes to its assembly's: a move, a rotation, maybe a mirror; never
     /// a scale.
     pub transform: DAffine3,
-    /// Hidden by the user (docs/tools/interaction.md): neither drawn, picked, inferred on nor framed, nor is
-    /// anything under it — but while it is being edited, or with the hidden shown.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub hidden: bool,
+    /// How it shows, and everything under it (docs/tools/interaction.md#hiding-and-wireframe):
+    /// hidden — neither drawn, picked, inferred on nor framed — or in wireframe — drawn
+    /// see-through but inert. While it is being edited, or with the hidden shown, a hidden
+    /// occurrence shows.
+    #[serde(default, skip_serializing_if = "Visibility::is_shown")]
+    pub visibility: Visibility,
     /// Its typed properties (docs/model/properties.md).
     #[serde(default, skip_serializing_if = "Props::is_empty")]
     pub props: Props,
@@ -1347,6 +1395,29 @@ pub struct PlacedPart {
     /// The deepest hidden occurrence of its path, by its index in the path (the occurrence
     /// itself last): none when nothing along it is hidden.
     pub hidden_at: Option<u32>,
+    /// The same for the deepest occurrence of its path in wireframe: none when nothing along
+    /// it is.
+    pub wireframe_at: Option<u32>,
+}
+
+/// What the occurrences above set for what lies under them, each state by the depth of the
+/// deepest occurrence carrying it ([`PlacedPart::hidden_at`]): carried down the walks.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SetAbove {
+    pub hidden_at: Option<u32>,
+    pub wireframe_at: Option<u32>,
+}
+
+impl SetAbove {
+    /// What `o`, an occurrence at `depth`, sets for what lies under it: its own state when it
+    /// has one, else what came from above.
+    pub(crate) fn with(self, o: &Occurrence, depth: usize) -> SetAbove {
+        match o.visibility {
+            Visibility::Shown => self,
+            Visibility::Wireframe => SetAbove { wireframe_at: Some(depth as u32), ..self },
+            Visibility::Hidden => SetAbove { hidden_at: Some(depth as u32), ..self },
+        }
+    }
 }
 
 impl PlacedPart {
@@ -1412,6 +1483,9 @@ pub struct PlacedGuide {
     /// The deepest hidden occurrence of `path`, by its index there: none when nothing along
     /// it is hidden.
     pub hidden_at: Option<u32>,
+    /// The same for the deepest occurrence of `path` in wireframe: none when nothing along it
+    /// is.
+    pub wireframe_at: Option<u32>,
 }
 
 /// The whole model.
@@ -1853,7 +1927,7 @@ impl Document {
     /// three times.
     pub fn placed_parts(&self) -> Vec<PlacedPart> {
         let mut out = Vec::new();
-        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
+        self.walk(self.root, &mut Vec::new(), DAffine3::IDENTITY, SetAbove::default(), &mut out, 0);
         out
     }
 
@@ -1861,7 +1935,7 @@ impl Document {
     /// paths from it.
     pub fn parts_below(&self, assembly: Id) -> Vec<PlacedPart> {
         let mut out = Vec::new();
-        self.walk(assembly, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
+        self.walk(assembly, &mut Vec::new(), DAffine3::IDENTITY, SetAbove::default(), &mut out, 0);
         out
     }
 
@@ -1903,7 +1977,7 @@ impl Document {
     pub fn placed_changes(&self, before: &Document, touched: &[Id]) -> Vec<(PlacedPart, Id, DAffine3)> {
         let mut walk = ChangesWalk { before, touched, dirty: FastMap::default(), out: Vec::new() };
         let t = DAffine3::IDENTITY;
-        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), None, 0);
+        self.walk_changes(&mut walk, (self.root, before.root), &mut Vec::new(), (t, t), SetAbove::default(), 0);
         walk.out
     }
 
@@ -1931,7 +2005,7 @@ impl Document {
         (assembly, was): (Id, Id),
         path: &mut Vec<Id>,
         (t, tb): (DAffine3, DAffine3),
-        hidden_at: Option<u32>,
+        above: SetAbove,
         depth: usize,
     ) {
         let before = walk.before;
@@ -1971,7 +2045,7 @@ impl Document {
                 continue;
             }
             let (Ok(c), Ok(cb)) = (self.component(o.component), before.component(ob.component)) else { continue };
-            let hidden_at = if o.hidden { Some(depth as u32) } else { hidden_at };
+            let above = above.with(o, depth);
             match (&c.kind, &cb.kind) {
                 (ComponentKind::Part(p), ComponentKind::Part(_)) => walk.out.push((
                     PlacedPart {
@@ -1981,14 +2055,15 @@ impl Document {
                         shape: p.shape().clone(),
                         material: p.material,
                         finish: p.finish,
-                        hidden_at,
+                        hidden_at: above.hidden_at,
+                        wireframe_at: above.wireframe_at,
                     },
                     cb.id,
                     tb,
                 )),
                 (ComponentKind::Assembly(_), ComponentKind::Assembly(_)) => {
                     path.push(o.id);
-                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), hidden_at, depth + 1);
+                    self.walk_changes(walk, (c.id, cb.id), path, (t, tb), above, depth + 1);
                     path.pop();
                 }
                 _ => {}
@@ -1996,14 +2071,14 @@ impl Document {
         }
     }
 
-    /// `hidden_at`: the deepest hidden occurrence ([`PlacedPart::hidden_at`]) coming from the
-    /// occurrences above.
+    /// `above`: what the occurrences above set — hidden, in wireframe
+    /// ([`PlacedPart::hidden_at`]).
     pub(crate) fn walk(
         &self,
         assembly: Id,
         path: &mut Vec<Id>,
         t: DAffine3,
-        hidden_at: Option<u32>,
+        above: SetAbove,
         out: &mut Vec<PlacedPart>,
         depth: usize,
     ) {
@@ -2014,7 +2089,7 @@ impl Document {
         for o in &a.occurrences {
             let Ok(c) = self.component(o.component) else { continue };
             let t = t * o.transform;
-            let hidden_at = if o.hidden { Some(depth as u32) } else { hidden_at };
+            let above = above.with(o, depth);
             match &c.kind {
                 ComponentKind::Part(p) => out.push(PlacedPart {
                     path: EntityPath::new(path.clone(), o.id),
@@ -2023,11 +2098,12 @@ impl Document {
                     shape: p.shape().clone(),
                     material: p.material,
                     finish: p.finish,
-                    hidden_at,
+                    hidden_at: above.hidden_at,
+                    wireframe_at: above.wireframe_at,
                 }),
                 ComponentKind::Assembly(_) => {
                     path.push(o.id);
-                    self.walk(c.id, path, t, hidden_at, out, depth + 1);
+                    self.walk(c.id, path, t, above, out, depth + 1);
                     path.pop();
                 }
             }
@@ -2042,7 +2118,7 @@ impl Document {
             return Vec::new();
         }
         let mut out = Vec::new();
-        self.walk_guides(self.root, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
+        self.walk_guides(self.root, &mut Vec::new(), DAffine3::IDENTITY, SetAbove::default(), &mut out, 0);
         out
     }
 
@@ -2051,7 +2127,7 @@ impl Document {
         component: Id,
         path: &mut Vec<Id>,
         t: DAffine3,
-        hidden_at: Option<u32>,
+        above: SetAbove,
         out: &mut Vec<PlacedGuide>,
         depth: usize,
     ) {
@@ -2060,13 +2136,20 @@ impl Document {
             return;
         }
         for g in &c.guides {
-            out.push(PlacedGuide { path: path.clone(), component, transform: t, guide: g.clone(), hidden_at });
+            out.push(PlacedGuide {
+                path: path.clone(),
+                component,
+                transform: t,
+                guide: g.clone(),
+                hidden_at: above.hidden_at,
+                wireframe_at: above.wireframe_at,
+            });
         }
         if let ComponentKind::Assembly(a) = &c.kind {
             for o in &a.occurrences {
                 path.push(o.id);
-                let hidden_at = if o.hidden { Some(depth as u32) } else { hidden_at };
-                self.walk_guides(o.component, path, t * o.transform, hidden_at, out, depth + 1);
+                let above = above.with(o, depth);
+                self.walk_guides(o.component, path, t * o.transform, above, out, depth + 1);
                 path.pop();
             }
         }
@@ -2282,7 +2365,7 @@ impl Document {
                         props: o.props.clone(),
                         component,
                         transform: o.transform,
-                        hidden: o.hidden,
+                        visibility: o.visibility,
                     })
                 })
                 .collect()

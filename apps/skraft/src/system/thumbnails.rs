@@ -53,7 +53,7 @@ impl Content {
                 return;
             }
             let Ok(a) = doc.assembly(c) else { return };
-            for o in a.occurrences().iter().filter(|o| !o.hidden) {
+            for o in a.occurrences().iter().filter(|o| !o.visibility.is_hidden()) {
                 walk(doc, o.component, t * o.transform, parts, count, depth + 1);
             }
         }
@@ -275,7 +275,7 @@ mod tests {
             scope: skraft_model::Scope::All,
         })
         .unwrap();
-        let paint = Operation::SetHidden { context: Id(0), entities: vec![b], hidden: true };
+        let paint = Operation::SetVisibility { context: Id(0), entities: vec![b], visibility: skraft_model::Visibility::Hidden };
         e.apply(Operation::At { parent: vec![g], unique: false, op: Box::new(paint) }).unwrap();
         let painted = Content::of(e.document(), asm);
         assert_eq!(painted.parts.len(), 1, "the hidden part left out");

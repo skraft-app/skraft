@@ -27,7 +27,7 @@ use crate::assets::Asset;
 use crate::clipboard::BodyFragment;
 use crate::document::{
     Assembly, Behavior, BlendMode, Body, BodyDef, ComponentKind, Document, EntityPath, Family, Guide, GuideShape, Id, Material,
-    MaterialKind, Occurrence, Part, Sign, Source, Texture, is_identity,
+    MaterialKind, Occurrence, Part, Sign, Source, Texture, Visibility, is_identity,
 };
 use crate::drawing::{Border, Container, ElementKind, FieldOn, Paper, Projection};
 use crate::props::{PropDef, PropTarget, Props, Value};
@@ -486,10 +486,11 @@ pub enum Operation {
     /// definition, every occurrence of it showing it — placed or not (the entity info of a
     /// part chosen in the library, docs/ui/components-library.md#managing).
     PaintPart { part: Id, layer: Family, material: Option<Id> },
-    /// Hides occurrences of `context`, or shows them again (docs/tools/interaction.md). An assembly's occurrence
-    /// is hidden in every occurrence of the assembly.
-    SetHidden { context: Id, entities: Vec<Id>, hidden: bool },
-    /// Shows every occurrence hidden, in every assembly.
+    /// Puts occurrences of `context` in a state — shown, in wireframe, hidden
+    /// (docs/tools/interaction.md#hiding-and-wireframe). An assembly's occurrence takes it in
+    /// every occurrence of the assembly.
+    SetVisibility { context: Id, entities: Vec<Id>, visibility: Visibility },
+    /// Shows every occurrence hidden or in wireframe again, in every assembly.
     ShowAll,
     /// Paints faces of a part's shape, by their index in its record, on `layer` — their veneer
     /// or edge, or their finish — (every occurrence of the part shows it; `None`: they show
@@ -549,7 +550,7 @@ pub enum Operation {
     /// first gets a definition of its own (outermost first), as « make unique » does: only the
     /// copy reached by `parent` changes. Takes the operations on occurrences of a context
     /// ([`Operation::Transform`], [`Operation::Duplicate`], [`Operation::Array`],
-    /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetHidden`],
+    /// [`Operation::Copies`], [`Operation::Delete`], [`Operation::SetVisibility`],
     /// [`Operation::ReplaceOccurrences`]), and the one making a part there
     /// ([`Operation::AddPrimitive`], « Dessiner dans », docs/tools/draw-options.md).
     At { parent: Vec<Id>, unique: bool, op: Box<Operation> },
@@ -699,8 +700,9 @@ impl Operation {
             Operation::ImportMaterials { .. } => t!("operation.import_materials"),
             Operation::SetPropDef { .. } => t!("operation.set_prop_def"),
             Operation::PaintParts { .. } | Operation::PaintPart { .. } | Operation::PaintFaces { .. } => t!("operation.paint"),
-            Operation::SetHidden { hidden: true, .. } => t!("operation.hide"),
-            Operation::SetHidden { hidden: false, .. } => t!("operation.show"),
+            Operation::SetVisibility { visibility: Visibility::Shown, .. } => t!("operation.show"),
+            Operation::SetVisibility { visibility: Visibility::Wireframe, .. } => t!("operation.wireframe"),
+            Operation::SetVisibility { visibility: Visibility::Hidden, .. } => t!("operation.hide"),
             Operation::ShowAll => t!("operation.show_all"),
             Operation::AddBody { sign: Sign::Negative, .. } => t!("operation.add_machining"),
             Operation::AddBody { sign: Sign::Positive, .. } => t!("operation.add_body"),
@@ -754,7 +756,7 @@ impl Operation {
             | Operation::Array { context, .. }
             | Operation::Copies { context, .. }
             | Operation::Delete { context, .. }
-            | Operation::SetHidden { context, .. }
+            | Operation::SetVisibility { context, .. }
             | Operation::MakeAssembly { context, .. }
             | Operation::Explode { context, .. }
             | Operation::MakeUnique { context, .. }
@@ -1255,16 +1257,16 @@ impl Document {
                 self.paint_part(*part, *layer, *material)?;
                 Ok(Outcome::default())
             }
-            Operation::SetHidden { context, entities, hidden } => {
-                // Guides are not hidden one by one.
+            Operation::SetVisibility { context, entities, visibility } => {
+                // Guides do not take a state one by one.
                 let (_, entities) = &self.split_guides(*context, entities)?;
                 self.occurrences_of(*context, entities)?;
                 let entities = id_set(entities);
                 // The assembly copied only when something changes.
-                if self.assembly(*context)?.occurrences().iter().any(|o| entities.contains(&o.id) && o.hidden != *hidden) {
+                if self.assembly(*context)?.occurrences().iter().any(|o| entities.contains(&o.id) && o.visibility != *visibility) {
                     for o in self.assembly_mut(*context)?.occurrences_mut() {
                         if entities.contains(&o.id) {
-                            o.hidden = *hidden;
+                            o.visibility = *visibility;
                         }
                     }
                 }
@@ -1274,12 +1276,12 @@ impl Document {
                 let holding: Vec<Id> = self
                     .components
                     .values()
-                    .filter(|c| c.as_assembly().is_some_and(|a| a.occurrences().iter().any(|o| o.hidden)))
+                    .filter(|c| c.as_assembly().is_some_and(|a| a.occurrences().iter().any(|o| !o.visibility.is_shown())))
                     .map(|c| c.id)
                     .collect();
                 for id in holding {
                     for o in self.assembly_mut(id)?.occurrences_mut() {
-                        o.hidden = false;
+                        o.visibility = Visibility::Shown;
                     }
                 }
                 Ok(Outcome::default())
@@ -1320,7 +1322,7 @@ impl Document {
                             name: String::new(),
                             component: assembly,
                             transform: *transform,
-                            hidden: false,
+                            visibility: Visibility::Shown,
                             props: Props::default(),
                         }
                     }
@@ -1406,7 +1408,7 @@ impl Document {
                     name: occurrence_name,
                     component: part,
                     transform: *transform * fragment.world,
-                    hidden: false,
+                    visibility: Visibility::Shown,
                     props: Props::default(),
                 });
                 Ok(Outcome { created: vec![id], warning: Warning::renamed(renamed), ..Outcome::default() })
@@ -1447,7 +1449,7 @@ impl Document {
                     name: String::new(),
                     component: part,
                     transform,
-                    hidden: false,
+                    visibility: Visibility::Shown,
                     props: Props::default(),
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })
@@ -1612,7 +1614,7 @@ impl Document {
                         name: String::new(),
                         component: assembly,
                         transform: DAffine3::from_translation(corner),
-                        hidden: false,
+                        visibility: Visibility::Shown,
                         props: Props::default(),
                     },
                 );
@@ -1628,8 +1630,10 @@ impl Document {
                 for c in contents {
                     let id = self.fresh_id();
                     copied.push((c.id, id));
-                    // An assembly hidden leaves its content hidden.
-                    copies.push(Occurrence { id, transform: o.transform * c.transform, hidden: c.hidden || o.hidden, ..c });
+                    // An assembly hidden, or in wireframe, leaves its content so: whichever of
+                    // the two takes the more away.
+                    let visibility = c.visibility.max(o.visibility);
+                    copies.push(Occurrence { id, transform: o.transform * c.transform, visibility, ..c });
                 }
                 let created = copies.iter().map(|c| c.id).collect();
                 // Its guides stay where they were, in the context.
@@ -1702,7 +1706,7 @@ impl Document {
                     name: String::new(),
                     component: *component,
                     transform: *transform,
-                    hidden: false,
+                    visibility: Visibility::Shown,
                     props: Props::default(),
                 });
                 Ok(Outcome { created: vec![id], ..Outcome::default() })

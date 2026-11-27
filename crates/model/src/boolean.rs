@@ -16,7 +16,7 @@
 use glam::{DAffine3, DVec3};
 use skraft_kernel::Stretch;
 
-use crate::document::{Body, BodyDef, Document, EntityPath, Id, Occurrence, Part, Sign};
+use crate::document::{Body, BodyDef, Document, EntityPath, Id, Occurrence, Part, Sign, Visibility};
 use crate::ops::Solver;
 use crate::{Boolean, Error, FastMap, Outcome, Refusal, Result, Scope};
 
@@ -176,7 +176,7 @@ impl Document {
             let o = self.resolve(&targets[k])?.clone();
             let id = self.fresh_id();
             let ctx = self.context_of(&targets[k].occurrences)?;
-            self.assembly_mut(ctx)?.occurrences_mut().push(Occurrence { id, component: copy, hidden: false, ..o });
+            self.assembly_mut(ctx)?.occurrences_mut().push(Occurrence { id, component: copy, visibility: Visibility::Shown, ..o });
             targets[k] = EntityPath::new(targets[k].occurrences.clone(), id);
         }
         Ok(())

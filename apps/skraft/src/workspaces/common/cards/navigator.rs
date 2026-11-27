@@ -427,8 +427,9 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &NavigatorRow<'_>, errors
     let on_path = open_here && !editor.open_group().is_empty();
     let selected = (editor.context() == row.path.as_slice() && (selection.contains(&o.id) || open))
         || editor.deep_selection().iter().any(|p| p.occurrences == row.path && p.entity == o.id);
-    // Hidden, itself or by an assembly above: greyed.
-    let greyed = o.hidden || row.hidden_above;
+    // Hidden, itself or by an assembly above: greyed. One in wireframe is drawn in the
+    // viewport, so its row reads as usual; its eye says the state.
+    let greyed = o.visibility.is_hidden() || row.hidden_above;
     let tint = if selected || on_path {
         on_selection
     } else if greyed {
@@ -477,11 +478,18 @@ fn occurrence_line(
     let o = row.occurrence;
     let icon = egui::Image::new(occurrence_icon(doc, o)).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(tint);
     let line = TreeLine { height, selected, lit: false, band: false, depth: row.path.len(), fold: row.fold, icon };
-    // The eye first, at the right end (open while shown, struck through once hidden), then the
-    // name in the room left, truncated with "…" so a long name never pushes the eye out.
+    // The eye first, at the right end (open while shown, its pupil broken in wireframe, struck
+    // through once hidden), then the name in the room left, truncated with "…" so a long name
+    // never pushes the eye out.
     let mark = if selected { tint } else { weak };
     let eye = |ui: &mut egui::Ui, _| {
-        let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.navigator.show")) } else { (icons::EYE, t!("panel.navigator.hide")) };
+        // The eye cycles shown → wireframe → hidden, its icon the state now and its tip what
+        // a click does next (docs/tools/interaction.md#hiding-and-wireframe).
+        let (icon, tip) = match o.visibility {
+            Visibility::Shown => (icons::EYE, t!("panel.navigator.wireframe")),
+            Visibility::Wireframe => (icons::EYE_WIRE, t!("panel.navigator.hide")),
+            Visibility::Hidden => (icons::EYE_OFF, t!("panel.navigator.show")),
+        };
         let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(mark);
         let eye = ui.add(egui::Button::image(img).frame(false));
         crate::kit::handles::publish(|| format!("navigator:eye:{}", o.id.0), eye.rect);
@@ -711,7 +719,7 @@ fn occurrence_row(
     }
     occurrence_menu(editor, selection, o, &path, &response, (rename, rename_occurrence), actions);
     if eye {
-        actions.push(Action::SetHidden(path, !o.hidden));
+        actions.push(Action::SetVisibility(path, o.visibility.next()));
     } else if list_select::clicked(ui.ctx(), &response) {
         *clicked = Some((Pickable::Occurrence(path), list_select::gesture(ui.input(|i| i.modifiers))));
     }
@@ -982,7 +990,7 @@ fn flatten<'d>(
         out.push(NavigatorRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
         if open {
             path.push(o.id);
-            flatten(births, folds, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
+            flatten(births, folds, editor, doc, o.component, active, path, out, hidden_above || o.visibility.is_hidden(), depth + 1);
             path.pop();
         }
     }
@@ -1053,7 +1061,7 @@ impl<'d> Filtered<'_, 'd> {
                 self.body_rows(p, &p.bodies, &mut Vec::new(), path, o, hidden_above, out);
             } else {
                 path.push(o.id);
-                self.rows(o.component, path, out, hidden_above || o.hidden, depth + 1);
+                self.rows(o.component, path, out, hidden_above || o.visibility.is_hidden(), depth + 1);
                 path.pop();
             }
         }
@@ -1203,7 +1211,7 @@ fn profile_row(ui: &mut egui::Ui, editor: &Editor, row: &NavigatorRow, height: f
     let v = ui.visuals();
     let tint = if selected {
         v.selection.stroke.color
-    } else if row.occurrence.hidden || row.hidden_above {
+    } else if row.occurrence.visibility.is_hidden() || row.hidden_above {
         hidden_color(v, true)
     } else {
         v.text_color()
@@ -1421,7 +1429,7 @@ fn body_look<'d>(ui: &egui::Ui, editor: &Editor, row: &NavigatorRow<'d>, b: &Bod
     let open_mark = is_open && editor.selection().is_empty() && editor.profile_body().is_none();
     let selected = (shown && editor.selection().contains(&b.body.id)) || open_mark;
     let lit = shown && editor.hovered_machining() == Some(b.body.id);
-    let greyed = row.occurrence.hidden || row.hidden_above;
+    let greyed = row.occurrence.visibility.is_hidden() || row.hidden_above;
     let v = ui.visuals();
     let weak = v.weak_text_color();
     let tint = if selected || on_path {

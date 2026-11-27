@@ -42,10 +42,11 @@ impl Document {
                     material: p.material,
                     finish: p.finish,
                     hidden_at: None,
+                    wireframe_at: None,
                 }],
                 Ok(ComponentKind::Assembly(_)) => {
                     let mut out = Vec::new();
-                    self.walk(*c, &mut Vec::new(), DAffine3::IDENTITY, None, &mut out, 0);
+                    self.walk(*c, &mut Vec::new(), DAffine3::IDENTITY, Default::default(), &mut out, 0);
                     out
                 }
                 Err(_) => Vec::new(),
@@ -60,6 +61,8 @@ impl Document {
                 all
             }
         };
+        // Only the hidden go: a part in wireframe is inert in the viewport, not absent from the
+        // model, so a drawing shows it (docs/tools/interaction.md#hiding-and-wireframe).
         out.retain(|p| p.hidden_at.is_none());
         out
     }

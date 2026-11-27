@@ -6,7 +6,7 @@ use glam::{DAffine3, DVec3};
 use skraft_i18n::{t, tp};
 use skraft_model::{
     BlendMode, BodiesTo, ComponentKind, Document, EntityPath, Family, FastMap, FastSet, GuideShape, Id, MaterialKind, Nature, Occurrence,
-    Operation, PropTarget, Scope, Sign, Source, Units, measure,
+    Operation, PropTarget, Scope, Sign, Source, Units, Visibility, measure,
 };
 use skraft_tools::Editor;
 

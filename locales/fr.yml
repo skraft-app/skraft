@@ -1085,9 +1085,10 @@ panel:
     # The first row, the model itself (named as its file): a click leaves every assembly and
     # part edited and chooses the model (the entity info shows it).
     model_tip: "Cliquer pour revenir au niveau du modèle"
-    # The eye of a row.
+    # The eye of a row: it cycles shown → wireframe → hidden, each tip saying what a click does.
     hide: "$t(common.hide)"
     show: "$t(common.show)"
+    wireframe: "$t(operation.wireframe)"
     # A part in several pieces (docs/model/bodies.md).
     pieces: "Pièce en %{count} morceaux : à corriger"
     empty_part: "Pièce vide : à corriger"
@@ -1862,6 +1863,8 @@ operation:
   hide: "$t(common.hide)"
   show: "$t(common.show)"
   show_all: "$t(common.show_all)"
+  # Putting an occurrence in wireframe (docs/tools/interaction.md#hiding-and-wireframe).
+  wireframe: "Mettre en filaire"
   # Placing the content of an imported file (STEP, SketchUp) in the model.
   import: "Importer"
   # Placing what was copied (occurrences, guides, machinings).

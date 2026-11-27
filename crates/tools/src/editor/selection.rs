@@ -2,7 +2,7 @@
 //! a part (docs/model/opening-a-part.md), erase, make an assembly, explode, make a part on its own.
 
 use skraft_i18n::t;
-use skraft_model::{EntityPath, GuidePath, Id, Operation, Scope};
+use skraft_model::{EntityPath, GuidePath, Id, Operation, Scope, Visibility};
 
 use super::{After, Editor};
 use crate::ToolKind;
@@ -77,15 +77,18 @@ impl Editor {
             return;
         }
         let ctx = self.context_definition();
-        // Not those hidden, unless the hidden are shown.
+        // Not those in wireframe, inert as they are not picked; not those hidden, unless the
+        // hidden are shown (docs/tools/interaction.md#hiding-and-wireframe).
         let show_hidden = self.document().settings().display.show_hidden;
+        let takes = |o: &&skraft_model::Occurrence| match o.visibility {
+            Visibility::Shown => true,
+            Visibility::Wireframe => false,
+            Visibility::Hidden => show_hidden,
+        };
         self.deep.clear();
         self.deep_guides.clear();
-        self.selection = self
-            .document()
-            .assembly(ctx)
-            .map(|a| a.occurrences().iter().filter(|o| show_hidden || !o.hidden).map(|o| o.id).collect())
-            .unwrap_or_default();
+        self.selection =
+            self.document().assembly(ctx).map(|a| a.occurrences().iter().filter(takes).map(|o| o.id).collect()).unwrap_or_default();
         self.selection.extend(guides);
     }
 
@@ -359,16 +362,23 @@ impl Editor {
         let _ = self.start(op, After::Nothing, false);
     }
 
-    /// Hides the occurrence `path` names, or shows it again (the navigator's eye). Hidden, it
-    /// leaves the selection, unless the hidden are shown — with what is selected under it at
-    /// any depth (« Parts »), unless it is on the way to the context edited (shown then).
-    pub fn set_hidden(&mut self, path: &EntityPath, hidden: bool) {
+    /// Puts the occurrence `path` names in a state — shown, in wireframe, hidden (the
+    /// navigator's eye, docs/tools/interaction.md#hiding-and-wireframe). No longer shown, it
+    /// leaves the selection — it cannot be acted on there — with what is selected under it at
+    /// any depth (« Parts »), unless it is on the way to the context edited (live then); a
+    /// hidden one stays selected while the hidden are shown.
+    pub fn set_visibility(&mut self, path: &EntityPath, visibility: Visibility) {
         if self.busy() {
             return;
         }
         let Ok(context) = self.document().context_of(&path.occurrences) else { return };
-        let op = Operation::SetHidden { context, entities: vec![path.entity], hidden };
-        if self.start(op, After::Nothing, false).is_err() || !hidden || self.document().settings().display.show_hidden {
+        let op = Operation::SetVisibility { context, entities: vec![path.entity], visibility };
+        let keeps_selection = match visibility {
+            Visibility::Shown => true,
+            Visibility::Wireframe => false,
+            Visibility::Hidden => self.document().settings().display.show_hidden,
+        };
+        if self.start(op, After::Nothing, false).is_err() || keeps_selection {
             return;
         }
         if self.context == path.occurrences {
@@ -381,7 +391,7 @@ impl Editor {
         }
     }
 
-    /// Shows every occurrence hidden (View › Show all).
+    /// Shows every occurrence hidden or in wireframe again (View › Show all).
     pub fn show_all(&mut self) {
         if self.busy() {
             return;
@@ -389,18 +399,19 @@ impl Editor {
         let _ = self.start(Operation::ShowAll, After::Nothing, false);
     }
 
-    /// Is anything hidden, anywhere in the model? Worked out once per revision.
-    pub fn has_hidden(&self) -> bool {
+    /// Is any occurrence hidden or in wireframe, anywhere in the model — anything « Tout
+    /// afficher » would bring back? Worked out once per revision.
+    pub fn has_unshown(&self) -> bool {
         let revision = self.history.revision();
-        if let Some((r, any)) = self.has_hidden.get()
+        if let Some((r, any)) = self.has_unshown.get()
             && r == revision
         {
             return any;
         }
         let doc = self.document();
         let assemblies = doc.components().filter_map(|c| c.as_assembly()).chain([doc.root_assembly()]);
-        let any = assemblies.flat_map(|a| a.occurrences()).any(|o| o.hidden);
-        self.has_hidden.set(Some((revision, any)));
+        let any = assemblies.flat_map(|a| a.occurrences()).any(|o| !o.visibility.is_shown());
+        self.has_unshown.set(Some((revision, any)));
         any
     }
 

@@ -9,7 +9,7 @@
 
 use glam::DVec2;
 use skraft_i18n::t;
-use skraft_model::{EntityPath, GuidePath, Id, Operation};
+use skraft_model::{EntityPath, GuidePath, Id, Operation, Visibility};
 
 use super::{Command, Cx, Preview, Tool, ToolInput, ToolKind};
 
@@ -63,7 +63,7 @@ impl EraseTool {
     /// the parts (« Parts »).
     fn apply_parts(paths: &[EntityPath], guides: &[GuidePath], hide: bool, cx: &Cx<'_>) -> Vec<Command> {
         let op = if hide && !paths.is_empty() {
-            cx.deep_op(paths, |entities| Operation::SetHidden { context: Id(0), entities, hidden: true })
+            cx.deep_op(paths, |entities| Operation::SetVisibility { context: Id(0), entities, visibility: Visibility::Hidden })
         } else if !hide && !(paths.is_empty() && guides.is_empty()) {
             cx.erase_deep(paths, guides)
         } else {
@@ -82,7 +82,10 @@ impl EraseTool {
         if entities.is_empty() {
             return vec![];
         }
-        let op = if hide { Operation::SetHidden { context: cx.context_def, entities, hidden: true } } else { cx.erase(entities) };
+        let op = match hide {
+            true => Operation::SetVisibility { context: cx.context_def, entities, visibility: Visibility::Hidden },
+            false => cx.erase(entities),
+        };
         vec![Command::Apply(op)]
     }
 }

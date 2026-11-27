@@ -501,7 +501,10 @@ impl Editor {
                     faded: outside(p) || p.hidden,
                     material: p.material,
                     look: Look::Shape,
-                    ghost: self.xray(),
+                    // In wireframe: see-through, its edges as they are, so where it stands
+                    // reads without the cursor catching it
+                    // (docs/tools/interaction.md#hiding-and-wireframe).
+                    ghost: self.xray() || p.wireframe,
                     faint_edges: false,
                 };
                 if erased(p) {
@@ -741,7 +744,9 @@ impl Editor {
         for g in self.scene.guides() {
             let here = g.path == active;
             let reached = parts && g.path.starts_with(&self.context);
-            if !here && !reached {
+            // In wireframe: faded as what lies outside the context, and inert with its
+            // occurrence — neither hovered, selected nor erased there.
+            if g.wireframe || (!here && !reached) {
                 d.pen(faded).guide(&g.shape);
                 continue;
             }
@@ -860,7 +865,7 @@ impl Editor {
                     transform: p.transform,
                     mark: related,
                     material: p.material,
-                    ghost: self.xray(),
+                    ghost: self.xray() || p.wireframe,
                     face: None,
                 });
             }
@@ -974,8 +979,8 @@ impl Editor {
     fn paint_marks(&self, paint: &tools::PaintPreview, out: &mut Vec<ViewHighlight>) {
         let doc = self.document();
         let xray = self.xray();
-        let mut mark = |part: Id, transform: DAffine3, material: Seen| {
-            out.push(ViewHighlight { definition: part, solid: part, transform, mark: Mark::Painted, material, ghost: xray, face: None });
+        let mut mark = |part: Id, transform: DAffine3, material: Seen, ghost: bool| {
+            out.push(ViewHighlight { definition: part, solid: part, transform, mark: Mark::Painted, material, ghost, face: None });
         };
         match &paint.target {
             tools::PaintTarget::Parts { paths, layer, scope } => {
@@ -987,14 +992,14 @@ impl Editor {
                             skraft_model::Scope::All => {
                                 parts.insert(u.part, u.material);
                             }
-                            skraft_model::Scope::This => mark(u.part, u.transform, u.material),
+                            skraft_model::Scope::This => mark(u.part, u.transform, u.material, xray),
                         }
                     }
                 }
                 for (part, places) in self.scene.placements() {
                     let Some(material) = parts.get(&part) else { continue };
                     for p in places.iter().filter(|p| self.scene.is_shown(p)) {
-                        mark(part, p.transform, *material);
+                        mark(part, p.transform, *material, xray || p.wireframe);
                     }
                 }
             }
@@ -1014,7 +1019,7 @@ impl Editor {
                         transform: p.transform,
                         mark: Mark::Painted,
                         material: shown,
-                        ghost: xray,
+                        ghost: xray || p.wireframe,
                         face: Some(*face),
                     });
                 }

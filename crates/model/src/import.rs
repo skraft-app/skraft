@@ -16,7 +16,9 @@ use skraft_i18n::t;
 use web_time::Instant;
 
 use crate::Result;
-use crate::document::{Assembly, Behavior, ComponentKind, Document, Family, Id, Material, MaterialKind, Occurrence, StretchMask};
+use crate::document::{
+    Assembly, Behavior, ComponentKind, Document, Family, Id, Material, MaterialKind, Occurrence, StretchMask, Visibility,
+};
 use skraft_kernel::SketchUpImport;
 
 /// How many of the slowest builds the report keeps.
@@ -208,7 +210,7 @@ impl Document {
                     if let Some(m) = material.and_then(|m| items.item(&mut doc, skp, m, Laid::Instance)) {
                         paints.push((id, m));
                     }
-                    list.push(Occurrence { id, name, component, transform, hidden: false, props: Default::default() });
+                    list.push(Occurrence { id, name, component, transform, visibility: Visibility::Shown, props: Default::default() });
                 }
                 let assembly = Assembly::new(list);
                 report.assemblies += 1;
@@ -228,7 +230,7 @@ impl Document {
                 name: String::new(),
                 component: p,
                 transform: DAffine3::IDENTITY,
-                hidden: false,
+                visibility: Visibility::Shown,
                 props: Default::default(),
             });
         }
@@ -241,7 +243,7 @@ impl Document {
                         name: c.name.clone(),
                         component,
                         transform: c.transform,
-                        hidden: false,
+                        visibility: Visibility::Shown,
                         props: Default::default(),
                     });
                 }

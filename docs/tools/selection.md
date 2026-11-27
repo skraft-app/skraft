@@ -122,7 +122,7 @@ Decision records: [Tools pick first](../decisions/0031-tools-select-first.md),
   several groups make several operations, in one undo step — and a world transform is brought
   into each parent's axes.
 - Model: `Operation::At { parent, unique, op }` — `op` (Transform, Duplicate, Array, Copies,
-  Delete, SetHidden, MakeAssembly) on the assembly `parent` leads into, its `context` set
+  Delete, SetVisibility, MakeAssembly) on the assembly `parent` leads into, its `context` set
   when applied; `unique` makes the assemblies along it unique first, outermost first
   (`MakeUnique`, ids kept) — and `Operation::Batch(ops)`, applied in order, outcomes put
   together, one history step; `Document::shared_along(occurrences)`. An operation `At` / `Batch`

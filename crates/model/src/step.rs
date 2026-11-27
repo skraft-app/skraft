@@ -16,7 +16,7 @@ use glam::DAffine3;
 use skraft_i18n::t;
 use skraft_kernel::StepImport;
 
-use crate::document::{Assembly, ComponentKind, Document, Id, Material, MaterialKind, Occurrence, Source};
+use crate::document::{Assembly, ComponentKind, Document, Id, Material, MaterialKind, Occurrence, Source, Visibility};
 
 /// The colour of a material a STEP file names: a neutral grey, the file saying nothing of it.
 const MATERIAL_COLOR: [u8; 3] = [190, 190, 190];
@@ -105,7 +105,7 @@ impl Document {
                     name: String::new(),
                     component: part,
                     transform: DAffine3::IDENTITY,
-                    hidden: false,
+                    visibility: Visibility::Shown,
                     props: Default::default(),
                 });
             }
@@ -117,7 +117,7 @@ impl Document {
                         name: c.name.clone(),
                         component: *component,
                         transform: c.transform,
-                        hidden: false,
+                        visibility: Visibility::Shown,
                         props: Default::default(),
                     });
                 }
@@ -145,7 +145,7 @@ impl Document {
                     name: r.name.clone(),
                     component: *component,
                     transform: r.transform,
-                    hidden: false,
+                    visibility: Visibility::Shown,
                     props: Default::default(),
                 });
             }

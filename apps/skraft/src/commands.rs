@@ -412,8 +412,9 @@ pub enum Action {
     EditProfile(EntityPath, Id),
     /// The occurrence hovered in the navigator, if any.
     HoverNavigator(Option<EntityPath>),
-    /// Hide the occurrence (true) or show it again: the navigator's eye.
-    SetHidden(EntityPath, bool),
+    /// Put the occurrence in a state — shown, in wireframe, hidden: the navigator's eye,
+    /// which cycles through the three (docs/tools/interaction.md#hiding-and-wireframe).
+    SetVisibility(EntityPath, skraft_model::Visibility),
     /// The ribbon's own state: tab, pins, labels (docs/ui/ribbon.md).
     Ribbon(crate::window::ribbon::Change),
     /// The shown document into workspace `id` (decision 0047).

@@ -29,7 +29,8 @@ Component { id, name, named, kind, guides, behavior, props, source }
   kind     = Part     { defs, bodies, shape, failed, material, finish, coverings, faces }
                                                                     — a part (Bodies)
            | Assembly { occurrences: Vec<Occurrence>, links: Vec<Link> } — an assembly
-Occurrence { id, name, component: Id, transform: T, hidden, props }  — an occurrence
+Occurrence { id, name, component: Id, transform: T, visibility, props } — an occurrence
+  visibility = Shown | Wireframe | Hidden — how it shows (Interaction)
 ```
 
 Guides, body definitions and bodies have `props` too: typed values by key
@@ -94,7 +95,8 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
 ## Occurrences and transformation
 
 - An occurrence carries **T = translation + rotation + optional mirror** (determinant ±1), its
-  occurrence name and whether it is **hidden** ([Interaction](../tools/interaction.md)). Moving or rotating only changes T: instant, no kernel,
+  occurrence name and how it shows — shown, in wireframe, hidden
+  ([Hiding and wireframe](../tools/interaction.md#hiding-and-wireframe)). Moving or rotating only changes T: instant, no kernel,
   no remeshing, no drift of the geometry.
 - **T is never baked into the B-rep.** Booleans and stretches work in the part's frame,
   the other operand brought in by the relative transformation; export applies T on the fly.
