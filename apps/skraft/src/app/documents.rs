@@ -278,7 +278,7 @@ impl SkraftApp {
             });
             ui.add_space(10.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                cancel = ui.button(t!("loading.cancel")).clicked();
+                cancel = crate::kit::widgets::TextButton::new(t!("loading.cancel")).show(ui).clicked();
             });
         });
         if cancel || modal.should_close() || ui_key(ctx, egui::Key::Escape) {

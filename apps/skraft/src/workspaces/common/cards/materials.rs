@@ -117,10 +117,8 @@ pub fn card(ui: &mut egui::Ui, editor: &Editor, state: &mut MaterialsState, look
 /// The search row's buttons, laid right to left: import, export all, new (an item of the tab's
 /// family, its first type).
 fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, family: Family, actions: &mut Vec<Action>) {
-    let ink = ui.visuals().text_color();
     let button = |ui: &mut egui::Ui, enabled: bool, icon: egui::ImageSource<'static>, tip: String, handle: &'static str| {
-        let image = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ink);
-        let r = ui.add_enabled(enabled, egui::Button::image(image).min_size(egui::Vec2::splat(side)));
+        let r = crate::kit::widgets::IconButton::new(icon, side, 14.0).look(crate::kit::widgets::Look::Framed).enabled(enabled).show(ui);
         crate::kit::handles::publish_enabled(|| handle.into(), r.rect, enabled);
         r.tip(tip).clicked()
     };

@@ -84,47 +84,25 @@ fn item_choice(
     };
     // Laid out as the label beside it (`field_label`): level with it.
     ui.vertical(|ui| {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, OPTION_HEIGHT), egui::Sense::click());
-        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-        let id = ui.make_persistent_id(salt);
-        let open = egui::Popup::is_id_open(ui.ctx(), id);
-        let visuals = ui.visuals();
-        let stroke = field_stroke(visuals, open, false, response.hovered());
-        let corners = visuals.widgets.inactive.corner_radius;
-        let p = ui.painter();
-        p.rect(rect, corners, visuals.extreme_bg_color, stroke, egui::StrokeKind::Inside);
-        let ink = visuals.text_color();
-        let inner = rect.shrink2(egui::vec2(6.0, 0.0));
-        // The chevron, as the combo boxes draw it.
-        let icon = egui::Rect::from_center_size(egui::pos2(inner.right() - 5.0, inner.center().y), egui::vec2(14.0, 14.0));
-        icons::chevron(ui, icon.center(), 14.0, ink, 0.0);
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let text = ui.fonts_mut(|f| f.layout_no_wrap(name(current), font, ink));
-        // The choice's swatch first, as its menu row shows it (not for a title: nothing chosen).
-        let mut left = inner.left();
-        if offer_none {
-            let side = crate::kit::style::MENU_MARK;
-            swatch(ui, egui::Rect::from_min_size(egui::pos2(left, inner.center().y - side / 2.0), egui::Vec2::splat(side)), current);
-            left += side + ui.spacing().icon_spacing;
-        }
-        let clip = inner.with_max_x(icon.left() - 4.0);
-        ui.painter_at(clip).galley(egui::pos2(left, inner.center().y - text.size().y / 2.0), text, ink);
-
         let mut picked = current;
-        egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
-            ui.set_min_width(ui.available_width());
+        let mut list = crate::kit::widgets::ChoiceList::new(salt, name(current)).width(width);
+        // The choice's swatch first, as its menu row shows it (not for a title: nothing chosen).
+        if offer_none {
+            list = list.lead(move |ui, r| swatch(ui, r, current));
+        }
+        list.show(ui, |list| {
             // Each row its swatch where the menus' check boxes go: full width, the names lined up.
-            let mut row = |ui: &mut egui::Ui, item: Option<Id>, label: &str| {
+            let mut row = |item: Option<Id>, label: &str| {
                 let lead = crate::kit::style::menu_mark(move |ui, r, _| swatch(ui, r, item));
-                if ui.add(crate::kit::style::menu_item_lead(lead, label).selected(picked == item)).clicked() {
+                if list.item_lead(picked == item, lead, label) {
                     picked = item;
                 }
             };
             if offer_none {
-                row(ui, None, &empty);
+                row(None, &empty);
             }
             for (id, m) in doc.materials().filter(|(_, m)| keep(m)) {
-                row(ui, Some(id), &m.name);
+                row(Some(id), &m.name);
             }
         });
         (picked != current).then_some(picked)

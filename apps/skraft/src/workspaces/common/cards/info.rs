@@ -557,7 +557,11 @@ fn body_info(ui: &mut egui::Ui, editor: &Editor, part: Id, p: &skraft_model::Par
             ui.end_row();
             // Its edges, picked again on its children (the node opened).
             ui.label("");
-            if ui.button(t!("panel.entity_info.blend_edges")).tip(t!("panel.entity_info.blend_edges_tip")).clicked() {
+            if crate::kit::widgets::TextButton::new(t!("panel.entity_info.blend_edges"))
+                .show(ui)
+                .tip(t!("panel.entity_info.blend_edges_tip"))
+                .clicked()
+            {
                 actions.push(Action::EditBlend(b.id));
             }
             ui.end_row();

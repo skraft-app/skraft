@@ -131,7 +131,7 @@ impl SkraftApp {
             ui.weak(t!("save_prompt.note"));
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui.button(t!("save_prompt.dont_save")).clicked() {
+                if crate::kit::widgets::TextButton::new(t!("save_prompt.dont_save")).show(ui).clicked() {
                     chosen = Some(Answer::DontSave);
                 }
                 match crate::kit::widgets::confirm_buttons(ui, "save_prompt", t!("save_prompt.save"), true, t!("save_prompt.cancel")) {
@@ -217,7 +217,7 @@ impl SkraftApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Only textures left: the model is there, usable without them.
                 let label = if load.is_some() { t!("loading.cancel") } else { t!("loading.skip") };
-                if ui.button(label).clicked() {
+                if crate::kit::widgets::TextButton::new(label).show(ui).clicked() {
                     cancel = true;
                 }
             });

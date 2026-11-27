@@ -30,6 +30,8 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
 /// published under a handle when it has one, its tip when it needs one; clicked?
 pub(crate) struct MenuEntry {
     label: String,
+    icon: Option<egui::ImageSource<'static>>,
+    shortcut: Option<String>,
     enabled: bool,
     handle: Option<String>,
     tip: Option<String>,
@@ -37,11 +39,23 @@ pub(crate) struct MenuEntry {
 
 impl MenuEntry {
     pub(crate) fn new(label: impl Into<String>) -> Self {
-        MenuEntry { label: label.into(), enabled: true, handle: None, tip: None }
+        MenuEntry { label: label.into(), icon: None, shortcut: None, enabled: true, handle: None, tip: None }
     }
 
     pub(crate) fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// An icon before its label (the view bar's views, as the ▾ menu's rows).
+    pub(crate) fn icon(mut self, icon: egui::ImageSource<'static>) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Its shortcut, at the row's right end.
+    pub(crate) fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
+        self.shortcut = Some(shortcut.into());
         self
     }
 
@@ -58,7 +72,17 @@ impl MenuEntry {
 
     /// Laid out in the menu `ui`: clicked?
     pub(crate) fn show(self, ui: &mut egui::Ui) -> bool {
-        let r = ui.add_enabled(self.enabled, crate::kit::style::menu_item(self.label, None, false));
+        let mut button = match self.icon {
+            Some(icon) => {
+                let image = egui::Image::new(icon).fit_to_exact_size(egui::Vec2::splat(16.0)).tint(ui.visuals().text_color());
+                egui::Button::new((image, self.label))
+            }
+            None => crate::kit::style::menu_item(self.label, None, false),
+        };
+        if let Some(s) = self.shortcut {
+            button = button.shortcut_text(s);
+        }
+        let r = ui.add_enabled(self.enabled, button);
         if let Some(handle) = self.handle {
             crate::kit::handles::publish_enabled(|| handle, r.rect, self.enabled);
         }

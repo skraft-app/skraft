@@ -134,6 +134,112 @@ pub(crate) fn backed(
     r
 }
 
+/// The one text button: egui's framed button, its label, an icon before it when it has one
+/// (the « + » of a list's « add »). Enabled or not, lit (a toggle on), small, at least or
+/// exactly a size (its label then cut with « … »).
+pub(crate) struct TextButton {
+    label: String,
+    icon: Option<egui::ImageSource<'static>>,
+    enabled: bool,
+    lit: bool,
+    small: bool,
+    min_size: egui::Vec2,
+    size: Option<egui::Vec2>,
+}
+
+impl TextButton {
+    pub(crate) fn new(label: impl Into<String>) -> Self {
+        TextButton { label: label.into(), icon: None, enabled: true, lit: false, small: false, min_size: egui::Vec2::ZERO, size: None }
+    }
+
+    /// An icon before its label, as wide as the text is high.
+    pub(crate) fn icon(mut self, icon: egui::ImageSource<'static>) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub(crate) fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// The selection's fill: a toggle on (a modifier key of a gesture, the keypad open).
+    pub(crate) fn lit(mut self, lit: bool) -> Self {
+        self.lit = lit;
+        self
+    }
+
+    /// In the small text: a section's own button (« Purger »).
+    pub(crate) fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
+    pub(crate) fn min_size(mut self, size: egui::Vec2) -> Self {
+        self.min_size = size;
+        self
+    }
+
+    /// Exactly `size`, its label cut with « … » when it is longer: a value shown as a button in
+    /// a row of fields.
+    pub(crate) fn size(mut self, size: egui::Vec2) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    /// Laid out in `ui`.
+    pub(crate) fn show(self, ui: &mut egui::Ui) -> egui::Response {
+        let mut button = match self.icon {
+            Some(icon) => {
+                let image = egui::Image::new(icon).fit_to_exact_size(egui::Vec2::splat(14.0)).tint(ui.visuals().text_color());
+                egui::Button::image_and_text(image, self.label)
+            }
+            None => egui::Button::new(self.label),
+        };
+        button = button.selected(self.lit).min_size(self.min_size);
+        if self.small {
+            button = button.small();
+        }
+        match self.size {
+            Some(size) => ui.add_enabled_ui(self.enabled, |ui| ui.add_sized(size, button.truncate())).inner,
+            None => ui.add_enabled(self.enabled, button),
+        }
+    }
+}
+
+/// What a bar's menu button shows: its label, with side margins of its own, or an image.
+pub(crate) enum MenuFace {
+    Text { label: String, padding: f32 },
+    Image(egui::Image<'static>),
+}
+
+/// A bar's menu button (the title bar's « Fichier », its remote control mark), `height` high
+/// (an image's a square): frameless, lit while its menu is open, its menu in the app's style
+/// filled by `content`. Its response.
+pub(crate) fn bar_menu(ui: &mut egui::Ui, face: MenuFace, height: f32, content: impl FnOnce(&mut egui::Ui)) -> egui::Response {
+    let (button, padding) = match face {
+        MenuFace::Text { label, padding } => (egui::Button::new(label).min_size(egui::vec2(0.0, height)), Some(padding)),
+        MenuFace::Image(image) => (egui::Button::image(image).min_size(egui::Vec2::splat(height)), None),
+    };
+    ui.scope(|ui| {
+        if let Some(p) = padding {
+            ui.spacing_mut().button_padding.x = p;
+        }
+        backed(ui, menu_open, |ui| {
+            egui::containers::menu::MenuButton::from_button(unframed(button))
+                .config(egui::containers::menu::MenuConfig::new().style(crate::kit::style::menu))
+                .ui(ui, content)
+                .0
+        })
+    })
+    .inner
+}
+
+/// Is the menu of the button `r` open?
+pub(crate) fn menu_open(r: &egui::Response) -> bool {
+    egui::Popup::is_id_open(&r.ctx, egui::Popup::default_response_id(r))
+}
+
 /// How an [`IconButton`] shows itself.
 #[derive(Clone, Copy)]
 pub(crate) enum Look {
@@ -158,11 +264,19 @@ pub(crate) struct IconButton {
     natural: bool,
     lit: bool,
     enabled: bool,
+    inert: bool,
 }
 
 impl IconButton {
     pub(crate) fn new(icon: egui::ImageSource<'static>, side: f32, glyph: f32) -> Self {
-        IconButton { icon, side, glyph, look: Look::Plain, ink: None, natural: false, lit: false, enabled: true }
+        IconButton { icon, side, glyph, look: Look::Plain, ink: None, natural: false, lit: false, enabled: true, inert: false }
+    }
+
+    /// Not clickable but not dimmed either: a mark that only tells (a linked body's sign); its
+    /// tip still shows. A [`Look::Plain`] only.
+    pub(crate) fn inert(mut self, inert: bool) -> Self {
+        self.inert = inert;
+        self
     }
 
     pub(crate) fn look(mut self, look: Look) -> Self {
@@ -198,8 +312,9 @@ impl IconButton {
         let enabled = self.enabled;
         match self.look {
             Look::Plain => {
+                let inert = self.inert;
                 let button = self.button(ui).frame(false);
-                ui.add_enabled(enabled, button)
+                if inert { ui.add(button.sense(egui::Sense::hover())) } else { ui.add_enabled(enabled, button) }
             }
             Look::Framed => self.framed(ui),
             Look::Veil => self.veiled(ui),

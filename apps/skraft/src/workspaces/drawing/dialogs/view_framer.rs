@@ -750,12 +750,12 @@ pub fn ui(
                     }
                 });
                 ui.horizontal(|ui| {
-                    let all = ui.button(t!("drawing.framer.show_all"));
+                    let all = crate::kit::widgets::TextButton::new(t!("drawing.framer.show_all")).show(ui);
                     crate::kit::handles::publish(|| "view_framer.show_all".into(), all.rect);
                     if all.clicked() {
                         f.show_all();
                     }
-                    let fit = ui.button(t!("drawing.framer.fit_frame"));
+                    let fit = crate::kit::widgets::TextButton::new(t!("drawing.framer.fit_frame")).show(ui);
                     crate::kit::handles::publish(|| "view_framer.fit_frame".into(), fit.rect);
                     if fit.clicked() {
                         f.fit_frame();

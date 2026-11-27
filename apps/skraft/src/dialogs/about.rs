@@ -152,7 +152,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.add_space(6.0);
-                    let r = ui.button(skraft_i18n::ellipsis(t!("about.check_updates")));
+                    let r = crate::kit::widgets::TextButton::new(skraft_i18n::ellipsis(t!("about.check_updates"))).show(ui);
                     crate::kit::handles::publish(|| "about:check_updates".to_owned(), r.rect);
                     if r.clicked() {
                         check_updates = true;

@@ -415,7 +415,7 @@ pub(crate) fn header(ui: &mut egui::Ui, height: f32, title: String, purge: Optio
     row.add(egui::Label::new(egui::RichText::new(title).font(font).color(row.visuals().weak_text_color())).selectable(false));
     let Some((enabled, tip, handle)) = purge else { return false };
     row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        let button = ui.add_enabled(enabled, egui::Button::new(t!("panel.components.purge")).small());
+        let button = crate::kit::widgets::TextButton::new(t!("panel.components.purge")).small().enabled(enabled).show(ui);
         crate::kit::handles::publish(|| handle.into(), button.rect);
         button.tip(tip).clicked()
     })

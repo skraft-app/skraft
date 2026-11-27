@@ -156,11 +156,20 @@ impl SkraftApp {
         };
         let defaults = without_section(s.clone()) == self.prefs.new_model;
         ui.horizontal(|ui| {
-            if ui.add_enabled(!defaults, egui::Button::new(t!("prefs.model.use_for_new"))).tip(t!("prefs.model.use_for_new_tip")).clicked()
+            if crate::kit::widgets::TextButton::new(t!("prefs.model.use_for_new"))
+                .enabled(!defaults)
+                .show(ui)
+                .tip(t!("prefs.model.use_for_new_tip"))
+                .clicked()
             {
                 self.prefs.new_model = without_section(s.clone());
             }
-            if ui.add_enabled(!defaults, egui::Button::new(t!("prefs.model.restore"))).tip(t!("prefs.model.restore_tip")).clicked() {
+            if crate::kit::widgets::TextButton::new(t!("prefs.model.restore"))
+                .enabled(!defaults)
+                .show(ui)
+                .tip(t!("prefs.model.restore_tip"))
+                .clicked()
+            {
                 let mut d = self.prefs.new_model.clone();
                 d.display.section = s.display.section;
                 d.display.section_active = s.display.section_active;

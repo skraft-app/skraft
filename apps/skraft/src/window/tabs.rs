@@ -360,7 +360,7 @@ fn tab_menu(resp: &egui::Response, s: &Strip<'_>, i: usize, out: &mut Vec<TabAct
     let tab = &s.tabs[i];
     egui::Popup::context_menu(resp).style(crate::kit::style::menu).show(|ui| {
         let mut row = |ui: &mut egui::Ui, row: MenuRow, label: String, enabled: bool| {
-            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+            if crate::kit::widgets::MenuEntry::new(label).enabled(enabled).show(ui) {
                 out.push(TabAction::Menu(i, row));
             }
         };

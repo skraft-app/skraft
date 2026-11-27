@@ -281,14 +281,14 @@ fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs) -> bool {
     ui.add_space(10.0);
     let mut done = false;
     ui.horizontal(|ui| {
-        if ui.button(t!("update.download")).clicked() {
+        if crate::kit::widgets::TextButton::new(t!("update.download")).show(ui).clicked() {
             crate::app::open_url(ui.ctx(), download_url(release, &platform()));
             done = true;
         }
-        if ui.button(t!("update.later")).clicked() {
+        if crate::kit::widgets::TextButton::new(t!("update.later")).show(ui).clicked() {
             done = true;
         }
-        if ui.button(t!("update.skip")).clicked() {
+        if crate::kit::widgets::TextButton::new(t!("update.skip")).show(ui).clicked() {
             prefs.skipped = Some(release.version.clone());
             done = true;
         }
