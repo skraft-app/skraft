@@ -177,6 +177,20 @@ fn a_bracket_stretches_beside_its_arc() {
 }
 
 #[test]
+fn upright_splines_keep_their_ends_on_their_knots() {
+    // A user's part whose edges along the axis are degree-1 splines (SolidCore's prism uprights).
+    // Lengthened, an edge's interval and knots must end on the same number: one ulp apart, the
+    // interval left the curve's natural domain and the kernel refused the record.
+    let record = serde_json::from_str(include_str!("fixtures/foot-upright-splines.json")).unwrap();
+    let foot = Solid::from_record(record);
+    let x = Stretch::new(DVec3::NEG_Y, vec![-169.82631660309173], vec![-395.61269526791114, 0.0]).unwrap();
+    let (lo, hi) = x.extent(&foot).unwrap();
+    let s = read_back(&x.apply(&foot).unwrap());
+    let (lo2, hi2) = x.extent(&s).unwrap();
+    assert_close(hi2 - lo2, hi - lo + 395.61269526791114, 1e-9);
+}
+
+#[test]
 fn a_tool_is_stretched_in_its_own_frame() {
     // A tool along its own Z, placed along the part's X from x = 100 to 150.
     let tool = Solid::new_cylinder(DVec3::ZERO, 8.0, 50.0).unwrap();
