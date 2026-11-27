@@ -338,9 +338,11 @@ unseen, the eye on the cursor.
   `Outcome::warning`, the warning sign at its left), error (red), each a border of its colour on
   a pale wash of it (a dark one in a dark theme), the title in the colour and what went wrong
   under it, smaller.
-- A click on a toast closes it. An info or a success goes after 5 s, a bar along its bottom
-  emptying towards the left; the pointer over it stops the countdown, full again. A warning or
-  an error stays.
+- A click on a toast closes it. An info or a success goes after 5 s (OCL's), a warning or an
+  error after 10 s (its words take longer to read), a bar along its bottom emptying towards the
+  left; the pointer over it stops the countdown, full again. One whose button waits for a choice
+  (« Replacer », « Séparer ») stays. The same toast again counts on the one shown, its countdown
+  started again; too many, the shortest-lived goes first.
 - A toast may carry a button at its right end (as OpenCutList's « Ouvrir » after an export),
   whose click runs it and closes the toast: « Renommer » on « Nouvelle pièce créée », « Nouvel
   assemblage créé », « Nouveau groupe créé », « … rendu unique »

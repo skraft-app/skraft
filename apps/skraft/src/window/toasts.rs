@@ -26,10 +26,6 @@ pub enum Level {
 }
 
 impl Level {
-    fn timed(self) -> bool {
-        matches!(self, Level::Info | Level::Success)
-    }
-
     fn name(self) -> &'static str {
         match self {
             Level::Info => "info",
@@ -121,6 +117,18 @@ impl Note {
     }
 }
 
+impl Note {
+    /// How long it stays (seconds): an info or a success 5 s, a warning or an error 10 s; one
+    /// whose button waits for a choice (« Replacer », « Séparer ») till it is clicked.
+    fn lasts(&self) -> Option<f64> {
+        match self.level {
+            Level::Info | Level::Success => Some(SECONDS),
+            Level::Warning | Level::Error if self.action.is_some() => None,
+            Level::Warning | Level::Error => Some(LONGER),
+        }
+    }
+}
+
 /// On one line (the control channel's answers, the logs).
 impl std::fmt::Display for Note {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -133,6 +141,8 @@ impl std::fmt::Display for Note {
 
 /// How long an info or a success stays (seconds), as OpenCutList's.
 const SECONDS: f64 = 5.0;
+/// How long a warning or an error stays (seconds): its words take longer to read.
+const LONGER: f64 = 10.0;
 /// The most toasts at once: the oldest goes (an info or a success first).
 const MAX: usize = 6;
 /// A toast's width (points).
@@ -174,8 +184,10 @@ impl Toasts {
             return;
         }
         self.list.push(Toast { note, count: 1, since: None, rect: None });
+        // Too many: the shortest-lived goes, the oldest of them.
         while self.list.len() > MAX {
-            let i = self.list.iter().position(|t| t.note.level.timed()).unwrap_or(0);
+            let life = |t: &Toast| t.note.lasts().unwrap_or(f64::INFINITY);
+            let i = (0..self.list.len()).min_by(|a, b| life(&self.list[*a]).total_cmp(&life(&self.list[*b]))).unwrap_or(0);
             self.list.remove(i);
         }
     }
@@ -306,15 +318,13 @@ impl Toasts {
                     if whole.is_some_and(|w| w.clicked()) && !closed.contains(&i) {
                         closed.push(i);
                     }
-                    if !t.note.level.timed() {
-                        continue;
-                    }
+                    let Some(lasts) = t.note.lasts() else { continue };
                     // The pointer over it stops its countdown, full again.
                     if ui.rect_contains_pointer(rect) {
                         t.since = Some(now);
                     }
                     let since = *t.since.get_or_insert(now);
-                    let left = (1.0 - (now - since) / SECONDS).clamp(0.0, 1.0) as f32;
+                    let left = (1.0 - (now - since) / lasts).clamp(0.0, 1.0) as f32;
                     if left <= 0.0 && !closed.contains(&i) {
                         closed.push(i);
                     }
@@ -333,7 +343,7 @@ impl Toasts {
             self.list.remove(i);
         }
         // The countdowns move: the next frame soon (not when nothing runs).
-        if self.list.iter().any(|t| t.note.level.timed()) {
+        if self.list.iter().any(|t| t.note.lasts().is_some()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
         acts
@@ -376,6 +386,21 @@ mod tests {
         assert_eq!(t.list.len(), MAX);
         assert!(t.list.iter().all(|t| t.note.level == Level::Error));
         assert_eq!(t.list[0].note.title, "e0");
+    }
+
+    #[test]
+    fn every_toast_goes_but_one_waiting_for_a_choice() {
+        assert_eq!(Note::info("i").lasts(), Some(SECONDS));
+        assert_eq!(Note::error("e", "why").lasts(), Some(LONGER));
+        let choice = Note::error("l", "d").with_action("Replacer", Act::Reveal("/a".into()));
+        assert_eq!(choice.lasts(), None);
+        // The one waiting stays when too many come.
+        let mut t = Toasts::default();
+        t.push(choice);
+        for i in 0..MAX {
+            t.push(Note::error(format!("e{i}"), "y"));
+        }
+        assert_eq!(t.list[0].note.title, "l");
     }
 
     #[test]
