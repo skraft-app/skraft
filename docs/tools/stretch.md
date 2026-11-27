@@ -314,7 +314,11 @@ On the part's recipe — its bodies ([Bodies](../model/bodies.md)) —, not on i
 Rewriting the record: a pure function on `solidcore_record::brep::Brep` (no kernel), a
 **piecewise translation** along the axis, in `kernel::Stretch` (`crates/kernel/src/stretch.rs`:
 `apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines
-and whole circles, conservative for curved faces —, `section_spans`, `piece_moves`).
+and arcs of circles and ellipses, conservative for curved faces —, `section_spans`,
+`piece_moves`). An arc counts only along its own angles, not its whole circle's: a cutter
+beside a concave arc, where only its circle would pass, crosses straight matter alone. The
+arc is the edge's interval (the circle's angle), or, when the edge is parameterised on a NURBS
+form, the side of its ends where that form's first inner control point lies.
 `Solid::stretched` reads the rewritten record back into the kernel, which validates it; a
 refusal cancels the stretch.
 
@@ -330,7 +334,8 @@ refusal cancels the stretch.
     grown; or a **NURBS net extruded along the axis** (same form, as the face's own surface:
     SolidCore writes a prism's arc sides — fillets included — so), stretched the same way;
   - the kernel writes a mirrored solid's lines as degree-1 splines over ±1234567 and its
-    cylinders as cones of half angle 0: both taken as what they are; a prism's upright edges are
+    cylinders as cones of half angle 0, their NURBS nets sometimes running along u rather than
+    v (the height then u): all taken as what they are; a prism's upright edges are
     degree-1 splines on their own length: a spline (or a two-point polyline) across a cutter has
     its knots and points grown with its interval, else it is no longer read back ("parameter
     interval outside the natural domain") — a filleted prism stretched along its height.
