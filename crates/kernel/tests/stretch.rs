@@ -131,8 +131,8 @@ fn a_prism_with_arcs_stretches_along_its_height() {
     let lying = rounded.transformed(&DAffine3::from_rotation_y(FRAC_PI_2)).unwrap();
     let s = read_back(&x_stretch(&[9.0], &[0.0, 32.0]).apply(&lying).unwrap());
     assert_close(mesh_volume(&s), area * 50.0, 1e-3);
-    // Across its height, through the fillets: refused.
-    assert!(matches!(x_stretch(&[590.0], &[0.0, 10.0]).apply(&rounded), Err(StretchError::EdgeAcross(_) | StretchError::FaceAcross(_))));
+    // Across its height, through the fillets: scaled over x 580 … 600 (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    assert_scaled(&rounded, 590.0, 10.0, (580.0, 600.0));
 }
 
 #[test]
@@ -148,10 +148,9 @@ fn a_cutter_beside_an_arc_is_not_across_it() {
     for (solid, beside, across) in [(rounded, 450.0, 550.0), (carved, 355.0, 450.0)] {
         let s = read_back(&x_stretch(&[beside], &[0.0, 100.0]).apply(&solid).unwrap());
         assert_close(mesh_volume(&s), mesh_volume(&solid) + 100.0 * 300.0 * 18.0, 1e-3);
-        assert!(matches!(
-            x_stretch(&[across], &[0.0, 100.0]).apply(&solid),
-            Err(StretchError::EdgeAcross(_) | StretchError::FaceAcross(_))
-        ));
+        // Across the arc: scaled over the arc's own extent, not its circle's.
+        let arc = if across < 500.0 { (370.0, 530.0) } else { (500.0, 600.0) };
+        assert_scaled(&solid, across, 100.0, arc);
         // The extent and the sections' extents still reach the arcs.
         let x = x_stretch(&[beside], &[0.0, 0.0]);
         assert_close(x.extent(&solid).unwrap().1, 600.0, 1e-9);
@@ -216,19 +215,68 @@ fn a_solid_in_one_section_is_translated() {
     assert_near((lo + hi) / 2.0, DVec3::new(125.0, 0.0, 0.0));
 }
 
+/// `solid` stretched by `d` at the cutter `cut` (the far side moving), what crosses it curved
+/// scaled over `extent` (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md): read
+/// back, its volume grown by `(k − 1)` times the matter in that extent, and still an operand.
+fn assert_scaled(solid: &Solid, cut: f64, d: f64, extent: (f64, f64)) -> Solid {
+    let s = read_back(&x_stretch(&[cut], &[0.0, d]).apply(solid).unwrap());
+    let (lo, hi) = bounds(solid);
+    let k = (extent.1 - extent.0 + d) / (extent.1 - extent.0);
+    let slab =
+        Solid::new_box(DVec3::new(extent.0, lo.y - 1.0, lo.z - 1.0), DVec3::new(extent.1 - extent.0, hi.y - lo.y + 2.0, hi.z - lo.z + 2.0))
+            .unwrap();
+    let inside = solid.boolean(&slab, BooleanOp::Intersection).unwrap().volume().unwrap();
+    assert_close(s.volume().unwrap(), solid.volume().unwrap() + (k - 1.0) * inside, 1e-6);
+    assert_close(mesh_volume(&s), s.volume().unwrap(), 2e-2);
+    assert_close(bounds(&s).1.x, hi.x + d, 1e-9);
+    let (slo, shi) = bounds(&s);
+    let probe = Solid::new_box(slo - DVec3::splat(5.0), (shi - slo) * 0.5 + DVec3::splat(5.0)).unwrap();
+    s.boolean(&probe, BooleanOp::Difference).unwrap();
+    s
+}
+
 #[test]
-fn what_cannot_stretch_is_refused() {
-    let stretch = x_stretch(&[0.0], &[0.0, 10.0]);
-    let refused = |s: &Solid| matches!(stretch.apply(s), Err(StretchError::EdgeAcross(_) | StretchError::FaceAcross(_)));
-    assert!(refused(&Solid::new_sphere(DVec3::ZERO, 10.0).unwrap()));
-    // A cylinder across the axis, a cone and a torus along it.
-    assert!(refused(&Solid::new_cylinder(DVec3::new(0.0, 0.0, -5.0), 8.0, 10.0).unwrap()));
+fn what_crosses_curved_is_scaled() {
+    // A ball, a cylinder across the axis, a cone and a torus along it, each whole one group:
+    // an ellipsoid, an elliptic cylinder, a longer cone, a stretched ring.
+    assert_scaled(&Solid::new_sphere(DVec3::ZERO, 10.0).unwrap(), 0.0, 10.0, (-10.0, 10.0));
+    assert_scaled(&Solid::new_cylinder(DVec3::new(0.0, 0.0, -5.0), 8.0, 10.0).unwrap(), 0.0, 10.0, (-8.0, 8.0));
     let cone = Solid::new_cone(DVec3::ZERO, 10.0, 5.0, 40.0).unwrap().transformed(&DAffine3::from_rotation_y(FRAC_PI_2)).unwrap();
-    assert!(refused(&cone.transformed(&DAffine3::from_translation(DVec3::new(-20.0, 0.0, 0.0))).unwrap()));
-    assert!(refused(&Solid::new_torus(DVec3::ZERO, 20.0, 5.0).unwrap()));
-    // A board slanted in its plane: its long faces are no longer along the axis.
+    assert_scaled(&cone.transformed(&DAffine3::from_translation(DVec3::new(-20.0, 0.0, 0.0))).unwrap(), 0.0, 10.0, (-20.0, 20.0));
+    assert_scaled(&Solid::new_torus(DVec3::ZERO, 20.0, 5.0).unwrap(), 0.0, 10.0, (-25.0, 25.0));
+    // Compressed too.
+    assert_scaled(&Solid::new_sphere(DVec3::ZERO, 10.0).unwrap(), 0.0, -8.0, (-10.0, 10.0));
+    // A board slanted in its plane, its corner on the cutter: its two long sides, slanted
+    // planes, each its own group from corner to corner; the corners move as their sections.
     let slanted = board().transformed(&DAffine3::from_rotation_z(0.3)).unwrap();
-    assert!(refused(&slanted));
+    let s = read_back(&x_stretch(&[0.0], &[0.0, 10.0]).apply(&slanted).unwrap());
+    assert_close(s.volume().unwrap(), (600.0 * 300.0 + 10.0 * 300.0 * 0.3f64.cos()) * 18.0, 1e-9);
+}
+
+#[test]
+fn a_hole_across_a_cutter_goes_oval() {
+    // Ø 50 through the board at x = 200: scaled over x 175 … 225, the board lengthened around it.
+    let hole = Solid::new_cylinder(DVec3::new(200.0, 150.0, -5.0), 25.0, 30.0).unwrap();
+    let drilled = board().boolean(&hole, BooleanOp::Difference).unwrap();
+    for d in [60.0, -20.0] {
+        let s = read_back(&x_stretch(&[200.0], &[0.0, d]).apply(&drilled).unwrap());
+        let k = (50.0 + d) / 50.0;
+        assert_close(s.volume().unwrap(), (600.0 + d) * 300.0 * 18.0 - PI * 625.0 * k * 18.0, 1e-6);
+    }
+}
+
+#[test]
+fn a_rounded_end_cut_in_its_bulge_stretches_into_half_an_ellipse() {
+    use skraft_kernel::profile::{polygon, with_fillets};
+    // A 60 wide tenon with a half round end, x 0 … 330: its ends at x = 300 stay, its tip moves.
+    let corners = polygon(&[glam::DVec2::ZERO, glam::DVec2::new(330.0, 0.0), glam::DVec2::new(330.0, 60.0), glam::DVec2::new(0.0, 60.0)]);
+    let tenon = Solid::new_prism(DVec3::ZERO, &with_fillets(&corners, 30.0), 20.0).unwrap();
+    let s = read_back(&x_stretch(&[315.0], &[0.0, 30.0]).apply(&tenon).unwrap());
+    assert_close(bounds(&s).1.x, 360.0, 1e-9);
+    // The far rounded end over 300 … 330 doubled; the near one (0 … 30) as it was.
+    let near = 30.0 * 60.0 - (1.0 - std::f64::consts::FRAC_PI_4) * 900.0 * 2.0;
+    let far = 30.0 * 60.0 - (1.0 - std::f64::consts::FRAC_PI_4) * 900.0 * 2.0;
+    assert_close(s.volume().unwrap(), (near + 270.0 * 60.0 + 2.0 * far) * 20.0, 1e-6);
 }
 
 #[test]

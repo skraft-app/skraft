@@ -1478,12 +1478,13 @@ impl Editor {
                     let Some(dm) = self.scene.definition_mesh(rb.key) else { continue };
                     let key = crate::scene::preview_key(meshes.len());
                     let spans = local.section_spans(&def.solid);
+                    let moves = local.mesh_moves(&def.solid);
                     let parts = dm
                         .parts
                         .iter()
                         .map(|p| crate::scene::PartMesh {
                             solid: key,
-                            mesh: Arc::new(crate::scene::stretched_mesh(&p.mesh, local, &spans)),
+                            mesh: Arc::new(crate::scene::stretched_mesh(&p.mesh, local, &spans, moves.as_ref())),
                             snaps: Arc::default(),
                             bounds: None,
                         })
@@ -1507,12 +1508,13 @@ impl Editor {
                     let (Ok(from), Some(dm)) = (doc.part(sp.from), self.scene.definition_mesh(sp.from)) else { continue };
                     let key = crate::scene::preview_key(meshes.len());
                     let spans = sp.stretch.section_spans(from.shape());
+                    let moves = sp.stretch.mesh_moves(from.shape());
                     let parts = dm
                         .parts
                         .iter()
                         .map(|p| crate::scene::PartMesh {
                             solid: key,
-                            mesh: Arc::new(crate::scene::stretched_mesh(&p.mesh, &sp.stretch, &spans)),
+                            mesh: Arc::new(crate::scene::stretched_mesh(&p.mesh, &sp.stretch, &spans, moves.as_ref())),
                             snaps: Arc::default(),
                             bounds: None,
                         })

@@ -1180,7 +1180,18 @@ fn ray_mesh(o: DVec3, d: DVec3, m: &Mesh, t_min: f64, clip: Option<(DVec3, DVec3
 /// keeps. The map being affine only between its knots, the triangles are first cut at them:
 /// none then turns over, however hard the compression (moving each vertex by its section, or
 /// a long triangle by a map bent under it, did).
-pub fn stretched_mesh(mesh: &Mesh, stretch: &skraft_kernel::Stretch, spans: &[Option<(f64, f64)>]) -> Mesh {
+///
+/// With `moves` ([`skraft_kernel::Stretch::mesh_moves`]), a face scaled across a cutter has its
+/// points moved by its group's map, a face in one section by its section's, and a face
+/// lengthened by the blend but its points on a group's edge by that group's map: groups
+/// overlapping along the axis (a tube's two circles) each keep their own
+/// (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+pub fn stretched_mesh(
+    mesh: &Mesh,
+    stretch: &skraft_kernel::Stretch,
+    spans: &[Option<(f64, f64)>],
+    moves: Option<&skraft_kernel::MeshMoves>,
+) -> Mesh {
     let a = stretch.axis();
     let knots: Vec<(f64, f64)> =
         spans.iter().zip(stretch.moves()).filter_map(|(s, m)| s.map(|(lo, hi)| [(lo, *m), (hi, *m)])).flatten().collect();
@@ -1199,21 +1210,61 @@ pub fn stretched_mesh(mesh: &Mesh, stretch: &skraft_kernel::Stretch, spans: &[Op
     // Where the map bends: the knots between which the move changes.
     let mut bends: Vec<f64> = knots.windows(2).filter(|w| (w[0].1 - w[1].1).abs() > 1e-9).flat_map(|w| [w[0].0, w[1].0]).collect();
     bends.dedup_by(|x, y| (*x - *y).abs() < 1e-9);
-    let cut = cut_at(mesh, a, &bends);
-    let moved = |p: &[f32; 3]| -> [f32; 3] {
-        let w = cut.origin + DVec3::from_array(p.map(f64::from));
-        (w + a * shift(a.dot(w)) - cut.origin).as_vec3().to_array()
-    };
-    Mesh {
-        positions: cut.positions.iter().map(moved).collect(),
-        edges: cut.edges.iter().map(|e| e.iter().map(moved).collect()).collect(),
-        ..cut
+    // The points of the groups' edges, by their exact position: those a lengthened face shares.
+    let mut on_group: std::collections::HashMap<[u32; 3], u32> = std::collections::HashMap::new();
+    if let Some(mv) = moves {
+        for (poly, &id) in mesh.edges.iter().zip(&mesh.edge_ids) {
+            if mv.of_edge(id, 0.0).is_some() {
+                for p in poly {
+                    on_group.insert(p.map(f32::to_bits), id);
+                }
+            }
+        }
     }
+    // Cut only the triangles the blend moves: a face scaled or in one section moves by an
+    // affine map, and a triangle with a corner on a group's edge keeps its corners' own moves
+    // (cut, its inner points would take the blend's and stand out of the shape).
+    let blended = |t: usize| {
+        let Some(mv) = moves else { return true };
+        let face = mesh.tri_face.get(t).copied().unwrap_or(0);
+        mv.of_face(face, 0.0).is_none()
+            && !mesh.indices[3 * t..3 * t + 3].iter().any(|&i| on_group.contains_key(&mesh.positions[i as usize].map(f32::to_bits)))
+    };
+    let cut = cut_at(mesh, a, &bends, blended);
+    let move_of = |p: &[f32; 3], face: Option<u32>, edge: Option<u32>| -> f64 {
+        let x = a.dot(cut.origin + DVec3::from_array(p.map(f64::from)));
+        moves
+            .and_then(|mv| {
+                face.and_then(|f| mv.of_face(f, x))
+                    .or_else(|| edge.and_then(|e| mv.of_edge(e, x)))
+                    .or_else(|| on_group.get(&p.map(f32::to_bits)).and_then(|e| mv.of_edge(*e, x)))
+            })
+            .unwrap_or_else(|| shift(x))
+    };
+    let moved = |p: &[f32; 3], m: f64| -> [f32; 3] { (DVec3::from_array(p.map(f64::from)) + a * m).as_vec3().to_array() };
+    // Each vertex of the cut mesh belongs to one piece, so to one face.
+    let mut face_of = vec![None; cut.positions.len()];
+    for (t, tri) in cut.indices.chunks(3).enumerate() {
+        for &i in tri {
+            face_of[i as usize] = cut.tri_face.get(t).copied();
+        }
+    }
+    let positions = cut.positions.iter().zip(&face_of).map(|(p, f)| moved(p, move_of(p, *f, None))).collect();
+    let edges = cut
+        .edges
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let id = cut.edge_ids.get(i).copied();
+            e.iter().map(|p| moved(p, move_of(p, None, id))).collect()
+        })
+        .collect();
+    Mesh { positions, edges, ..cut }
 }
 
 /// `mesh` with its triangles cut by the planes `a · p = x` for each `x` of `at` (the pieces
-/// fanned into triangles, keeping their face); its edges as they are.
-fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
+/// fanned into triangles, keeping their face), those `cut` takes by index; its edges as they are.
+fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64], cut: impl Fn(usize) -> bool) -> Mesh {
     if at.is_empty() {
         return mesh.clone();
     }
@@ -1224,7 +1275,7 @@ fn cut_at(mesh: &Mesh, a: DVec3, at: &[f64]) -> Mesh {
     for (t, tri) in mesh.indices.chunks(3).enumerate() {
         let face = mesh.tri_face.get(t).copied().unwrap_or(0);
         let mut pieces: Vec<Vec<(DVec3, DVec3)>> = vec![tri.iter().map(|&i| (point(i), normal(i))).collect()];
-        for &x in at {
+        for &x in at.iter().filter(|_| cut(t)) {
             let level = |p: DVec3| a.dot(o + p) - x;
             let mut next = Vec::with_capacity(pieces.len() + 1);
             for poly in pieces {

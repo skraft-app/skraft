@@ -64,3 +64,4 @@ state and link the records behind it.
 | 0055 | [Linked bodies: a part imprints its final solid in the parts it enters](0055-linked-bodies-through-imprints.md) | accepted (2026-11-23; steps 1 to 4 built) |
 | 0056 | [Touch screens: a phone looks at a model, a tablet models](0056-touch-screens-phone-views-tablet-models.md) | accepted (2026-11-25; step 1 built) |
 | 0057 | [Materials, coverings, colorations: three families, on the part's definition](0057-materials-on-the-definition-typed-sources.md) | accepted (2026-11-26; step 1 built) |
+| 0058 | [Stretch: what crosses a cutter curved is scaled along the axis](0058-stretch-scales-curves-across-a-cutter.md) | accepted (2026-11-27; prototype) |
