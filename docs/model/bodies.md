@@ -97,7 +97,8 @@ level — the part's root, a group — keeps only what lies inside it
   (`Editor::body_sign`); `context.sign` takes `intersect` (docs/control-protocol.md).
 - **Shown** in an open part as a ghost of its own hue (`theme.intersect`, a blue-green; the
   machinings' red; `Look::Intersect`), the ∩ icon on its navigator row; the navigator's sign
-  button cycles `+ → − → ∩ → +` (« Intersection : la pièce ne garde que ce qui est dedans »).
+  button cycles `− → + → ∩ → −`, the order of the drawing tools' choices (« Intersection : la
+  pièce ne garde que ce qui est dedans »).
 - **Moved in the tree**, an intersection stays one ([Moving bodies](#moving-bodies)). A node
   over intersections alone is an intersection rounded (`group_sign`).
 

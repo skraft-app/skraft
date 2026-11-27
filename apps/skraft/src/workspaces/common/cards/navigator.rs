@@ -1577,10 +1577,11 @@ fn body_row(
     }
     if toggled {
         let sign = match b.body.sign {
-            // + → − → ∩ → + (docs/decisions/0045-intersection-a-third-sign.md).
-            Sign::Positive => Sign::Negative,
-            Sign::Negative => Sign::Intersect,
-            Sign::Intersect => Sign::Positive,
+            // − → + → ∩ → −, the order of the drawing tools' choices
+            // (docs/decisions/0045-intersection-a-third-sign.md).
+            Sign::Negative => Sign::Positive,
+            Sign::Positive => Sign::Intersect,
+            Sign::Intersect => Sign::Negative,
         };
         // Selected (in its part or group, opened): the selected siblings with it.
         let scope = scope_in(editor, &look.path);
