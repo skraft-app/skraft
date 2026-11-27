@@ -317,11 +317,11 @@ loading:
   skip: "Continuer sans attendre"
   cancel: "Annuler"
 
-# Deleting a coat that schemes lay (docs/decisions/0057).
+# Deleting a coat that sequences lay (docs/decisions/0057).
 delete_coat:
   title: "Supprimer la couche ?"
-  question: "« %{name} » est utilisée dans %{count} schéma : elle en sera retirée."
-  question_plural: "« %{name} » est utilisée dans %{count} schémas : elle en sera retirée."
+  question: "« %{name} » est utilisée dans %{count} séquence : elle en sera retirée."
+  question_plural: "« %{name} » est utilisée dans %{count} séquences : elle en sera retirée."
   delete: "Supprimer"
   cancel: "Annuler"
 
@@ -1050,10 +1050,10 @@ panel:
     blend_tint: "Teintant"
     intensity: "Intensité"
     intensity_tip: "Couvrant : son opacité ; teintant : la force de sa teinte (de 0 à 100 %)"
-    # A scheme's coats, from the bottom up.
+    # A sequence's coats, from the bottom up.
     coats: "Couches"
     coat_add: "Ajouter une couche"
-    coat_remove_tip: "Retirer du schéma"
+    coat_remove_tip: "Retirer de la séquence"
     coat_up_tip: "Monter d'un cran"
     coat_down_tip: "Descendre d'un cran"
     # An item's family (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
@@ -1065,7 +1065,7 @@ panel:
     kind_label: "Catégorie"
     kind:
       coat: "Couche"
-      scheme: "Schéma"
+      sequence: "Séquence"
       generic: "Générique"
       generic_covering: "Générique"
       solid: "Bois massif"

@@ -2174,7 +2174,7 @@ mod tests {
         // A stain multiplies: the wood darker, its grain (x) still there.
         assert!((apply(compose(&[coat(BlendMode::Tint, 1.0, 0.5)]), 0.8) - 0.4).abs() < 1e-6);
         assert!((apply(compose(&[coat(BlendMode::Tint, 0.5, 0.5)]), 0.8) - 0.6).abs() < 1e-6);
-        // A scheme: a stain then a covering varnish at 20 %, one map, as laid one after the other.
+        // A sequence: a stain then a covering varnish at 20 %, one map, as laid one after the other.
         let two = compose(&[coat(BlendMode::Tint, 1.0, 0.5), coat(BlendMode::Cover, 0.2, 1.0)]);
         assert!((apply(two, 0.8) - (0.8 * 0.5 * 0.8 + 0.2)).abs() < 1e-6);
     }

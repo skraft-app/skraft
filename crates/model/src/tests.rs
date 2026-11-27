@@ -897,7 +897,7 @@ fn a_source_is_kept_by_the_file_and_the_copies() {
 }
 
 #[test]
-fn schemes_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
+fn sequences_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
     let mut h = History::new(Document::new());
     let a = add(&mut h, cube(DVec3::ZERO, 10.0));
     let item = |h: &mut History, name: &str, kind| {
@@ -905,7 +905,7 @@ fn schemes_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
     };
     let stain = item(&mut h, "Teinte noyer", None);
     let varnish = item(&mut h, "Vernis ambré", Some(MaterialKind::Coat));
-    let scheme = item(&mut h, "Noyer verni", Some(MaterialKind::Scheme));
+    let sequence = item(&mut h, "Noyer verni", Some(MaterialKind::Sequence));
     let oak = item(&mut h, "Chêne", Some(MaterialKind::Solid));
     let refused = |r: Result<Outcome>| matches!(r, Err(Error::Invalid(Refusal::MaterialLayer)));
     assert_eq!(h.document().material(stain).unwrap().kind, Some(MaterialKind::Coat), "a coat by default");
@@ -915,36 +915,36 @@ fn schemes_lay_coats_of_the_catalog_which_leave_them_when_deleted() {
     h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Tint, intensity: 0.6 }).unwrap();
     assert_eq!(h.document().material(stain).unwrap().intensity, 0.6);
     assert!(refused(h.apply(Operation::SetCoat { material: stain, blend: BlendMode::Cover, intensity: 1.5 })));
-    assert!(refused(h.apply(Operation::SetCoat { material: scheme, blend: BlendMode::Cover, intensity: 1.0 })));
+    assert!(refused(h.apply(Operation::SetCoat { material: sequence, blend: BlendMode::Cover, intensity: 1.0 })));
 
-    // A scheme lays coats, twice the same if need be; never a scheme nor a material.
-    h.apply(Operation::SetCoats { material: scheme, coats: vec![stain, varnish, varnish] }).unwrap();
-    assert!(refused(h.apply(Operation::SetCoats { material: scheme, coats: vec![scheme] })));
-    assert!(refused(h.apply(Operation::SetCoats { material: scheme, coats: vec![oak] })));
+    // A sequence lays coats, twice the same if need be; never a sequence nor a material.
+    h.apply(Operation::SetCoats { material: sequence, coats: vec![stain, varnish, varnish] }).unwrap();
+    assert!(refused(h.apply(Operation::SetCoats { material: sequence, coats: vec![sequence] })));
+    assert!(refused(h.apply(Operation::SetCoats { material: sequence, coats: vec![oak] })));
     assert!(refused(h.apply(Operation::SetCoats { material: stain, coats: vec![varnish] })), "a coat lays none");
-    let ids = |h: &History| h.document().coats_of(scheme).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+    let ids = |h: &History| h.document().coats_of(sequence).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
     assert_eq!(ids(&h), [stain, varnish, varnish]);
-    assert_eq!(h.document().schemes_with(varnish), [scheme]);
+    assert_eq!(h.document().sequences_with(varnish), [sequence]);
 
-    // Laid on a part: the scheme and its coats count as used, kept by the purge.
+    // Laid on a part: the sequence and its coats count as used, kept by the purge.
     let paint =
-        Operation::PaintParts { targets: vec![EntityPath::root(a)], layer: Family::Finish, material: Some(scheme), scope: Scope::All };
+        Operation::PaintParts { targets: vec![EntityPath::root(a)], layer: Family::Finish, material: Some(sequence), scope: Scope::All };
     h.apply(paint).unwrap();
     h.apply(Operation::PurgeMaterials).unwrap();
-    for m in [stain, varnish, scheme] {
+    for m in [stain, varnish, sequence] {
         assert!(h.document().material(m).is_ok());
     }
     assert!(h.document().material(oak).is_err(), "unused: purged");
 
-    // A file keeps it all; a material file brings a scheme's coats along.
+    // A file keeps it all; a material file brings a sequence's coats along.
     assert_eq!(&Document::from_json(&h.document().to_json().unwrap()).unwrap(), h.document());
-    let alone = h.document().materials_fragment(&[scheme]).unwrap();
+    let alone = h.document().materials_fragment(&[sequence]).unwrap();
     assert_eq!(alone.materials().count(), 3);
-    let (_, s) = alone.materials().find(|(_, m)| m.is_scheme()).unwrap();
+    let (_, s) = alone.materials().find(|(_, m)| m.is_sequence()).unwrap();
     assert_eq!(s.coats.len(), 3);
     assert!(s.coats.iter().all(|c| alone.material(*c).is_ok()));
 
-    // Deleted, a coat leaves the schemes laying it.
+    // Deleted, a coat leaves the sequences laying it.
     h.apply(Operation::DeleteMaterial { material: varnish }).unwrap();
     assert_eq!(ids(&h), [stain]);
 }

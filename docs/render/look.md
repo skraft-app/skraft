@@ -118,8 +118,8 @@ symbols the code writes, and of Greek.
   - **finishes**, what colours a part or a face, never counted; the colours of imports are
     finishes. A **coat** (« Couche », `Coat`, a new one's) has a `blend` — « Couvrant »
     (`Cover`: laid over what is under, its `intensity` its opacity) or « Teintant » (`Tint`:
-    multiplying it, its intensity its strength) — and an `intensity` (0 to 1); a **scheme**
-    (« Schéma », `Scheme`) lays coats of the catalog, referred to, from the bottom up
+    multiplying it, its intensity its strength) — and an `intensity` (0 to 1); a **sequence**
+    (« Séquence », `Sequence`) lays coats of the catalog, referred to, from the bottom up
     (`coats`; one level, a coat may come twice; `SetCoat`, `SetCoats`).
   An item's family is its type's (`Material::family`, a finish without one); a type changes
   only within its family (`SetMaterialKind`), an item never changes family. A file's item
@@ -144,7 +144,7 @@ symbols the code writes, and of Greek.
   app's `Viewport::colours`): what is under's colour, its texture beside it, and the
   finish's coats composed into one map per channel, `x -> A·x + B` (`compose`: covering
   `(1 − t)·x + t·c`, tinting `x·((1 − t) + t·c)`), two `vec4` per entry in a third buffer
-  (`Style::overlays`) that the shader applies over the colour or the texture: a scheme of any
+  (`Style::overlays`) that the shader applies over the colour or the texture: a sequence of any
   number of coats costs one; a finish has no texture, its colour alone. Each instance
   carries a palette index (what its part shows), each vertex the index of what its face shows
   (or none).

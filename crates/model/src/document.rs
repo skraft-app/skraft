@@ -988,7 +988,7 @@ impl Family {
         match self {
             Family::Material => &[MaterialKind::Generic, MaterialKind::Solid, MaterialKind::Sheet, MaterialKind::Profile],
             Family::Covering => &[MaterialKind::GenericCovering, MaterialKind::Veneer, MaterialKind::Edge],
-            Family::Finish => &[MaterialKind::Coat, MaterialKind::Scheme],
+            Family::Finish => &[MaterialKind::Coat, MaterialKind::Sequence],
         }
     }
 }
@@ -1015,8 +1015,8 @@ pub enum MaterialKind {
     Edge,
     /// A finish of its own: a colour, a mode, an intensity (« Couche »).
     Coat,
-    /// A finish made of coats of the catalog, in order (« Schéma »).
-    Scheme,
+    /// A finish made of coats of the catalog, in order (« Séquence »).
+    Sequence,
 }
 
 /// How a coat lays its colour over what is under it (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
@@ -1050,14 +1050,14 @@ impl MaterialKind {
         match self {
             MaterialKind::Generic | MaterialKind::Solid | MaterialKind::Sheet | MaterialKind::Profile => Family::Material,
             MaterialKind::GenericCovering | MaterialKind::Veneer | MaterialKind::Edge => Family::Covering,
-            MaterialKind::Coat | MaterialKind::Scheme => Family::Finish,
+            MaterialKind::Coat | MaterialKind::Sequence => Family::Finish,
         }
     }
 }
 
 /// An item of the catalog — a material, a covering or a finish: a name, a colour, maybe a
 /// texture (a material's or a covering's, docs/render/look.md), its type, which tells its family ([`Catalog`]); a coat's
-/// blend and intensity, a scheme's coats.
+/// blend and intensity, a sequence's coats.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
@@ -1073,7 +1073,7 @@ pub struct Material {
     /// A coat's: its opacity, or its strength when it tints, from 0 to 1.
     #[serde(default = "full", skip_serializing_if = "is_full")]
     pub intensity: f32,
-    /// A scheme's: the coats it lays, from the bottom up, referred to (a coat may come twice).
+    /// A sequence's: the coats it lays, from the bottom up, referred to (a coat may come twice).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coats: Vec<Id>,
     /// Its typed properties (docs/model/properties.md).
@@ -1098,8 +1098,8 @@ impl Material {
         self.kind.map_or(Family::Finish, MaterialKind::family)
     }
 
-    pub fn is_scheme(&self) -> bool {
-        self.kind == Some(MaterialKind::Scheme)
+    pub fn is_sequence(&self) -> bool {
+        self.kind == Some(MaterialKind::Sequence)
     }
 }
 
@@ -1530,7 +1530,7 @@ impl Document {
         for id in ids {
             self.material(*id)?;
         }
-        // The schemes' coats come along.
+        // The sequences' coats come along.
         let mut wanted: FastSet<Id> = ids.iter().copied().collect();
         wanted.extend(ids.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied()));
         let mut fresh: HashMap<Id, Id> = HashMap::new();
@@ -1724,7 +1724,7 @@ impl Document {
                     }
                 }
                 ComponentKind::Part(p) => {
-                    // A scheme shows its coats too.
+                    // A sequence shows its coats too.
                     let held: Vec<Id> = p.materials_held().collect();
                     let coats = held.iter().filter_map(|id| self.materials.get(id)).flat_map(|m| m.coats.iter().copied());
                     let shown: FastSet<Id> = held.iter().copied().chain(coats).collect();
@@ -1739,7 +1739,7 @@ impl Document {
     }
 
     /// The materials something refers to: a part or a face of any part, placed in the model or
-    /// not, and the coats of the schemes they refer to.
+    /// not, and the coats of the sequences they refer to.
     pub fn materials_referenced(&self) -> FastSet<Id> {
         let mut out = FastSet::default();
         for c in self.components.values() {
@@ -1752,19 +1752,19 @@ impl Document {
         out
     }
 
-    /// The coats a finish lays, from the bottom up: a scheme's (those still there), a coat
+    /// The coats a finish lays, from the bottom up: a sequence's (those still there), a coat
     /// itself (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
     pub fn coats_of(&self, finish: Id) -> Vec<(Id, &Material)> {
         match self.materials.get(&finish) {
-            Some(m) if m.is_scheme() => m.coats.iter().filter_map(|c| self.materials.get(c).map(|m| (*c, m))).collect(),
+            Some(m) if m.is_sequence() => m.coats.iter().filter_map(|c| self.materials.get(c).map(|m| (*c, m))).collect(),
             Some(m) => vec![(finish, m)],
             None => Vec::new(),
         }
     }
 
-    /// The schemes laying the coat `coat`.
-    pub fn schemes_with(&self, coat: Id) -> Vec<Id> {
-        self.materials.family(Family::Finish).filter(|(_, m)| m.is_scheme() && m.coats.contains(&coat)).map(|(id, _)| id).collect()
+    /// The sequences laying the coat `coat`.
+    pub fn sequences_with(&self, coat: Id) -> Vec<Id> {
+        self.materials.family(Family::Finish).filter(|(_, m)| m.is_sequence() && m.coats.contains(&coat)).map(|(id, _)| id).collect()
     }
 
     /// Does the occurrence path `occurrences` go through an assembly placed more than once — a
@@ -2247,7 +2247,7 @@ impl Document {
             };
             materials.insert(*id, to);
         }
-        // The schemes added lay the coats as they came in.
+        // The sequences added lay the coats as they came in.
         for k in added {
             if let Some(m) = self.materials.get_mut(&k)
                 && !m.coats.is_empty()

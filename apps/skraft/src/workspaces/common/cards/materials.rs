@@ -297,11 +297,11 @@ fn brush(ui: &mut egui::Ui, item: &egui::Response, on: bool, tip: &str, handle: 
 }
 
 /// Material `id` as the card shows it in `rect`, its corners rounded by `radius`: its colour and
-/// texture, or a scheme's coats, a band each, the bottom one below. The card's tiles and rows,
+/// texture, or a sequence's coats, a band each, the bottom one below. The card's tiles and rows,
 /// and the swatches of the menus that pick a material, all draw it so.
 pub(crate) fn paint_material(ui: &egui::Ui, doc: &Document, rect: egui::Rect, id: Id, radius: f32) {
     let Ok(m) = doc.material(id) else { return };
-    if m.is_scheme() {
+    if m.is_sequence() {
         let coats = doc.coats_of(id);
         ui.painter().rect_filled(rect, radius, ui.visuals().faint_bg_color);
         let n = coats.len().max(1) as f32;

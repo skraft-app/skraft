@@ -38,13 +38,13 @@ colours, picture, interaction, section headers.
 - **The entity info edits it** (how many parts show it is the item's tip in the card, not
   repeated there): its family shown (« Type »), its name, a material's or a covering's
   « Catégorie » among its family's (« Générique », « Bois massif », « Panneau », « Profilé »;
-  « Générique », « Placage », « Chant »; « Couche », « Schéma »); a coat's « Mode » (« Couvrant », « Teintant ») and
-  « Intensité » (%); a scheme's « Couches »: « Ajouter une couche » (among the coats, laid on top),
+  « Générique », « Placage », « Chant »; « Couche », « Séquence »); a coat's « Mode » (« Couvrant », « Teintant ») and
+  « Intensité » (%); a sequence's « Couches »: « Ajouter une couche » (among the coats, laid on top),
   then its coats as they lie, the top one first, each moved up or down or taken out; a finish's
-  « Couleur » but for a scheme; a material's or a covering's « Aspect », its colour and its texture side by
-  side ([Textures](../render/look.md#textures)), then the texture's width and height; its [properties](../model/properties.md). A scheme's tile shows
+  « Couleur » but for a sequence; a material's or a covering's « Aspect », its colour and its texture side by
+  side ([Textures](../render/look.md#textures)), then the texture's width and height; its [properties](../model/properties.md). A sequence's tile shows
   its coats as bands, the bottom one below.
-- **Deleting a coat that schemes lay** asks first, saying how many: it leaves them.
+- **Deleting a coat that sequences lay** asks first, saying how many: it leaves them.
 - **The count** `×n` is how many placed parts of the model hold it, in any of their layers,
   each placement once (`Document::material_counts`).
 - **Unused** means nothing refers to it. A material only on unused components stays in

@@ -51,9 +51,9 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
       the intensity its opacity: a paint, a thinned paint), « Teintant » multiplies what is
       under by it (the intensity its strength: a stain, a tinted varnish, the grain still
       seen). Its product and price, later, are the coat's;
-    - a **scheme** (« Schéma »): an ordered list of coats of the catalog, referred to, not
+    - a **sequence** (« Séquence »): an ordered list of coats of the catalog, referred to, not
       copied — « Noyer verni » is « Teinte noyer » then « Vernis ambré », the varnish existing
-      once whatever the schemes using it. One level: a scheme holds coats, never schemes.
+      once whatever the sequences using it. One level: a sequence holds coats, never sequences.
   Each item has a colour to be seen; a material or a covering maybe a texture, a finish
   never (a file's is not read; an imported one keeps its image's mean colour). **A type changes only within its
   family**, and every type of a family goes to the same place: nothing can end up where it does
@@ -68,13 +68,13 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   | Face | its covering | its finish, else the part's, over its covering, else the part's material |
 
   Under a finish, the theme's default when nothing is there. A slot takes only an item of
-  its family (the model refuses any other); a coat or a scheme alike.
+  its family (the model refuses any other); a coat or a sequence alike.
 - **A finish is composed, not drawn layer by layer**: each coat maps what is under, per
   channel, to `A·x + B` (covering: `(1 − a)·x + a·c`; tinting: `x·((1 − s) + s·c)`), and the
-  coats of a scheme compose into one such map, worked out once, applied by the shader over what
+  coats of a sequence compose into one such map, worked out once, applied by the shader over what
   is under (its colour or its texture): any number of coats costs one.
-- **Deleting a coat used by schemes** removes it from them, after a confirmation saying how
-  many; the purge keeps a coat only schemes use.
+- **Deleting a coat used by sequences** removes it from them, after a confirmation saying how
+  many; the purge keeps a coat only sequences use.
 - **A component has a source** (`Component.source`), a field of the model like its name, not a
   property ([Properties](../model/properties.md)): it cannot be removed or renamed.
   « Fabriqué » (`Made`, the default), « Acheté » (`Bought`), « Existant » (`Existing`), chosen
@@ -127,12 +127,12 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **Three cards**: three places to choose what the paint tool lays.
 - **An opacity alone** for finishes: a thinned white over walnut greys it; a stain darkens
   and colours the wood, its grain still seen — a multiplication, not a mix.
-- **Coats copied into each scheme**: the varnish (its product, its price) repeated in every
+- **Coats copied into each sequence**: the varnish (its product, its price) repeated in every
   combination.
-- **A stack of coats on each face**, painted coat by coat: the same scheme painted again
+- **A stack of coats on each face**, painted coat by coat: the same sequence painted again
   coat by coat on every face, the tool to tell adding from replacing, and the finishing
-  scheme, a notion of the workshop, nameless.
-- **Schemes holding schemes**: cycles, and stacks hard to read; one level suffices.
+  sequence, a notion of the workshop, nameless.
+- **Sequences holding sequences**: cycles, and stacks hard to read; one level suffices.
 - **Solid wood as the default type** (decided first): a steel or an ABS read from a STEP
   designation, a SketchUp material without an OpenCutList type, came into the wood's cutting;
   generic by default, a material is cut only once the user has typed it. Named « Générique »
@@ -140,7 +140,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   item's.
 - **A coat with a texture** (decided first, the same day): its texture showed only when it
   covered fully, its image's mean colour otherwise — a thinned grain shown as a plain veil.
-  Keeping the texture under a partial intensity holds one textured coat per scheme in the map
+  Keeping the texture under a partial intensity holds one textured coat per sequence in the map
   (`x·(A + E·T) + B + D·T`), a second texture sampled; a texture belongs to what a part is
   made of or covered with, a finish only colours it.
 - **The type deciding nothing, the tool's option choosing the target**: the user picks a mode

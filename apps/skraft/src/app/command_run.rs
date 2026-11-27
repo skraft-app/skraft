@@ -595,7 +595,7 @@ impl SkraftApp {
             Action::ChooseComponent(c) => e.choose_component(c),
             Action::ChooseMaterial(m) => e.choose_material(m),
             Action::PaintFamily(f) => e.set_paint_family(f),
-            Action::DeleteMaterial(m) => match e.document().schemes_with(m).len() {
+            Action::DeleteMaterial(m) => match e.document().sequences_with(m).len() {
                 0 => {
                     let _ = e.apply(skraft_model::Operation::DeleteMaterial { material: m });
                 }

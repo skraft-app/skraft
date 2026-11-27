@@ -238,9 +238,9 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`color::color_box`**, the one colour box ([Colours](#colours)); `paint_swatch`, the one
   colour swatch (a favourite colour, the box itself).
 - **`materials::paint_material`** and **`paint_none`**, a material as the « Matières » card
-  shows it (its colour and texture, a scheme's coats in bands; none: a faint square, a stroke
+  shows it (its colour and texture, a sequence's coats in bands; none: a faint square, a stroke
   short of its edges), at any size: the card's tiles and rows, the swatches of the menus that
-  pick a material and of their fields, a scheme's coat rows, the navigator's part rows.
+  pick a material and of their fields, a sequence's coat rows, the navigator's part rows.
 - **`keycaps`**, a shortcut drawn as the keys to press, each a key cap, lit while one is being
   typed (the Preferences' *Shortcuts* tab).
 - **`keypad`**, the numeric keypad the measurements box opens under a finger

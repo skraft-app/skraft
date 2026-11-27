@@ -602,7 +602,7 @@ fn occurrence_row(
 const MARKS_GAP: f32 = 3.0;
 
 /// A navigator row's materials: the part's material, then its finish, each its swatch as
-/// the « Matières » card and the material fields draw it (a scheme its coats); then, when faces
+/// the « Matières » card and the material fields draw it (a sequence its coats); then, when faces
 /// carry a covering or a finish of their own, a swatch cut across, the most used of them in
 /// its lower half. Faded on a hidden row (`greyed`); each names what it shows in its tip.
 fn material_marks(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Part, greyed: bool) {
@@ -648,10 +648,10 @@ fn material_marks(ui: &mut egui::Ui, doc: &Document, p: &skraft_model::Part, gre
 }
 
 /// The mark of faces carrying their own items: a faint swatch cut across, its lower right half
-/// the colour of `m` (a scheme: its top coat).
+/// the colour of `m` (a sequence: its top coat).
 fn paint_faces_mark(ui: &egui::Ui, doc: &Document, r: egui::Rect, m: Id) {
     let color = match doc.material(m) {
-        Ok(x) if x.is_scheme() => doc.coats_of(m).last().map_or(x.color, |(_, c)| c.color),
+        Ok(x) if x.is_sequence() => doc.coats_of(m).last().map_or(x.color, |(_, c)| c.color),
         Ok(x) => x.color,
         Err(_) => return,
     };

@@ -26,7 +26,7 @@ pub(crate) fn kind_label(kind: MaterialKind) -> String {
         MaterialKind::Solid => t!("panel.materials.kind.solid"),
         MaterialKind::Sheet => t!("panel.materials.kind.sheet"),
         MaterialKind::Coat => t!("panel.materials.kind.coat"),
-        MaterialKind::Scheme => t!("panel.materials.kind.scheme"),
+        MaterialKind::Sequence => t!("panel.materials.kind.sequence"),
         MaterialKind::Profile => t!("panel.materials.kind.profile"),
         MaterialKind::Veneer => t!("panel.materials.kind.veneer"),
         MaterialKind::Edge => t!("panel.materials.kind.edge"),
@@ -76,7 +76,7 @@ fn item_choice(
         Some(id) => doc.material(id).map_or("?".to_owned(), |m| m.name.clone()),
         None => empty.clone(),
     };
-    // An item's swatch, drawn as the « Matières » card's tiles (a scheme its coats, none
+    // An item's swatch, drawn as the « Matières » card's tiles (a sequence its coats, none
     // crossed): before its name in the field and in the menu.
     let swatch = |ui: &egui::Ui, r: egui::Rect, item: Option<Id>| match item {
         Some(id) => materials::paint_material(ui, doc, r, id, 2.0),
@@ -168,19 +168,19 @@ fn coat_rows(ui: &mut egui::Ui, id: Id, m: &skraft_model::Material, width: f32, 
     ui.end_row();
 }
 
-/// A scheme's rows (decision 0057): a coat of the catalog to add on top, then its coats as
+/// A sequence's rows (decision 0057): a coat of the catalog to add on top, then its coats as
 /// they lie, the top one first, each moved up or down or taken out.
-fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Material, width: f32, actions: &mut Vec<Action>) {
+fn sequence_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Material, width: f32, actions: &mut Vec<Action>) {
     let set = |coats: Vec<Id>| Action::Apply(Operation::SetCoats { material: id, coats });
     field_label(ui, t!("panel.materials.coats"));
     let is_coat = |x: &skraft_model::Material| x.kind == Some(MaterialKind::Coat);
-    if let Some(Some(coat)) = material_choice_titled(ui, doc, ("scheme_add", id), t!("panel.materials.coat_add"), width, is_coat) {
+    if let Some(Some(coat)) = material_choice_titled(ui, doc, ("sequence_add", id), t!("panel.materials.coat_add"), width, is_coat) {
         let mut coats = m.coats.clone();
         coats.push(coat);
         actions.push(set(coats));
     }
     ui.end_row();
-    // The top one first: `k` counts from the bottom, as the scheme holds them.
+    // The top one first: `k` counts from the bottom, as the sequence holds them.
     for (k, coat) in m.coats.iter().enumerate().rev() {
         ui.label("");
         ui.horizontal(|ui| {
@@ -358,8 +358,8 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             }
             ui.end_row();
         }
-        if m.is_scheme() {
-            scheme_rows(ui, doc, id, m, width, actions);
+        if m.is_sequence() {
+            sequence_rows(ui, doc, id, m, width, actions);
         } else {
             if m.kind == Some(MaterialKind::Coat) {
                 coat_rows(ui, id, m, width, actions);
