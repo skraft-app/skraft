@@ -153,6 +153,14 @@ sign them again without). Without a picture, a file has the document icon macOS 
 (`CFBundleTypeIconSystemGenerated`): a page badged with the app's icon, its extension under
 it. Windows and Linux show the app's icon only.
 
+**In the browser, the file pickers do not filter** (« Ouvrir », « Importer », materials
+imported; an image for a texture still does): any file can be picked, and it is taken by its
+extension like a file dropped on the window — opened, imported, or refused with the formats
+the app takes. **Why:** iOS turns an `accept` extension into a system file type and drops
+those it does not know, filtering on the others alone: a `.skp` some app on the device
+declares left the `.step` files greyed out, and `.skraft`, which none declares, was picked
+only because nothing was left to filter on.
+
 ## Version 1 until 0.1.0
 
 The `0.0.x` versions are test builds, x going up by one at each build sent to testers. Between
