@@ -204,14 +204,6 @@ pub fn paint_swatch(ui: &egui::Ui, rect: Rect, color: Option<Rgb>, edge: Stroke)
     }
 }
 
-/// A swatch of `color`, `size` points square, laid out (a material in a list); none: empty,
-/// crossed.
-pub fn swatch(ui: &mut egui::Ui, color: Option<Rgb>, size: f32) -> egui::Response {
-    let (rect, r) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-    paint_swatch(ui, rect, color, Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color));
-    r
-}
-
 /// A colour box of `size`: `color` shown, its panel opened by a click, copied and pasted by its
 /// menu (right click) or ⌘C / ⌘V under the pointer. `enabled` false: shown and copied only
 /// (a colour following something else, as a texture's mean). Its response, and the colour

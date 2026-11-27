@@ -284,6 +284,10 @@ pub fn caption(text: impl Into<String>) -> egui::RichText {
 /// The check box column of a menu that has check boxes: its side, the box's.
 const MENU_CHECK: f32 = 13.0;
 
+/// The side of a [`menu_mark`]'s square (a check box, a swatch); a field showing what its menu
+/// picked draws the mark at this size too.
+pub const MENU_MARK: f32 = MENU_CHECK - 1.0;
+
 /// A menu item: `check` its check box (a toggle's state), in a column every item of the menu
 /// keeps when one of them has one (`column`), so that their labels start at the same place.
 pub fn menu_item<'a>(label: impl Into<String>, check: Option<bool>, column: bool) -> egui::Button<'a> {
@@ -291,16 +295,30 @@ pub fn menu_item<'a>(label: impl Into<String>, check: Option<bool>, column: bool
     if !column && check.is_none() {
         return egui::Button::new(label);
     }
-    egui::Button::new((menu_check(check), label))
+    menu_item_lead(menu_check(check), label)
+}
+
+/// A menu item whose label follows `lead`, a mark of the same size on every row of the menu
+/// (a check box, a material's swatch: [`menu_mark`]): the labels start at the same place, and
+/// the row stays a button as wide as the menu.
+pub fn menu_item_lead<'a>(lead: egui::Atom<'a>, label: impl Into<String>) -> egui::Button<'a> {
+    egui::Button::new((lead, label.into()))
+}
+
+/// A mark for [`menu_item_lead`], the size of the menus' check boxes: `paint` draws it in its
+/// square, given the row's ink.
+pub fn menu_mark<'a>(paint: impl Fn(&egui::Ui, egui::Rect, egui::Color32) + 'a) -> egui::Atom<'a> {
+    egui::Atom::paint(egui::Vec2::splat(MENU_CHECK), move |ui: &egui::Ui, args: egui::AtomPaintArgs| {
+        let r = egui::Rect::from_center_size(args.rect.center(), egui::Vec2::splat(MENU_MARK));
+        paint(ui, r, args.fallback_text_color);
+    })
 }
 
 /// A menu item's check box (none: its empty column), as [`menu_item`] draws it.
 pub fn menu_check<'a>(check: Option<bool>) -> egui::Atom<'a> {
-    egui::Atom::paint(egui::Vec2::splat(MENU_CHECK), move |ui: &egui::Ui, args: egui::AtomPaintArgs| {
+    menu_mark(move |ui, r, ink| {
         let Some(on) = check else { return };
-        let ink = args.fallback_text_color;
         let p = ui.painter();
-        let r = egui::Rect::from_center_size(args.rect.center(), egui::Vec2::splat(MENU_CHECK - 1.0));
         p.rect_stroke(r, CornerRadius::same(3), Stroke::new(1.0, ink.gamma_multiply(0.7)), egui::StrokeKind::Inside);
         if on {
             let (c, s) = (r.center(), r.width() / 2.0);

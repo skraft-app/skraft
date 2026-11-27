@@ -182,27 +182,7 @@ impl Shelf for Materials<'_> {
     }
 
     fn picture(&mut self, ui: &mut egui::Ui, rect: egui::Rect, id: Id, _ink: &Ink) {
-        let Ok(m) = self.doc.material(id) else { return };
-        // A scheme: its coats, a band each, the bottom one below.
-        if m.is_scheme() {
-            let coats = self.doc.coats_of(id);
-            ui.painter().rect_filled(rect, 4.0, ui.visuals().faint_bg_color);
-            let n = coats.len().max(1) as f32;
-            for (k, (_, c)) in coats.iter().enumerate() {
-                let [r, g, b] = c.color;
-                let top = rect.bottom() - rect.height() * (k + 1) as f32 / n;
-                let band = egui::Rect::from_min_max(egui::pos2(rect.left(), top), egui::pos2(rect.right(), top + rect.height() / n));
-                ui.painter().rect_filled(band, 0.0, egui::Color32::from_rgb(r, g, b));
-            }
-            return;
-        }
-        let [r, g, b] = m.color;
-        ui.painter().rect_filled(rect, 4.0, egui::Color32::from_rgb(r, g, b));
-        if let Some(t) = &m.texture
-            && let Some(tex) = thumbnail(ui.ctx(), self.doc, &t.image, quarters(t.rotation))
-        {
-            paint_texture(ui, &tex, rect, true, 4.0);
-        }
+        paint_material(ui, self.doc, rect, id, 4.0);
     }
 
     fn interact(
@@ -272,11 +252,8 @@ impl Shelf for Materials<'_> {
         Ink::new(ui, self.painting && self.none, false)
     }
 
-    /// No material: a frame crossed out.
     fn lead_picture(&mut self, ui: &mut egui::Ui, rect: egui::Rect, ink: &Ink) {
-        ui.painter().rect_filled(rect, 4.0, ui.visuals().faint_bg_color);
-        let inner = rect.shrink(rect.width() * 0.2);
-        ui.painter().line_segment([inner.left_bottom(), inner.right_top()], egui::Stroke::new(1.0, ink.weak));
+        paint_none(ui, rect, ink.weak, 4.0);
     }
 
     fn lead_interact(&mut self, ui: &mut egui::Ui, response: egui::Response, actions: &mut Vec<Action>) {
@@ -317,6 +294,40 @@ fn brush(ui: &mut egui::Ui, item: &egui::Response, on: bool, tip: &str, handle: 
     let ink = if on { v.selection.stroke.color } else { v.text_color() };
     egui::Image::new(icons::PAINT).tint(ink).paint_at(ui, egui::Rect::from_center_size(at.center(), egui::vec2(12.0, 12.0)));
     r.tip(tip).clicked()
+}
+
+/// Material `id` as the card shows it in `rect`, its corners rounded by `radius`: its colour and
+/// texture, or a scheme's coats, a band each, the bottom one below. The card's tiles and rows,
+/// and the swatches of the menus that pick a material, all draw it so.
+pub(crate) fn paint_material(ui: &egui::Ui, doc: &Document, rect: egui::Rect, id: Id, radius: f32) {
+    let Ok(m) = doc.material(id) else { return };
+    if m.is_scheme() {
+        let coats = doc.coats_of(id);
+        ui.painter().rect_filled(rect, radius, ui.visuals().faint_bg_color);
+        let n = coats.len().max(1) as f32;
+        for (k, (_, c)) in coats.iter().enumerate() {
+            let [r, g, b] = c.color;
+            let top = rect.bottom() - rect.height() * (k + 1) as f32 / n;
+            let band = egui::Rect::from_min_max(egui::pos2(rect.left(), top), egui::pos2(rect.right(), top + rect.height() / n));
+            ui.painter().rect_filled(band, 0.0, egui::Color32::from_rgb(r, g, b));
+        }
+        return;
+    }
+    let [r, g, b] = m.color;
+    ui.painter().rect_filled(rect, radius, egui::Color32::from_rgb(r, g, b));
+    if let Some(t) = &m.texture
+        && let Some(tex) = thumbnail(ui.ctx(), doc, &t.image, quarters(t.rotation))
+    {
+        paint_texture(ui, &tex, rect, true, radius);
+    }
+}
+
+/// No material, as [`paint_material`] would show one: a faint square, a stroke of `ink`
+/// across it short of its edges.
+pub(crate) fn paint_none(ui: &egui::Ui, rect: egui::Rect, ink: egui::Color32, radius: f32) {
+    ui.painter().rect_filled(rect, radius, ui.visuals().faint_bg_color);
+    let inner = rect.shrink(rect.width() * 0.2);
+    ui.painter().line_segment([inner.left_bottom(), inner.right_top()], egui::Stroke::new(1.0, ink));
 }
 
 /// A texture's rotation (radians) as quarter turns, the nearest: the turns the interface offers

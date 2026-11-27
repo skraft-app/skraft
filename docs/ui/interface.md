@@ -232,8 +232,12 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **`tick`**, the check box: egui's, the Preferences' look, with a third state (`Covered`,
   through a row above it: egui's indeterminate mark).
 - **`warning`**, the ⚠ before an error to correct.
-- **`color::color_box`**, the one colour box ([Colours](#colours)); **`color::swatch`** and
-  `paint_swatch`, the one swatch (a material in a list, a favourite colour, the box itself).
+- **`color::color_box`**, the one colour box ([Colours](#colours)); `paint_swatch`, the one
+  colour swatch (a favourite colour, the box itself).
+- **`materials::paint_material`** and **`paint_none`**, a material as the « Matières » card
+  shows it (its colour and texture, a scheme's coats in bands; none: a faint square, a stroke
+  short of its edges), at any size: the card's tiles and rows, the swatches of the menus that
+  pick a material, a scheme's coat rows.
 - **`keycaps`**, a shortcut drawn as the keys to press, each a key cap, lit while one is being
   typed (the Preferences' *Shortcuts* tab).
 - **`keypad`**, the numeric keypad the measurements box opens under a finger
@@ -249,7 +253,9 @@ Elsewhere:
 
 - **`style.rs`**: the cards' frames and margins (`card_frame`, `option_card`, `hover_card`,
   `CARD_MARGIN`), the gap around the floating cards (`FLOAT_GAP`), the bars' sizes
-  (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`; the colour panel takes their style too), a
+  (`BAR_BUTTON`, `BAR_ICON`), the menus' style and rows (`menu`, `menu_item`,
+  `menu_item_lead`: a mark before the label, a check box or a material's swatch (`menu_mark`),
+  the same size on every row so the labels line up; the colour panel takes their style too), a
   `caption` (small, dim: a box's name under it, a menu's note), the settings'
   sections and grids, the hover texts (`Tip`); the app's windows (`app_window`: their frame, their
   width, where they open, held under the title bar on a phone; `window_body`, their content

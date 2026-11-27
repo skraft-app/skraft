@@ -76,6 +76,12 @@ fn item_choice(
         Some(id) => doc.material(id).map_or("?".to_owned(), |m| m.name.clone()),
         None => empty.clone(),
     };
+    // An item's swatch, drawn as the « Matières » card's tiles (a scheme its coats, none
+    // crossed): before its name in the menu.
+    let swatch = |ui: &egui::Ui, r: egui::Rect, item: Option<Id>| match item {
+        Some(id) => materials::paint_material(ui, doc, r, id, 2.0),
+        None => materials::paint_none(ui, r, ui.visuals().weak_text_color(), 2.0),
+    };
     // Laid out as the label beside it (`field_label`): level with it.
     ui.vertical(|ui| {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(width, OPTION_HEIGHT), egui::Sense::click());
@@ -100,14 +106,18 @@ fn item_choice(
         let mut picked = current;
         egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(ui.available_width());
+            // Each row its swatch where the menus' check boxes go: full width, the names lined up.
+            let mut row = |ui: &mut egui::Ui, item: Option<Id>, label: &str| {
+                let lead = crate::kit::style::menu_mark(move |ui, r, _| swatch(ui, r, item));
+                if ui.add(crate::kit::style::menu_item_lead(lead, label).selected(picked == item)).clicked() {
+                    picked = item;
+                }
+            };
             if offer_none {
-                ui.selectable_value(&mut picked, None, empty.clone());
+                row(ui, None, &empty);
             }
             for (id, m) in doc.materials().filter(|(_, m)| keep(m)) {
-                ui.horizontal(|ui| {
-                    widgets::color::swatch(ui, Some(m.color), 12.0);
-                    ui.selectable_value(&mut picked, Some(id), &m.name);
-                });
+                row(ui, Some(id), &m.name);
             }
         });
         (picked != current).then_some(picked)
@@ -169,7 +179,12 @@ fn scheme_rows(ui: &mut egui::Ui, doc: &Document, id: Id, m: &skraft_model::Mate
         ui.horizontal(|ui| {
             ui.set_width(width);
             let c = doc.material(*coat).ok();
-            widgets::color::swatch(ui, c.map(|c| c.color), 12.0);
+            // Its swatch as the menus and the « Matières » card draw it.
+            let (swatch, _) = ui.allocate_exact_size(egui::Vec2::splat(12.0), egui::Sense::hover());
+            match c {
+                Some(_) => materials::paint_material(ui, doc, swatch, *coat, 2.0),
+                None => materials::paint_none(ui, swatch, ui.visuals().weak_text_color(), 2.0),
+            }
             ui.label(c.map_or("?", |c| c.name.as_str()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if small(ui, icons::CLOSE, t!("panel.materials.coat_remove_tip"), true).clicked() {
