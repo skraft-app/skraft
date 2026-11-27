@@ -529,8 +529,9 @@ impl Stretch {
     }
 
     /// A face's extent along the axis: its boundary, plus its surface where the boundary does not
-    /// hold its extremes. On a plane, a cylinder or a cone, a · p is linear along each straight line
-    /// of the surface, so its extremes lie on the boundary.
+    /// hold its extremes. On a plane, a cylinder, a cone or any ruled net ([`ruled`]: a cylinder
+    /// once scaled, a prism's arc side), a · p is monotonic along each straight line of the
+    /// surface, so its extremes lie on the boundary.
     fn face_span(&self, r: &Record, fi: usize, edges: &[Span]) -> Span {
         let f = &r.faces[fi];
         let a = self.axis;
@@ -543,6 +544,7 @@ impl Stretch {
         }
         let surface = match &f.surface {
             Surface::Plane { .. } | Surface::PlaneThrough { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => Span::EMPTY,
+            _ if ruled(f.parameters()) => Span::EMPTY,
             _ => surface_span(a, f.parameters()),
         };
         span.union(surface)
@@ -1027,6 +1029,22 @@ fn conic_span(a: DVec3, frame: &Frame, radii: [f64; 2]) -> Span {
 /// The extent along `a` of a whole surface, conservatively: a sphere, a torus or a ball's
 /// sphere; a spline's control hull; everything for a revolution (never treated as rigid
 /// across a cutter that moves).
+/// A net of one straight segment along one of its parameters (two control points, degree 1, any
+/// weights): a ruled surface, each line of it straight. Its net's hull can lie far outside it
+/// (an elliptic arc's middle control points), so its extent is its boundary's.
+fn ruled(s: &Surface) -> bool {
+    let one_segment = |knots: &[f64], count: usize| count == 2 && knots.len() == 4;
+    match s {
+        Surface::Spline { u_knots, v_knots, points } => {
+            one_segment(u_knots, points.len()) || one_segment(v_knots, points.first().map_or(0, Vec::len))
+        }
+        Surface::RationalSpline { u_knots, v_knots, homogeneous } => {
+            one_segment(u_knots, homogeneous.len()) || one_segment(v_knots, homogeneous.first().map_or(0, Vec::len))
+        }
+        _ => false,
+    }
+}
+
 fn surface_span(a: DVec3, s: &Surface) -> Span {
     match s {
         Surface::Sphere { frame, radius } => Span { lo: a.dot(v3(frame.origin)), hi: a.dot(v3(frame.origin)) }.grow(*radius),

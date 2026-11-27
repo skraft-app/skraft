@@ -321,6 +321,26 @@ fn a_scaled_arc_keeps_a_square_frame() {
 }
 
 #[test]
+fn a_concave_arc_stretched_across_comes_back() {
+    // A board whose end is a concave arc, x 186 … 234, stretched across the arc, then back. Once
+    // scaled, the arc side is an elliptic net whose middle control points lie far out (x ≈ −240):
+    // its extent along the axis is its boundary's (a ruled net), else the way back scales it
+    // about that hull and halves the board.
+    use skraft_kernel::profile::{Corner, polygon};
+    let (l, w) = (233.72269661294416, 275.993212093354);
+    let mut corners = polygon(&[glam::DVec2::ZERO, glam::DVec2::new(l, 0.0), glam::DVec2::new(l, w), glam::DVec2::new(0.0, w)]);
+    corners[1] = Corner::arc(corners[1].p, -0.34307316814988387);
+    let end = Solid::new_prism(DVec3::ZERO, &corners, 41.88307882214465).unwrap();
+    let (cut, d) = (209.5749354828884, 289.2995786655431);
+    let s = read_back(&x_stretch(&[cut], &[0.0, d]).apply(&end).unwrap());
+    assert_close(bounds(&s).1.x, l + d, 1e-9);
+    let (lo, _) = x_stretch(&[0.0], &[0.0, 0.0]).section_spans(&s)[1].unwrap();
+    assert!(lo > 0.0, "the scaled arc's extent is its own: {lo}");
+    let back = read_back(&x_stretch(&[cut + d / 2.0], &[0.0, -d]).apply(&s).unwrap());
+    assert_close(back.volume().unwrap(), end.volume().unwrap(), 1e-9);
+}
+
+#[test]
 fn a_hole_across_a_cutter_goes_oval() {
     // Ø 50 through the board at x = 200: scaled over x 175 … 225, the board lengthened around it.
     let hole = Solid::new_cylinder(DVec3::new(200.0, 150.0, -5.0), 25.0, 30.0).unwrap();

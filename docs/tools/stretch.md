@@ -317,8 +317,10 @@ On the part's recipe — its bodies ([Bodies](../model/bodies.md)) —, not on i
 
 Rewriting the record: a pure function on `solidcore_record::brep::Brep` (no kernel), a
 **piecewise translation** along the axis, what crosses a cutter lengthened or scaled, in `kernel::Stretch` (`crates/kernel/src/stretch.rs`:
-`apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines
-and arcs of circles and ellipses, conservative for curved faces —, `section_spans`,
+`apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines,
+arcs of circles and ellipses and ruled faces (planes, cylinders, cones, a net of one straight
+segment along a parameter: a cylinder once scaled, a prism's arc side, whose net's hull can lie
+far outside it), conservative for other curved faces —, `section_spans`,
 `piece_moves`). An arc counts only along its own angles, not its whole circle's: a cutter
 beside a concave arc, where only its circle would pass, crosses straight matter alone. The
 arc is the edge's interval (the circle's angle), or, when the edge is parameterised on a NURBS
