@@ -13,8 +13,8 @@ use skraft_tools::Editor;
 use crate::kit::icons;
 use crate::kit::style::Tip;
 use crate::kit::widgets::{
-    Field, Fold, OPTION_HEIGHT, RENAMING, TreeLine, band_color, cut_label, field_stroke, framed_field, hidden_color, linked_badge,
-    linked_mark, paint_drag_ghost, rename_field, set_drag_ghost, start_rename, tree_line, tree_row, warning,
+    Field, Fold, OPTION_HEIGHT, RENAMING, TreeLine, band_color, cut_label, framed_field, hidden_color, linked_badge, linked_mark,
+    paint_drag_ghost, rename_field, set_drag_ghost, start_rename, tree_line, tree_row, warning,
 };
 
 mod props;

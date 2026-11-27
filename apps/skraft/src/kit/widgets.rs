@@ -14,7 +14,8 @@ mod segmented;
 mod tree;
 
 pub(crate) use button::{
-    Confirm, IconButton, LabelButton, Look, OPTION_HEIGHT, VEIL_RADIUS, backed, confirm_buttons, option_button, unframed, veil,
+    Confirm, IconButton, LabelButton, Look, MenuFace, OPTION_HEIGHT, TextButton, VEIL_RADIUS, bar_menu, confirm_buttons, menu_open,
+    option_button, veil,
 };
 pub(crate) use choice::{ChoiceList, choice_field, choice_item};
 pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, live_field, rename_field};

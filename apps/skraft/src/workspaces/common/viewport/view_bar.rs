@@ -244,18 +244,15 @@ fn views_button(
     let response = if open { response } else { response.tip(t!("view_bar.views")) };
     Popup::menu(&response).id(egui::Id::unique("view_bar_views_menu")).align(inward(side)).style(crate::kit::style::menu).show(|ui| {
         // Each view with its icon, as the ▾ menu's rows.
-        let ink = ui.visuals().text_color();
         for v in views.iter().filter(|v| STANDARD_VIEWS.contains(&v.id)) {
-            let mut b = match icons::command(v.id) {
-                Some(icon) => egui::Button::new((egui::Image::new(icon).fit_to_exact_size(vec2(16.0, 16.0)).tint(ink), v.label.as_str())),
-                None => egui::Button::new(v.label.as_str()),
-            };
-            if let Some(s) = &v.shortcut {
-                b = b.shortcut_text(s.as_str());
+            let mut entry = crate::kit::widgets::MenuEntry::new(v.label.as_str()).enabled(v.enabled).handle(format!("menu:{}", v.id));
+            if let Some(icon) = icons::command(v.id) {
+                entry = entry.icon(icon);
             }
-            let r = ui.add_enabled(v.enabled, b);
-            crate::kit::handles::publish_enabled(|| format!("menu:{}", v.id), r.rect, v.enabled);
-            if r.clicked() {
+            if let Some(s) = &v.shortcut {
+                entry = entry.shortcut(s.as_str());
+            }
+            if entry.show(ui) {
                 actions.push(Action::Command(v.id));
             }
         }

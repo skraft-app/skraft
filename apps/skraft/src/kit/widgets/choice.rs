@@ -10,20 +10,32 @@ pub(crate) fn choice_item(ui: &mut egui::Ui, on: bool, label: impl Into<egui::Wi
     ui.add(egui::Button::selectable(on, label))
 }
 
+/// A mark drawn in its square before a value (a material's swatch).
+type Lead<'a> = Box<dyn Fn(&egui::Ui, egui::Rect) + 'a>;
+
 /// The one drop-down list: framed as the fields (their ground, their outline telling hovered
 /// and open, their height), the value shown in it (« — » for none), the kit's chevron at its
-/// right end; its values listed under it in a menu of the app's style, at least as wide.
-pub(crate) struct ChoiceList<S> {
+/// right end, a mark before it when it has one; its values listed under it in a menu of the
+/// app's style, at least as wide.
+pub(crate) struct ChoiceList<'a, S> {
     salt: S,
     shown: String,
     width: Option<f32>,
     keep_open: bool,
+    lead: Option<Lead<'a>>,
 }
 
-impl<S: Hash + std::fmt::Debug> ChoiceList<S> {
+impl<'a, S: Hash + std::fmt::Debug> ChoiceList<'a, S> {
     /// Under the key `salt`, showing `shown` (the value chosen, or what stands for it).
     pub(crate) fn new(salt: S, shown: impl Into<String>) -> Self {
-        ChoiceList { salt, shown: shown.into(), width: None, keep_open: false }
+        ChoiceList { salt, shown: shown.into(), width: None, keep_open: false, lead: None }
+    }
+
+    /// A mark before the value shown, drawn by `paint` in its square (a material's swatch), as
+    /// its row's [`Choices::item_lead`] in the list.
+    pub(crate) fn lead(mut self, paint: impl Fn(&egui::Ui, egui::Rect) + 'a) -> Self {
+        self.lead = Some(Box::new(paint));
+        self
     }
 
     /// Its width; as wide as the value shown else (egui's lists' width at least).
@@ -59,8 +71,14 @@ impl<S: Hash + std::fmt::Debug> ChoiceList<S> {
         let inner = rect.shrink2(egui::vec2(PAD, 0.0));
         let chevron = egui::pos2(inner.right() - CHEVRON / 2.0 + 2.0, inner.center().y);
         crate::kit::icons::chevron(ui, chevron, CHEVRON, ink, 0.0);
+        let mut left = inner.left();
+        if let Some(paint) = &self.lead {
+            let side = crate::kit::style::MENU_MARK;
+            paint(ui, egui::Rect::from_min_size(egui::pos2(left, inner.center().y - side / 2.0), egui::Vec2::splat(side)));
+            left += side + ui.spacing().icon_spacing;
+        }
         let clip = inner.with_max_x(chevron.x - CHEVRON / 2.0 - 4.0);
-        ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
+        ui.painter_at(clip).galley(egui::pos2(left, inner.center().y - text.size().y / 2.0), text, ink);
         let close = if self.keep_open { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
         egui::Popup::menu(&response).id(id).close_behavior(close).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(width);
@@ -79,6 +97,12 @@ impl Choices<'_> {
     /// A value, `on` when it is the one chosen: clicked?
     pub(crate) fn item(&mut self, on: bool, label: impl Into<egui::WidgetText>) -> bool {
         choice_item(self.ui, on, label).clicked()
+    }
+
+    /// A value with a mark before its label (`style::menu_mark`: a material's swatch), where the
+    /// menus' check boxes go, the labels lined up; `on` when it is the one chosen: clicked?
+    pub(crate) fn item_lead(&mut self, on: bool, lead: egui::Atom<'_>, label: impl Into<String>) -> bool {
+        self.ui.add(crate::kit::style::menu_item_lead(lead, label).selected(on)).clicked()
     }
 
     /// The value `value` of `current`, chosen into it when clicked: changed?

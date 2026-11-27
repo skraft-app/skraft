@@ -365,13 +365,13 @@ pub fn definitions(ui: &mut egui::Ui, doc: &Document, actions: &mut Vec<Action>)
                 });
             });
             rows.row(ui, t!("panel.properties.key"), |ui| cut_label(ui, egui::RichText::new(key.as_str()).weak(), field));
-            if ui.button(t!("panel.properties.delete")).tip(t!("panel.properties.delete_tip")).clicked() {
+            if crate::kit::widgets::TextButton::new(t!("panel.properties.delete")).show(ui).tip(t!("panel.properties.delete_tip")).clicked()
+            {
                 actions.push(define(key, None));
             }
         });
     }
-    let add = egui::Image::new(icons::ADD).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(ui.visuals().text_color());
-    if ui.add(egui::Button::image_and_text(add, t!("panel.properties.new"))).clicked() {
+    if crate::kit::widgets::TextButton::new(t!("panel.properties.new")).icon(icons::ADD).show(ui).clicked() {
         let n = (1..).find(|n| !defs.contains_key(&format!("user.property_{n}"))).unwrap_or(1);
         let def = PropDef { label: t!("panel.properties.new_label", n = n), ..PropDef::new(ValueKind::Text) };
         actions.push(define(&format!("user.property_{n}"), Some(def)));

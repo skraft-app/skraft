@@ -21,7 +21,7 @@ use crate::commands::Menu;
 use crate::commands::{Action, CommandView};
 use crate::kit::icons;
 use crate::kit::style::{BAR_BUTTON, BAR_ICON, Tip};
-use crate::kit::widgets::{IconButton, Look, VEIL_RADIUS, backed, command_item, is_toggle, unframed, veil};
+use crate::kit::widgets::{IconButton, Look, MenuFace, VEIL_RADIUS, bar_menu, command_item, is_toggle, menu_open, veil};
 use crate::window::tabs::{self, Tab};
 
 /// The bar's height, in points.
@@ -288,25 +288,6 @@ fn bar_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, lit: bool, en
     IconButton::new(icon, BAR_BUTTON, BAR_ICON).look(Look::Veil).lit(lit).enabled(enabled).show(ui).tip(tip)
 }
 
-/// A menu's button: lit while its menu is open.
-fn menu_button(ui: &mut egui::Ui, handle: &str, button: egui::Button, tip: Option<String>, content: impl FnOnce(&mut egui::Ui)) {
-    let r = backed(ui, menu_open, |ui| {
-        egui::containers::menu::MenuButton::from_button(unframed(button))
-            .config(egui::containers::menu::MenuConfig::new().style(crate::kit::style::menu))
-            .ui(ui, |ui| content(ui))
-            .0
-    });
-    crate::kit::handles::publish(|| handle.to_owned(), r.rect);
-    if let Some(tip) = tip {
-        r.tip(tip);
-    }
-}
-
-/// The menu of the button `r` is open.
-fn menu_open(r: &egui::Response) -> bool {
-    egui::Popup::is_id_open(&r.ctx, egui::Popup::default_response_id(r))
-}
-
 fn command_button(ui: &mut egui::Ui, icon: egui::ImageSource<'static>, v: &CommandView, lit: bool, tip: &str, actions: &mut Vec<Action>) {
     let r = bar_button(ui, icon, lit, v.enabled, tip);
     crate::kit::handles::publish_enabled(|| format!("titlebar:{}", v.id), r.rect, v.enabled);
@@ -420,12 +401,10 @@ fn baseline(galley: &egui::Galley) -> f32 {
 fn file_menu(ui: &mut egui::Ui, views: &[CommandView], actions: &mut Vec<Action>) {
     /// The button's side margins, wider than the buttons' padding.
     const PADDING_X: f32 = 10.0;
-    let button = egui::Button::new(Menu::File.label()).min_size(egui::vec2(0.0, 26.0));
-    ui.scope(|ui| {
-        ui.spacing_mut().button_padding.x = PADDING_X;
-        // The menu opens in the window's style: its items keep their padding.
-        menu_button(ui, "titlebar:file", button, None, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
-    });
+    let face = MenuFace::Text { label: Menu::File.label(), padding: PADDING_X };
+    // The menu opens in the window's style: its items keep their padding.
+    let r = bar_menu(ui, face, 26.0, |ui| menu_items(ui, views.iter().filter(|v| v.menu == Menu::File), actions));
+    crate::kit::handles::publish(|| "titlebar:file".to_owned(), r.rect);
 }
 
 /// A menu's items, a separator before each group.
@@ -489,34 +468,26 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
     };
     // The flash: its green behind the mark, fading.
     let behind = ui.painter().add(egui::Shape::Noop);
-    let button = egui::Button::image(img).min_size(egui::vec2(26.0, 26.0));
-    let r = backed(ui, menu_open, |ui| {
-        egui::containers::menu::MenuButton::from_button(unframed(button))
-            .config(egui::containers::menu::MenuConfig::new().style(crate::kit::style::menu))
-            .ui(ui, |ui| {
-                ui.weak(&tip);
-                ui.separator();
-                if mark.error.is_some() {
-                    if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.retry")).show(ui) {
-                        actions.push(Action::RemoteRetry);
-                    }
-                } else if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.copy_ping")).show(ui) {
-                    let token = mark
-                        .token_file
-                        .as_ref()
-                        .map_or_else(|| "$SKRAFT_CONTROL_TOKEN".to_owned(), |f| format!("$(cat '{}')", f.display()));
-                    ui.ctx().copy_text(format!(
-                        "curl -s -H 'X-Skraft: 1' -H \"Authorization: Bearer {token}\" -d '{{\"method\": \"app.ping\"}}' http://{address}/call"
-                    ));
-                }
-                if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.journal")).show(ui) {
-                    actions.push(Action::Command("app.journal"));
-                }
-                if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.stop")).show(ui) {
-                    actions.push(Action::Command("app.remote_control"));
-                }
-            })
-            .0
+    let r = bar_menu(ui, MenuFace::Image(img), 26.0, |ui| {
+        ui.weak(&tip);
+        ui.separator();
+        if mark.error.is_some() {
+            if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.retry")).show(ui) {
+                actions.push(Action::RemoteRetry);
+            }
+        } else if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.copy_ping")).show(ui) {
+            let token =
+                mark.token_file.as_ref().map_or_else(|| "$SKRAFT_CONTROL_TOKEN".to_owned(), |f| format!("$(cat '{}')", f.display()));
+            ui.ctx().copy_text(format!(
+                "curl -s -H 'X-Skraft: 1' -H \"Authorization: Bearer {token}\" -d '{{\"method\": \"app.ping\"}}' http://{address}/call"
+            ));
+        }
+        if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.journal")).show(ui) {
+            actions.push(Action::Command("app.journal"));
+        }
+        if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.stop")).show(ui) {
+            actions.push(Action::Command("app.remote_control"));
+        }
     });
     if mark.flash > 0.0 {
         let fill = ACTIVE.gamma_multiply(0.45 * mark.flash);

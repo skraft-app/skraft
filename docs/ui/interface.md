@@ -242,9 +242,8 @@ An element of the interface is built once, where every screen finds it: a screen
 buttons, fields, rows, cards and boxes from the modules below, and what two screens draw alike
 moves there rather than being copied. Before drawing something new, look here first.
 A test keeps it (`kit/guard.rs`): outside `kit/`, no button nor drop-down list is built from
-egui's own (`egui::Button`, `ui.button`, `selectable_label`, `egui::ComboBox`…); a variant the kit lacks (a size, a lit
-state, a look) is added to its widget. The files still holding egui's buttons from before are
-listed with their count, a ceiling that only goes down as they move to the kit.
+egui's own (`egui::Button`, `ui.button`, `selectable_label`, `egui::ComboBox`…); a variant the
+kit lacks (a size, a lit state, a look) is added to its widget.
 
 In `apps/skraft/src/kit/widgets.rs`:
 
@@ -253,7 +252,14 @@ In `apps/skraft/src/kit/widgets.rs`:
   hovered or pressed (the title bar, the tabs; `show_at` for a strip laid out by hand), `Bar` the
   floating bars' (the view bar, the quick tools): it senses drags even when it cannot run, so it
   is dimmed rather than disabled. `natural` keeps an icon's own colours (the app's mark in the
-  compact title bar).
+  compact title bar); `inert`, a `Plain` one only tells, neither clicked nor dimmed (a linked
+  body's sign).
+- **`TextButton`**, the one text button: egui's framed button, an icon before its label when it
+  has one (« + Nouvelle propriété »), enabled or not, lit (a toggle on: a gesture's modifier
+  key, the keypad open), small (« Purger »), at least or exactly a size (its label cut with
+  « … »: a view's subject in its row of fields).
+- **`bar_menu`**, a bar's menu button (the title bar's « Fichier », its remote control mark):
+  frameless, lit while its menu is open (`menu_open`), its menu in the app's style.
 - **`pin_menu`**, the menus choosing what a bar shows (the ribbon's groups, the ▾ of the view
   bar and of the quick tools; `pin_list` in a submenu): each command's row and its pin, all
   rows one width so the pins line up; a row run closes the menu, a pin clicked leaves it open;
@@ -261,8 +267,9 @@ In `apps/skraft/src/kit/widgets.rs`:
   tip on a row (it would say its label again); the note under them wraps within the rows'
   width, never widening the menu.
 - **`MenuEntry`**, an entry of a menu that is not a command's (a row's right click, a card's
-  item): drawn as `command_item` draws a command's (`style::menu_item`), enabled or not, its
-  handle (`navigator:menu:rename`) and its tip when it has them. A menu never adds egui's
+  item, the view bar's views): drawn as `command_item` draws a command's (`style::menu_item`),
+  enabled or not, its icon, shortcut, handle (`navigator:menu:rename`) and tip when it has
+  them. A menu never adds egui's
   `ui.button`.
 - **`unpin_menu`**, the right click on a button these menus pinned: « Retirer de… » (the pin's
   tip), then the bar's own items if it has some (the ribbon's), after a separator.
@@ -289,7 +296,8 @@ In `apps/skraft/src/kit/widgets.rs`:
   framed as the fields (their ground, their outline telling hovered and open, their height),
   the value shown in it (« — » for none), the kit's chevron at its right end; its values in a
   menu of the app's style, at least as wide (`keep_open` for a list of check boxes, the
-  journal's « Quoi »), added by `item`, `value`, `check` and `separator`; `choice_field`, a
+  journal's « Quoi »; `lead`, a mark before the value, a material's swatch), added by `item`,
+  `item_lead`, `value`, `check` and `separator`; `choice_field`, a
   `ChoiceList` among texts. **`choice_item`**, a value's row, lit when chosen, in those lists
   and in a menu (the tabs' ⋯).
   **Why:** in a card or a box a list is read as a value, like the fields beside it; egui's

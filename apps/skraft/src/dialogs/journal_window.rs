@@ -191,7 +191,7 @@ fn log(ui: &mut egui::Ui, shown: &mut Shown, journal: &Journal) {
             .tip(t!("journal.who_tip"));
     };
     let copy = |ui: &mut egui::Ui| {
-        if ui.button(t!("journal.copy")).tip(t!("journal.copy_tip")).clicked() {
+        if crate::kit::widgets::TextButton::new(t!("journal.copy")).show(ui).tip(t!("journal.copy_tip")).clicked() {
             let lines: Vec<String> = entries.iter().map(|e| skraft_control::json::entry(e).to_string()).collect();
             ui.ctx().copy_text(lines.join("\n"));
         }
@@ -263,7 +263,7 @@ fn failures_list(ui: &mut egui::Ui, journal: &Journal) {
                     ui.label(egui::RichText::new(what).strong());
                 },
                 |ui| {
-                    if ui.button(t!("journal.copy_job")).tip(t!("journal.copy_job_tip")).clicked() {
+                    if crate::kit::widgets::TextButton::new(t!("journal.copy_job")).show(ui).tip(t!("journal.copy_job_tip")).clicked() {
                         let full = skraft_control::json::failure(f, true);
                         ui.ctx().copy_text(serde_json::to_string_pretty(&full).unwrap_or_default());
                     }

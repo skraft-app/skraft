@@ -157,7 +157,7 @@ fn text_rows(ui: &mut egui::Ui, cx: DrawingCx<'_>, id: Id, (at, text, size): (&g
 /// The button putting a field at the end of a text: Skraft's, those the drawing's texts name, a
 /// new one; `append` what that makes of the text.
 fn field_menu(ui: &mut egui::Ui, d: &Drawing, id: Id, append: &dyn Fn(&str) -> Action, actions: &mut Vec<Action>) {
-    let button = ui.button(t!("drawing.insert_field"));
+    let button = crate::kit::widgets::TextButton::new(t!("drawing.insert_field")).show(ui);
     crate::kit::handles::publish(|| "drawing_insert_field".into(), button.rect);
     let menu = egui::Popup::menu(&button).style(crate::kit::style::menu);
     menu.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
@@ -303,7 +303,7 @@ fn view_subject_row(
         Subject::Occurrences(paths) => t!("drawing.subject.occurrences", count = paths.len()),
     };
     // Changed in the dialog a new view is chosen in (decision 0051).
-    let change = ui.add_sized([field, ui.spacing().interact_size.y], egui::Button::new(shows).truncate());
+    let change = crate::kit::widgets::TextButton::new(shows).size(egui::vec2(field, ui.spacing().interact_size.y)).show(ui);
     crate::kit::handles::publish(|| "view_subject".into(), change.rect);
     if change.tip(t!("drawing.picker.change_tip")).clicked() {
         let purpose = crate::workspaces::drawing::dialogs::view_picker::Purpose::Change(id);

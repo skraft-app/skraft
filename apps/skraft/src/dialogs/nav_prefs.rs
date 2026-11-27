@@ -52,7 +52,9 @@ fn settings(ui: &mut egui::Ui, nav: &mut Navigation) {
                     }
                 }
             });
-            if style.custom && ui.button(t!("prefs.navigation.style.restore", name = style.preset.name())).clicked() {
+            if style.custom
+                && crate::kit::widgets::TextButton::new(t!("prefs.navigation.style.restore", name = style.preset.name())).show(ui).clicked()
+            {
                 *style = style.preset.style();
             }
         });
@@ -126,7 +128,7 @@ fn settings(ui: &mut egui::Ui, nav: &mut Navigation) {
     }
     ui.add_space(10.0);
     ui.separator();
-    if ui.add_enabled(*nav != Navigation::default(), egui::Button::new(t!("prefs.navigation.defaults"))).clicked() {
+    if crate::kit::widgets::TextButton::new(t!("prefs.navigation.defaults")).enabled(*nav != Navigation::default()).show(ui).clicked() {
         *nav = Navigation::default();
     }
 }
@@ -364,7 +366,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 3.0;
                 for (on, name) in mod_keys(&mut b.mods, mac) {
-                    ui.add(egui::Button::new(name).selected(*on).min_size(vec2(26.0, h))).clicked().then(|| *on = !*on);
+                    crate::kit::widgets::TextButton::new(name).lit(*on).min_size(vec2(26.0, h)).show(ui).clicked().then(|| *on = !*on);
                 }
                 ui.add_space(10.0);
                 crate::kit::widgets::ChoiceList::new(("nav_trigger", i), trigger_name(b.trigger)).width(120.0).show(ui, |list| {
@@ -382,8 +384,8 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                 ui.add_space(4.0);
                 let actions = if b.trigger.is_drag() { NavAction::DRAG } else { NavAction::CLICK };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let x = egui::Image::new(crate::kit::icons::CLOSE).fit_to_exact_size(vec2(12.0, 12.0)).tint(ui.visuals().text_color());
-                    if ui.add(egui::Button::image(x).min_size(vec2(h, h))).tip(t!("prefs.navigation.gestures.delete_tip")).clicked() {
+                    let x = crate::kit::widgets::IconButton::new(crate::kit::icons::CLOSE, h, 12.0).look(crate::kit::widgets::Look::Framed);
+                    if x.show(ui).tip(t!("prefs.navigation.gestures.delete_tip")).clicked() {
                         delete = Some(i);
                     }
                     ui.add_space(6.0);
@@ -403,8 +405,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
         if let Some(i) = delete {
             style.bindings.remove(i);
         }
-        let add = egui::Image::new(crate::kit::icons::ADD).fit_to_exact_size(vec2(14.0, 14.0)).tint(ui.visuals().text_color());
-        if ui.add(egui::Button::image_and_text(add, t!("prefs.navigation.gestures.add"))).clicked() {
+        if crate::kit::widgets::TextButton::new(t!("prefs.navigation.gestures.add")).icon(crate::kit::icons::ADD).show(ui).clicked() {
             style.bindings.push(new_binding(style, button));
         }
     });

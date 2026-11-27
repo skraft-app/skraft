@@ -492,8 +492,11 @@ impl SkraftApp {
         let mut entered = false;
         let r = if self.probe.coarse {
             let height = ui.spacing().interact_size.y;
-            let r =
-                ui.add_enabled(takes, egui::Button::new(text.clone()).min_size(egui::vec2(160.0, height)).selected(self.keypad && takes));
+            let r = crate::kit::widgets::TextButton::new(text.clone())
+                .enabled(takes)
+                .lit(self.keypad && takes)
+                .min_size(egui::vec2(160.0, height))
+                .show(ui);
             if r.clicked() {
                 self.keypad = !self.keypad;
             }

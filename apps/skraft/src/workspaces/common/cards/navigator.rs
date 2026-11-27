@@ -493,8 +493,7 @@ fn occurrence_line(
     let mark = if selected { tint } else { weak };
     let eye = |ui: &mut egui::Ui, _| {
         let (icon, tip) = if o.hidden { (icons::EYE_OFF, t!("panel.navigator.show")) } else { (icons::EYE, t!("panel.navigator.hide")) };
-        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(mark);
-        let eye = ui.add(egui::Button::image(img).frame(false));
+        let eye = crate::kit::widgets::IconButton::new(icon, 0.0, 14.0).ink(mark).show(ui);
         crate::kit::handles::publish(|| format!("navigator:eye:{}", o.id.0), eye.rect);
         let eye = eye.tip(tip).clicked();
         // A part shaping others: the chain left of the eye, in the column of the bodies' marks,
@@ -1561,9 +1560,7 @@ fn body_line(
             Sign::Intersect => (icons::INTERSECT, t!("panel.navigator.sign_intersect")),
         };
         let mark = if selected { tint } else { weak };
-        let img = egui::Image::new(icon).fit_to_exact_size(egui::vec2(14.0, 14.0)).tint(mark);
-        let sense = if linked { egui::Sense::hover() } else { egui::Sense::click() };
-        let sign = ui.add(egui::Button::image(img).frame(false).sense(sense));
+        let sign = crate::kit::widgets::IconButton::new(icon, 0.0, 14.0).ink(mark).inert(linked).show(ui);
         crate::kit::handles::publish(|| format!("navigator:sign:{}", b.body.id.0), sign.rect);
         // A linked body is a machining by its link (docs/model/bodies.md#links): its sign is not
         // clicked, a chain on its corner, its tip naming the source. Tied to it as the source's
