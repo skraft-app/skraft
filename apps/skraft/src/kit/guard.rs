@@ -26,7 +26,7 @@ const CEILINGS: &[(&str, usize)] = &[
     ("app/settings.rs", 9),
     ("dialogs/about.rs", 1),
     ("dialogs/journal_window.rs", 3),
-    ("dialogs/nav_prefs.rs", 12),
+    ("dialogs/nav_prefs.rs", 10),
     ("dialogs/update.rs", 3),
     ("window/tabs.rs", 2),
     ("window/titlebar.rs", 6),
@@ -44,9 +44,11 @@ const CEILINGS: &[(&str, usize)] = &[
     ("workspaces/drawing/dialogs/view_framer.rs", 5),
 ];
 
-/// The raw buttons of `src` (comment lines left out).
+/// The raw buttons of `src` (comment lines left out). A call with no argument is not egui's
+/// (`binding.trigger.button()`, a mouse button).
 fn count(src: &str) -> usize {
-    src.lines().filter(|l| !l.trim_start().starts_with("//")).map(|l| RAW.iter().map(|p| l.matches(p).count()).sum::<usize>()).sum()
+    let raw = |l: &str, p: &str| l.match_indices(p).filter(|(i, _)| !l[i + p.len()..].starts_with(')')).count();
+    src.lines().filter(|l| !l.trim_start().starts_with("//")).map(|l| RAW.iter().map(|p| raw(l, p)).sum::<usize>()).sum()
 }
 
 /// Every `.rs` file under `dir`, its path from `root` with `/`, but those under `kit/`.
