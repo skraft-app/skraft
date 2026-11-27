@@ -380,7 +380,10 @@ impl Stretch {
                         Curve::Polyline { points } => e.curve = Curve::Line { start: points[0], end: points[1] },
                         Curve::Spline { knots, points } => {
                             let p0 = v3(points[0]) - per_t * knots[1];
-                            let (k0, k1) = (knots[1] + new[0] - old[0], knots[2] + new[1] - old[1]);
+                            // Offsets from the interval's new ends, so that knots on the old
+                            // ends land on the new ones exactly (one ulp past them is outside
+                            // the curve's natural domain).
+                            let (k0, k1) = (new[0] - (old[0] - knots[1]), new[1] + (knots[2] - old[1]));
                             *knots = vec![k0, k0, k1, k1];
                             *points = vec![(p0 + per_t * k0).to_array(), (p0 + per_t * k1).to_array()];
                         }
