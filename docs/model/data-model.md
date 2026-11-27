@@ -128,7 +128,8 @@ Not yet: the cut list itself; the cut-list dimensions show in the entity info.
   assembly's parts keep their axes. The tool: [Reorient](../tools/reorient.md).
 - **Parts a tool draws are born oriented** (`Operation::DrawPrimitive`), by OpenCutList's rule: blue
   across their largest faces, red along their longest edges, oblique on a slanted prism (decision
-  0054). Imports, copies, pastes, booleans and stretches keep the axes they have.
+  0054); the profile stays the outline drawn, a tall shape's body placed. Imports, copies, pastes,
+  booleans and stretches keep the axes they have.
 
 ## Machinings and the recipe
 

@@ -52,8 +52,12 @@ The **drawing tools** (box, prism, cylinder, turned body) orient a new part by O
   height exceeds its diameter.
 - **The signs point towards the material**, the thickness first, then the length; the width
   follows from a direct frame.
-- **Unlike OpenCutList, a box or a flat prism has its origin at its new low corner**: built in its
-  final axes it stays a plain part, while keeping the origin would place its body.
+- **Unlike OpenCutList, a flat box or prism has its origin at its new low corner**: built in its
+  final axes it stays a plain part, while keeping the origin would place its body. Flat means its
+  blue axis is its height, turned at most in the plane of its outline.
+- **The profile stays the outline drawn**: a shape whose blue axis must leave its height (a small
+  rectangle pulled long, as a tall prism or cylinder) keeps its body in the axes it was drawn in
+  and is given its new axes once made.
 - Copies, pastes and boolean results keep their axes. So does a part stretched past another of its
   dimensions: orientation is settled once, at birth.
 
@@ -108,9 +112,10 @@ return to the default and a message says so. Undo restores them.
 
 ## Consequences
 
-- **Being born oriented is nearly free for what is drawn**: a box, and a prism whose height is its
-  thickness, are built in their final axes and stay plain. A shape whose axis must leave blue (a
-  tall cylinder) has a placed body and stores a computed shape (`Part::is_plain` false).
+- **Being born oriented is nearly free for what is drawn**: a box or a prism whose height is its
+  thickness is built in its final axes and stays plain. A shape whose axis must leave blue (a
+  tall box, prism or cylinder) has a placed body and stores a computed shape (`Part::is_plain`
+  false), so that its profile stays the outline drawn.
 - **An imported part reads in the file's axes**, so its length may be its smallest dimension.
   Nothing puts a whole model in order for now.
 - **A single positive body keeps its face names once placed** (`Part::is_one_body`), so dimensions

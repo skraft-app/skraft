@@ -2,6 +2,7 @@
 
 use glam::{DAffine3, DMat3, DQuat, DVec2, DVec3};
 
+use crate::profile::Sweep;
 use crate::*;
 
 /// New x along the current y, new y along the current -x.
@@ -283,14 +284,16 @@ fn world_box(doc: &Document) -> (DVec3, DVec3) {
 }
 
 #[test]
-fn a_box_is_born_oriented_and_plain_where_it_was_drawn() {
+fn a_box_is_born_oriented_where_it_was_drawn_plain_when_flat() {
     for size in
-        [DVec3::new(18.0, 600.0, 400.0), DVec3::new(400.0, 18.0, 600.0), DVec3::new(600.0, 400.0, 18.0), DVec3::new(18.0, 400.0, 600.0)]
+        [DVec3::new(18.0, 600.0, 400.0), DVec3::new(400.0, 18.0, 600.0), DVec3::new(600.0, 400.0, 18.0), DVec3::new(400.0, 600.0, 18.0)]
     {
         let mut h = History::new(Document::new());
         let origin = DVec3::new(10.0, 20.0, 30.0);
         let part = drawn(&mut h, Primitive::Box { origin, size });
-        assert!(h.document().part(part).unwrap().is_plain(), "{size}");
+        let p = h.document().part(part).unwrap();
+        assert_eq!(p.is_plain(), size.z == 18.0, "plain when flat: {size}");
+        assert!(p.is_one_body(), "{size}");
         assert!(exact_size(h.document(), part).distance(DVec3::new(600.0, 400.0, 18.0)) < 1e-6, "{size}");
         let (lo, hi) = world_box(h.document());
         assert!(lo.distance(origin) < 1e-6 && hi.distance(origin + size) < 1e-6, "{size}: {lo} {hi}");
@@ -372,6 +375,22 @@ fn a_tall_prism_gets_new_axes_and_keeps_its_profile() {
     assert!(exact_size(h.document(), part).distance(DVec3::new(500.0, 40.0, 40.0)) < 1e-6);
     let (lo, hi) = world_box(h.document());
     assert!(lo.distance(DVec3::ZERO) < 1e-6 && hi.distance(DVec3::new(40.0, 40.0, 500.0)) < 1e-6, "{lo} {hi}");
+}
+
+#[test]
+fn a_tall_box_keeps_the_rectangle_drawn_as_its_profile() {
+    // A small rectangle pulled long, as a tall prism: the profile stays the one drawn.
+    let mut h = History::new(Document::new());
+    let part = drawn(&mut h, Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(50.0, 20.0, 500.0) });
+    let p = h.document().part(part).unwrap();
+    assert!(p.is_one_body() && !p.is_plain());
+    let BodyProfile { profile, sweep } = p.profile_of(&p.bodies[0]).unwrap();
+    let (lo, hi) = kernel::profile::bounds(&profile).unwrap();
+    assert!((hi - lo).distance(DVec2::new(50.0, 20.0)) < 1e-6, "the rectangle drawn: {lo} {hi}");
+    assert!(matches!(sweep, Sweep::Extrusion { height, .. } if (height - 500.0).abs() < 1e-6));
+    assert!(exact_size(h.document(), part).distance(DVec3::new(500.0, 50.0, 20.0)) < 1e-6);
+    let (lo, hi) = world_box(h.document());
+    assert!(lo.distance(DVec3::ZERO) < 1e-6 && hi.distance(DVec3::new(50.0, 20.0, 500.0)) < 1e-6, "{lo} {hi}");
 }
 
 #[test]
