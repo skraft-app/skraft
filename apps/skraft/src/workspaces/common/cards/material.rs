@@ -77,7 +77,7 @@ fn item_choice(
         None => empty.clone(),
     };
     // An item's swatch, drawn as the « Matières » card's tiles (a scheme its coats, none
-    // crossed): before its name in the menu.
+    // crossed): before its name in the field and in the menu.
     let swatch = |ui: &egui::Ui, r: egui::Rect, item: Option<Id>| match item {
         Some(id) => materials::paint_material(ui, doc, r, id, 2.0),
         None => materials::paint_none(ui, r, ui.visuals().weak_text_color(), 2.0),
@@ -100,8 +100,15 @@ fn item_choice(
         icons::chevron(ui, icon.center(), 14.0, ink, 0.0);
         let font = egui::TextStyle::Body.resolve(ui.style());
         let text = ui.fonts_mut(|f| f.layout_no_wrap(name(current), font, ink));
+        // The choice's swatch first, as its menu row shows it (not for a title: nothing chosen).
+        let mut left = inner.left();
+        if offer_none {
+            let side = crate::kit::style::MENU_MARK;
+            swatch(ui, egui::Rect::from_min_size(egui::pos2(left, inner.center().y - side / 2.0), egui::Vec2::splat(side)), current);
+            left += side + ui.spacing().icon_spacing;
+        }
         let clip = inner.with_max_x(icon.left() - 4.0);
-        ui.painter_at(clip).galley(egui::pos2(inner.left(), inner.center().y - text.size().y / 2.0), text, ink);
+        ui.painter_at(clip).galley(egui::pos2(left, inner.center().y - text.size().y / 2.0), text, ink);
 
         let mut picked = current;
         egui::Popup::menu(&response).id(id).width(width).style(crate::kit::style::menu).show(|ui| {
