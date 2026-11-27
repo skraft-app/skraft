@@ -9,7 +9,7 @@ use skraft_model::Document;
 
 use crate::docs::DocId;
 
-pub const EXTENSION: &str = "skraft";
+pub use skraft_model::EXTENSION;
 /// Materials alone (docs/io/file-format.md): exported, imported into a model.
 pub const MATERIALS_EXTENSION: &str = "skraftmat";
 /// The images a texture takes (docs/render/look.md#textures).

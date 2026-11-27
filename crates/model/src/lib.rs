@@ -56,7 +56,7 @@ pub use drawing::{
     Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key, text_fields,
 };
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
-pub use file::{Content, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
+pub use file::{Content, EXTENSION, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
 pub use import::ImportReport;
 pub use imprints::{ImprintPair, ImprintPlan, ImprintProbe, ImprintRecipe};

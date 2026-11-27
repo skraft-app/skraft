@@ -52,44 +52,49 @@ impl SkraftApp {
     pub(super) fn take_file_outcomes(&mut self) {
         // What the file dialogs ended with (they never block the event loop).
         for outcome in self.inbox.take() {
-            match outcome {
-                file::Outcome::Opened { name, bytes } => self.file_opened(name, bytes),
-                file::Outcome::TextureImage { doc, material, bytes } => self.texture_read(doc, material, bytes),
-                file::Outcome::Written { path } => self.toasts.push(Note::success(t!("toast.written", file = file_name(&path)))),
-                file::Outcome::Exported { path } => self
-                    .toasts
-                    .push(Note::success(t!("toast.written", file = file_name(&path))).with_action(t!("toast.open"), Act::Open(path))),
-                file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.export_failed"), error)),
-                file::Outcome::Saved { doc, path, revision } => {
-                    self.add_recent_file(&path);
-                    if let Some(d) = self.docs.by_id_mut(doc) {
-                        d.path = Some(path);
-                        d.saved_at = revision;
-                        self.toasts.push(Note::success(t!("toast.saved", file = d.name())));
-                    }
-                    self.closing_saved(doc, true);
+            self.file_outcome(outcome);
+        }
+    }
+
+    /// What a file dialog, a read or a write ended with.
+    pub(super) fn file_outcome(&mut self, outcome: file::Outcome) {
+        match outcome {
+            file::Outcome::Opened { name, bytes } => self.file_opened(name, bytes),
+            file::Outcome::TextureImage { doc, material, bytes } => self.texture_read(doc, material, bytes),
+            file::Outcome::Written { path } => self.toasts.push(Note::success(t!("toast.written", file = file_name(&path)))),
+            file::Outcome::Exported { path } => {
+                self.toasts.push(Note::success(t!("toast.written", file = file_name(&path))).with_action(t!("toast.open"), Act::Open(path)))
+            }
+            file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.export_failed"), error)),
+            file::Outcome::Saved { doc, path, revision } => {
+                self.add_recent_file(&path);
+                if let Some(d) = self.docs.by_id_mut(doc) {
+                    d.path = Some(path);
+                    d.saved_at = revision;
+                    self.toasts.push(Note::success(t!("toast.saved", file = d.name())));
                 }
-                file::Outcome::SaveFailed { doc, error } => {
-                    let name = self.docs.by_id_mut(doc).map(|d| d.name()).unwrap_or_default();
-                    self.toasts.push(Note::error(t!("toast.save_failed", file = name), error));
-                    self.closing_saved(doc, false);
+                self.closing_saved(doc, true);
+            }
+            file::Outcome::SaveFailed { doc, error } => {
+                let name = self.docs.by_id_mut(doc).map(|d| d.name()).unwrap_or_default();
+                self.toasts.push(Note::error(t!("toast.save_failed", file = name), error));
+                self.closing_saved(doc, false);
+            }
+            file::Outcome::SaveCancelled { doc } => self.closing_saved(doc, false),
+            file::Outcome::Imported { name, bytes } => {
+                // Into the shown document; from the start page, a new one.
+                if self.docs.active().is_none() {
+                    self.new_document();
                 }
-                file::Outcome::SaveCancelled { doc } => self.closing_saved(doc, false),
-                file::Outcome::Imported { name, bytes } => {
-                    // Into the shown document; from the start page, a new one.
-                    if self.docs.active().is_none() {
-                        self.new_document();
-                    }
-                    // Several dropped at once: the editor reads one at a time.
-                    if self.docs.active().is_some_and(|d| d.editor.is_importing()) {
-                        self.toasts.push(Note::error(t!("toast.open_failed", file = name), t!("toast.import_busy")));
-                    } else if let Some(d) = self.docs.active_mut() {
-                        d.editor.import(name, bytes);
-                    }
+                // Several dropped at once: the editor reads one at a time.
+                if self.docs.active().is_some_and(|d| d.editor.is_importing()) {
+                    self.toasts.push(Note::error(t!("toast.open_failed", file = name), t!("toast.import_busy")));
+                } else if let Some(d) = self.docs.active_mut() {
+                    d.editor.import(name, bytes);
                 }
-                file::Outcome::ReadFailed { name, error } => {
-                    self.toasts.push(Note::error(t!("toast.open_failed", file = name), error));
-                }
+            }
+            file::Outcome::ReadFailed { name, error } => {
+                self.toasts.push(Note::error(t!("toast.open_failed", file = name), error));
             }
         }
     }

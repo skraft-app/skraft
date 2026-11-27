@@ -5,9 +5,9 @@
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use skraft_control::params::NoParams;
+use skraft_control::params::{NoParams, SaveParams};
 use skraft_control::{Answer, Call, Error, Method, Outcome};
-use skraft_model::Document;
+use skraft_model::{Document, FileView};
 use skraft_tools::Editor;
 
 pub trait Backend {
@@ -94,24 +94,46 @@ impl Backend for Remote {
 /// screenshots).
 pub struct Headless {
     editor: Editor,
+    /// Its file: `--in`, then where `app.save` last wrote it.
     path: Option<PathBuf>,
+    /// The revision last saved (0: as opened).
+    saved_at: u64,
+    /// What its file kept that a session without a window does not make: the workspace and
+    /// drawing board shown, the picture of the model (docs/io/file-format.md).
+    view: FileView,
+    thumbnail: Option<Vec<u8>>,
 }
 
 impl Headless {
     pub fn new(path: Option<PathBuf>) -> Result<Self, String> {
-        let doc = match &path {
+        let path = path.map(|p| std::path::absolute(&p).unwrap_or(p));
+        let (doc, view, thumbnail) = match &path {
             Some(p) => {
                 let bytes = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
-                Document::from_file(&bytes).map_err(|e| format!("{}: {e}", p.display()))?
+                let doc = Document::from_file(&bytes).map_err(|e| format!("{}: {e}", p.display()))?;
+                (doc, Document::file_view(&bytes), Document::file_thumbnail(std::io::Cursor::new(&bytes)))
             }
-            None => Document::new(),
+            None => (Document::new(), FileView::default(), None),
         };
         let mut editor = Editor::new(doc, Box::new(skraft_kernel::Inline::default()));
         // Whatever it goes through, the client asked for.
         editor.set_origin(skraft_tools::journal::Origin::control(Some("mcp · headless")));
         editor.set_viewport_size(glam::DVec2::new(1280.0, 800.0));
         editor.zoom_extents();
-        Ok(Headless { editor, path })
+        Ok(Headless { editor, path, saved_at: 0, view, thumbnail })
+    }
+
+    /// `app.save`: the document to its file or to `path`, which becomes its file; the camera
+    /// as it is, the rest of the view and the picture as its file had them.
+    fn save(&mut self, p: &SaveParams) -> Outcome {
+        let path = skraft_control::save_path(p.path.as_deref(), self.path.as_deref(), p.force)?;
+        let view = FileView { camera: Some(self.editor.camera.seen()), ..self.view.clone() };
+        let bytes = self.editor.document().to_file_pictured(&view, self.thumbnail.as_deref()).map_err(|e| Error::Failed(e.to_string()))?;
+        std::fs::write(&path, bytes).map_err(|e| Error::Failed(format!("{}: {e}", path.display())))?;
+        let revision = self.editor.history().revision();
+        self.saved_at = revision;
+        self.path = Some(path.clone());
+        Ok(Answer::Json(json!({ "path": path, "revision": revision })))
     }
 
     fn stamp(&self) -> Value {
@@ -137,11 +159,15 @@ impl Backend for Headless {
             "app.state" => {
                 call.params::<NoParams>()?;
                 let mut state = skraft_control::editor::state(e);
-                state["modified"] = json!(e.history().revision() > 0);
+                state["modified"] = json!(e.history().revision() != self.saved_at);
                 state["path"] = json!(self.path);
                 state["document"] = json!(1);
                 state["headless"] = json!(true);
                 Ok(Answer::Json(state))
+            }
+            "app.save" => {
+                let p: SaveParams = call.params()?;
+                self.save(&p)
             }
             "app.wait" => {
                 call.params::<skraft_control::params::WaitParams>()?;
@@ -168,7 +194,7 @@ impl Backend for Headless {
             None => "an empty document".into(),
         };
         format!(
-            "headless — an editor of its own on {doc}, no window (no Skraft app was running, or --headless): the model, the tools and the camera, not the interface (ui_*), commands nor screenshots."
+            "headless — an editor of its own on {doc}, no window (no Skraft app was running, or --headless): the model, the tools and the camera, not the interface (ui_*), commands nor screenshots; its work lasts only if saved (app_save)."
         )
     }
 }
@@ -219,5 +245,40 @@ mod tests {
         assert!(opened.describe().contains(&path.display().to_string()));
         let _ = std::fs::remove_file(&path);
         assert!(Headless::new(Some(path)).is_err());
+    }
+
+    #[test]
+    fn headless_saves_and_the_file_is_its_own() {
+        let dir = std::env::temp_dir().join(format!("skraft-mcp-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut b = Headless::new(None).unwrap();
+        // No file yet: a path is needed.
+        assert!(matches!(b.call(&Call::new("app.save", Value::Null)), Err(Error::Failed(m)) if m.contains("path")));
+        json_of(
+            &mut b,
+            "tool.input",
+            json!({ "inputs": [{ "tool": "box" }, { "click": { "at": [0, 0, 0] } }, { "click": { "at": [600, 400, 0] } }, { "vcb": "18" }] }),
+        );
+        json_of(&mut b, "app.wait", json!({ "idle": true }));
+        assert_eq!(json_of(&mut b, "app.state", Value::Null)["modified"], true);
+        // `.skraft` added; the file becomes the document's.
+        let saved = json_of(&mut b, "app.save", json!({ "path": dir.join("table") }));
+        let path = dir.join("table.skraft");
+        assert_eq!(saved["path"], json!(path));
+        let state = json_of(&mut b, "app.state", Value::Null);
+        assert_eq!((&state["modified"], &state["path"]), (&json!(false), &json!(path)));
+        // Its own file rewritten freely, another refused unless forced.
+        json_of(&mut b, "app.save", Value::Null);
+        let other = dir.join("other.skraft");
+        std::fs::write(&other, b"x").unwrap();
+        assert!(matches!(b.call(&Call::new("app.save", json!({ "path": other }))), Err(Error::Failed(m)) if m.contains("force")));
+        json_of(&mut b, "app.save", json!({ "path": other, "force": true }));
+        // Read again: the same part, and the camera kept.
+        let mut opened = Headless::new(Some(other.clone())).unwrap();
+        assert_eq!(json_of(&mut opened, "model.geometry", json!({ "volume": false }))["total"], 1);
+        assert!(Document::file_view(&std::fs::read(&other).unwrap()).camera.is_some());
+        // Relative: the MCP server makes it absolute first.
+        assert!(matches!(b.call(&Call::new("app.save", json!({ "path": "rel.skraft" }))), Err(Error::BadParams(_))));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -234,6 +234,38 @@ impl SkraftApp {
         }
     }
 
+    /// `app.save`: the active document to its file or to `p.path`, as « Save as » to a path
+    /// chosen (docs/control-protocol.md); answered once written.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn control_save(&mut self, p: &skraft_control::params::SaveParams) -> skraft_control::Outcome {
+        use skraft_control::{Answer, Error};
+        let d = self.docs.active().ok_or_else(|| Error::Failed("no document open".into()))?;
+        let (id, revision) = (d.id, d.editor.history().revision());
+        let path = skraft_control::save_path(p.path.as_deref(), d.path.as_deref().map(std::path::Path::new), p.force)?;
+        let path = path.display().to_string();
+        self.save_document_to(id, Some(path.clone()));
+        // A path given, it is written at once: its outcome taken in now, as the next frame would.
+        let mut failed = None;
+        for outcome in self.inbox.take() {
+            if let file::Outcome::SaveFailed { doc, error } = &outcome
+                && *doc == id
+            {
+                failed = Some(error.clone());
+            }
+            self.file_outcome(outcome);
+        }
+        match failed {
+            Some(error) => Err(Error::Failed(error)),
+            None => Ok(Answer::Json(serde_json::json!({ "path": path, "revision": revision }))),
+        }
+    }
+
+    /// The browser writes no file: a save is a download, the user's to make.
+    #[cfg(target_arch = "wasm32")]
+    fn control_save(&mut self, _: &skraft_control::params::SaveParams) -> skraft_control::Outcome {
+        Err(skraft_control::Error::Unavailable("app.save: the browser writes no files (a save is a download)".into()))
+    }
+
     /// Answers one call of the control channel (but `app.wait`).
     fn control_call(&mut self, call: &skraft_control::Call, ctx: &egui::Context, frame: &eframe::Frame) -> skraft_control::Outcome {
         // The viewport's own capture is the desktop's (the web's is the window's).
@@ -281,6 +313,10 @@ impl SkraftApp {
                 v["status"] =
                     json!(self.docs.active().map(|d| if d.workspace.stage == Stage::Sheet { d.sheet.status() } else { d.editor.status() }));
                 ok(v)
+            }
+            "app.save" => {
+                let p: skraft_control::params::SaveParams = call.params()?;
+                self.control_save(&p)
             }
             "app.docs" => {
                 let p: DocsParams = call.params()?;
