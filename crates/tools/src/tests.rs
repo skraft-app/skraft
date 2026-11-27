@@ -3053,6 +3053,16 @@ fn stretch_tool_draws_its_box_dotted_but_around_a_box() {
 }
 
 #[test]
+fn stretch_tool_puts_its_cutter_clear_of_a_hole_in_the_middle() {
+    // A Ø 10 hole at x = 300 of a 600 board: the cutter 1 mm before it, so the hole moves whole
+    // and stays round (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    let (mut e, a) = drilled_board_editor(&[300.0]);
+    click(&mut e, DVec3::new(600.0, 150.0, 18.0));
+    e.input(ToolInput::Vcb("700".into()));
+    assert_eq!(stretched(&e, a), ((0.0, 700.0), vec![400.0]), "{}", e.status());
+}
+
+#[test]
 fn stretch_tool_pulls_a_grip() {
     let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
     // The grip at the centre of the end face, taken near it on screen: the overall length
@@ -3178,6 +3188,22 @@ fn stretch_tool_shows_the_locks_at_once() {
 }
 
 #[test]
+fn stretch_tool_refuses_an_interior_handle_with_nothing_to_move() {
+    // Holes at 100 and 500, cutters at 200 and 300: nothing lies wholly between them (the
+    // board's long edges cross both), so the handle would move nothing
+    // (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    let (mut e, a) = drilled_board_editor(&[100.0, 500.0]);
+    let on_axis = |x: f64| DVec3::new(x, 150.0, 18.0);
+    e.input(ToolInput::Hover { px: px(&e, on_axis(600.0)) });
+    e.set_copy(true);
+    click(&mut e, DVec3::new(200.0, 100.0, 18.0));
+    e.set_copy(false);
+    click(&mut e, on_axis(230.0));
+    assert!(e.last_notice().contains("rien à déplacer"), "{}", e.last_notice());
+    assert_eq!(stretched(&e, a), ((0.0, 600.0), vec![100.0, 500.0]));
+}
+
+#[test]
 fn stretch_tool_moves_an_interior_section() {
     let (mut e, a) = drilled_board_editor(&[100.0, 250.0, 500.0]);
     let on_axis = |x: f64| DVec3::new(x, 150.0, 18.0);
@@ -3254,7 +3280,7 @@ fn stretch_tool_moves_an_interior_section() {
 }
 
 #[test]
-fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
+fn stretch_tool_scales_a_rod_across_and_takes_the_open_part() {
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let rod = Primitive::Cylinder { origin: DVec3::ZERO, radius: 50.0, height: 200.0 };
@@ -3265,11 +3291,14 @@ fn stretch_tool_refuses_what_cannot_stretch_and_takes_the_open_part() {
         .created[0];
     e.select(vec![rod]);
     e.set_tool(ToolKind::Stretch);
-    // The red axis locked (→): across it, the cylinder cannot stretch.
+    // The red axis locked (→): across it, the cylinder goes elliptic, 100 → 150 wide
+    // (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
     e.input(ToolInput::Key { key: Key::Right, mods: Modifiers::default() });
     click(&mut e, DVec3::new(50.0, 0.0, 200.0));
-    assert!(e.last_notice().contains("traverse une coupe"), "{}", e.last_notice());
+    e.input(ToolInput::Vcb("150".into()));
     let before = e.document().resolve_part(&EntityPath::root(rod)).unwrap().1.blank().clone();
+    let (lo, hi) = before.bounds().unwrap();
+    assert!((lo.x + 50.0).abs() < 1e-6 && (hi.x - 100.0).abs() < 1e-6 && (hi.y - 50.0).abs() < 1e-6, "{lo} {hi} {}", e.status());
 
     // Along its axis it stretches — the top grip, nearer the eye than the bottom one under it;
     // in the open part, the part's own scope (no option of the tool's).
@@ -3352,6 +3381,37 @@ fn a_compressed_preview_turns_no_triangle_over() {
     assert_eq!(turned(before), 0);
     let after = &e.scene().definition_mesh(crate::scene::PREVIEW_KEY).unwrap().parts[0].mesh;
     assert_eq!(turned(after), 0);
+}
+
+#[test]
+fn a_tube_s_preview_scales_each_circle_by_its_own_map() {
+    // A tube Ø 100 / Ø 60 along Z, stretched 40 across its middle: two groups overlapping along
+    // X, each circle an ellipse of its own, both centred at x = 20 (outer 70 × 50, inner 50 × 30)
+    // (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    use skraft_model::kernel::{BooleanOp, Solid, Stretch};
+    let outer = Solid::new_cylinder(DVec3::ZERO, 50.0, 100.0).unwrap();
+    let inner = Solid::new_cylinder(DVec3::new(0.0, 0.0, -5.0), 30.0, 110.0).unwrap();
+    let tube = outer.boolean(&inner, BooleanOp::Difference).unwrap();
+    let s = Stretch::new(DVec3::X, vec![0.0], vec![0.0, 40.0]).unwrap();
+    let mesh = tube.mesh().unwrap();
+    let m = crate::scene::stretched_mesh(&mesh, &s, &s.section_spans(&tube), s.mesh_moves(&tube).as_ref());
+    let on = |p: &[f32; 3], (rx, ry): (f64, f64)| {
+        let w = m.origin + DVec3::from_array(p.map(f64::from));
+        // The mesh within its tolerance of the circles (0.1 mm on Ø 100).
+        (((w.x - 20.0) / rx).powi(2) + (w.y / ry).powi(2) - 1.0).abs() < 5e-3
+    };
+    // The circles and the walls on them; the end rings between them, nothing standing out.
+    let walls = m.positions.iter().zip(&m.normals).filter(|(_, n)| n[2].abs() < 0.5).map(|(p, _)| p);
+    for p in m.edges.iter().flatten().chain(walls) {
+        assert!(on(p, (70.0, 50.0)) || on(p, (50.0, 30.0)), "{p:?} off both ellipses");
+    }
+    let level = |p: &[f32; 3], (rx, ry): (f64, f64)| {
+        let w = m.origin + DVec3::from_array(p.map(f64::from));
+        ((w.x - 20.0) / rx).powi(2) + (w.y / ry).powi(2)
+    };
+    for p in &m.positions {
+        assert!(level(p, (70.0, 50.0)) < 1.005 && level(p, (50.0, 30.0)) > 0.995, "{p:?} out of the tube");
+    }
 }
 
 #[test]
@@ -3568,21 +3628,28 @@ fn stretch_tool_stretches_along_the_axes_chosen() {
 }
 
 #[test]
-fn stretch_tool_in_the_context_axes_refuses_a_part_turned_across_a_cutter() {
+fn stretch_tool_in_the_context_axes_scales_a_part_turned_across_a_cutter() {
     // A board turned 45°: in the context's axes its box is its mesh's, and no face of it runs
-    // along the world's X — refused, named.
+    // along the world's X — its slanted sides scaled, its corners moved as their sections
+    // (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
     let mut e = top_editor(Document::new());
     let root = e.document().root();
     let board = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(200.0, 50.0, 18.0) };
     let turn = glam::DAffine3::from_rotation_z(std::f64::consts::FRAC_PI_4);
-    e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn, material: None }).unwrap().unwrap();
+    let board =
+        e.apply(Operation::AddPrimitive { context: root, primitive: board, placement: turn, material: None }).unwrap().unwrap().created[0];
+    let path = EntityPath::root(board);
+    let before = e.document().resolve_part(&path).unwrap().1.blank().clone();
     e.set_tool(ToolKind::Stretch);
     e.set_tool_option("axes", OptionValue::Choice("context".into()));
     // Its corners: (0, 0), (141, 141), (106, 177), (−35, 35); the grip of its box's +X face.
     click(&mut e, DVec3::new(70.0, 70.0, 18.0));
     let s = std::f64::consts::FRAC_1_SQRT_2;
     click(&mut e, DVec3::new(200.0 * s, 125.0 * s, 9.0));
-    assert!(e.last_notice().contains("traverse une coupe"), "{}", e.last_notice());
+    assert!(!e.last_notice().contains("traverse une coupe"), "{}", e.last_notice());
+    e.input(ToolInput::Vcb("250".into()));
+    let after = e.document().resolve_part(&path).unwrap().1.blank().clone();
+    assert!(!std::sync::Arc::ptr_eq(&before, &after), "{}", e.last_notice());
 }
 
 #[test]

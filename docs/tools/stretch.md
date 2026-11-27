@@ -15,18 +15,21 @@ bracket keep their length while the part grows. It is OpenCutList's Smart Reshap
 
 Decision records: [Stretch after OpenCutList's Smart Reshape](../decisions/0008-stretch-after-ocl-smart-reshape.md),
 [Stretch rewrites the B-rep record](../decisions/0009-stretch-rewrites-brep-record.md),
-[Cutters and locks as a typed Behavior](../decisions/0013-stretch-behavior-on-component.md).
+[Cutters and locks as a typed Behavior](../decisions/0013-stretch-behavior-on-component.md),
+[What crosses a cutter curved is scaled along the axis](../decisions/0058-stretch-scales-curves-across-a-cutter.md).
 
 ## What it does
 
 As in OCL: the box has a grip on each of its 6 faces; pulling one stretches along that axis,
-the opposite face anchored. **Cutters** — planes across the axis, one in the middle by default,
+the opposite face anchored. **Cutters** — planes across the axis, one in the middle by default
+(moved to the nearest place clear of the target's holes and round sections, when there is one),
 added, moved or removed by the user — split the target into **sections**: each section is
 translated by its share of the move, the matter crossing a cutter is lengthened or shortened.
 Options: **centred** (both ends move), **measure** as the overall dimension or as the offset;
 the length is typed (VCB, expressions, [Interaction](interaction.md)); compression stops 1 mm
 before two sections meet; double-click repeats the last measure. Interior handles stretch one
-section and compress the others, the overall dimension kept.
+section and compress the others, the overall dimension kept; one whose section holds no matter
+wholly (two cutters across one arc, scaled by its ends) is refused: it would move nothing.
 
 ## Target
 
@@ -140,9 +143,10 @@ its measures. It is then built again from its source ([Links](../model/bodies.md
 - A component below the target that is locked along the axis is a block (« Behavior » below),
   never stretched. A part below the target that cannot be stretched refuses the whole stretch,
   named (`Error::InPart`).
-- **Limit** (the kernel's, not OCL's): in the context's or the model's axes, a part turned in
-  them that crosses a cutter has no face along the axis — the stretch is refused, the part
-  named (`Error::InPart`); wholly in a section, it is only moved. OCL deforms any geometry.
+- In the context's or the model's axes, a part turned in them that crosses a cutter has no face
+  along the axis: its slanted faces are scaled (« B-rep stretch » below), its corners moved as
+  their sections. A part that still cannot be (a compression flattening what it scales) refuses,
+  named (`Error::InPart`).
 - The preview (`stretch_sketch`, `stretch_swaps`) follows the same walk.
 
 ## Behavior: cutters and locks
@@ -312,7 +316,7 @@ On the part's recipe — its bodies ([Bodies](../model/bodies.md)) —, not on i
 ## B-rep stretch
 
 Rewriting the record: a pure function on `solidcore_record::brep::Brep` (no kernel), a
-**piecewise translation** along the axis, in `kernel::Stretch` (`crates/kernel/src/stretch.rs`:
+**piecewise translation** along the axis, what crosses a cutter lengthened or scaled, in `kernel::Stretch` (`crates/kernel/src/stretch.rs`:
 `apply`, `in_frame` — a solid in its own frame —, `extent` — along the axis: exact for lines
 and arcs of circles and ellipses, conservative for curved faces —, `section_spans`,
 `piece_moves`). An arc counts only along its own angles, not its whole circle's: a cutter
@@ -339,9 +343,26 @@ refusal cancels the stretch.
     degree-1 splines on their own length: a spline (or a two-point polyline) across a cutter has
     its knots and points grown with its interval, else it is no longer read back ("parameter
     interval outside the natural domain") — a filleted prism stretched along its height.
-- Anything else crossing a cutter (cone, sphere, torus, spline, intersection curve, a line or
-  plane not along the axis) makes the stretch **invalid**: refused, as OCL refuses a curve
-  crossing a cutter (`StretchSplitDef#sections_valid?`); moving the cutter usually solves it.
+- Any other face crossing a cutter (a cylinder across the axis, a cone, a sphere, a torus, a
+  NURBS face, a plane not containing the axis) is **scaled along the axis**
+  ([0058](../decisions/0058-stretch-scales-curves-across-a-cutter.md), `Stretch::plan`):
+  - such faces joined through an edge make a **group**, mapped by one affine map along the axis,
+    `x ↦ lo + m(lo) + (x − lo) · k`, over the group's extent `[lo, hi]`, each end moved as its
+    section; its edges and vertices go with it. A circle becomes an ellipse, a cylinder an
+    elliptic one, a sphere an ellipsoid; a hole crossed goes oval; compression too;
+  - exact on the NURBS form SolidCore keeps with every analytic curve and surface: its control
+    points are mapped, its parameters kept, so the pcurves on the group's faces stand; the face
+    takes the mapped NURBS as its surface, the edge says it is an ellipse (`scaled_conic`, on its
+    principal axes). A plane, a line or a net of the group is mapped as such;
+  - the faces lengthened around a group have its edges' pcurves mapped in their (u, v), affine
+    there too (`FaceMap::along_at`);
+  - a vertex moves as its group; where that differs from its section's move, every other face
+    there must be lengthened, else `StretchError::Meets` (a group meeting matter that only
+    moves, two groups meeting at a vertex). A conic edge or analytic face without its NURBS
+    form, an intersection curve, still refuse.
+- `section_spans` leaves a group's edges out and counts its two ends in their sections: the
+  compression stops before a group flattens, and the preview blends between its ends as the
+  group is scaled.
 - **What the kernel's records hold** (checked on boxes and cylinders stretched and compressed,
   read back, then used as a blank and as a tool in a subtraction): the box's planes carry no
   NURBS form and linear pcurves in mm; its lines run t ∈ [0, 1] from start to end, a
@@ -358,7 +379,13 @@ No kernel while dragging.
   new revision at each change: the app uploads it like any mesh).
 - The map is continuous along the axis: each section's move where it holds matter wholly, a
   linear blend in between — the B-rep's vertices all lie in that matter, the mesh's other points
-  on what crosses a cutter, which any increasing map keeps. The triangles are first cut where
+  on what crosses a cutter, which any increasing map keeps. A scaled group's ends count as its
+  sections' matter. Face by face (`Stretch::mesh_moves`, the mesh's faces and edges by their
+  record index): a face scaled moves by its group's map, a face in one section by its section's,
+  a face lengthened by the blend but its points on a group's edge by that group's map — so
+  groups overlapping along the axis (a tube's two circles) each keep their own. Only the
+  triangles the blend moves are cut: one with a corner on a group's edge keeps its corners'
+  own moves, its inner points would otherwise take the blend's and stand out of the shape. The triangles are first cut where
   the map bends, so that it is affine on each piece: none turns over, however hard the
   compression (moving each vertex by its own section turns long triangles over, as does the
   continuous map on uncut ones — test `a_compressed_preview_turns_no_triangle_over`).

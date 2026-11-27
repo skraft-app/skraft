@@ -1503,18 +1503,19 @@ fn guides_follow_their_section() {
 #[test]
 fn a_stretch_that_cannot_apply_is_refused_when_prepared() {
     let mut h = History::new(Document::new());
-    // A standing cylinder, cut across its axis: refused before any kernel call.
+    // A standing cylinder cut across its axis, compressed past its width: refused before any
+    // kernel call (scaled, it would turn inside out).
     let rod = add(&mut h, Primitive::Cylinder { origin: DVec3::ZERO, radius: 10.0, height: 40.0 });
     let target = EntityPath::root(rod);
     let refused = |op: &Operation| {
         let e = h.document().prepare(op).unwrap_err();
         assert!(matches!(e, Error::Kernel(kernel::Error::Stretch(_))), "{e:?}");
     };
-    refused(&stretch_x(h.document(), &target, 0.0, 10.0, Scope::All));
+    refused(&stretch_x(h.document(), &target, 0.0, -25.0, Scope::All));
     // Malformed: a move per section missing; compressed past nothing.
     refused(&stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0], Scope::All));
     refused(&stretch(h.document(), &target, DVec3::Z, vec![20.0], vec![0.0, -45.0], Scope::All));
-    assert!(h.apply(stretch_x(h.document(), &target, 0.0, 10.0, Scope::All)).is_err());
+    assert!(h.apply(stretch_x(h.document(), &target, 0.0, -25.0, Scope::All)).is_err());
     // Unchanged.
     assert!((h.document().resolve_part(&target).unwrap().1.blank().bounds().unwrap().1.z - 40.0).abs() < 1e-9);
     // Along its axis it stretches.
@@ -1666,11 +1667,12 @@ fn an_assembly_shown_twice_is_stretched_everywhere_or_only_there() {
 #[test]
 fn a_part_of_an_assembly_that_cannot_stretch_is_named() {
     let (mut h, a, _, _) = frame(0.0);
-    // A rod in the assembly across the cutter, square to the axis: it cannot be stretched along X.
+    // A rod in the assembly across the cutter, square to the axis, compressed past its width: it
+    // cannot be (scaled, it would turn inside out).
     let asm = h.document().resolve(&EntityPath::root(a)).unwrap().component;
     let cyl = Primitive::Cylinder { origin: DVec3::new(300.0, 150.0, 0.0), radius: 10.0, height: 40.0 };
     h.apply(Operation::AddPrimitive { context: asm, primitive: cyl, placement: DAffine3::IDENTITY, material: None }).unwrap();
-    let e = h.document().prepare(&stretch_x(h.document(), &EntityPath::root(a), 300.0, 100.0, Scope::All)).unwrap_err();
+    let e = h.document().prepare(&stretch_x(h.document(), &EntityPath::root(a), 300.0, -25.0, Scope::All)).unwrap_err();
     assert!(matches!(&e, Error::InPart { error, .. } if matches!(**error, Error::Kernel(kernel::Error::Stretch(_)))), "{e:?}");
 }
 

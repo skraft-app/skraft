@@ -1638,6 +1638,7 @@ tool:
       offset: "Décalage"
     say:
       turned: "Bloqué : un corps tourné ne s'étire que le long de son axe"
+      interior_empty: "Aucune matière n'est entièrement entre ces deux plans de coupe : la poignée n'a rien à déplacer"
       invalid_length: "Longueur invalide : %{value}"
       min_length: "%{value} est inférieure à la longueur minimale de %{min}"
       max_compression: "%{value} dépasse la compression maximale de %{max}"
@@ -2077,6 +2078,7 @@ error:
     face_across: "une face qui n'est ni plane ni cylindrique dans le sens de l'étirement traverse une coupe"
     unsupported: "une face traversant une coupe a une forme que l'étirement ne sait pas modifier"
     collapsed: "compression trop forte : la matière disparaîtrait"
+    meets: "une forme courbe étirée à travers une coupe touche une matière qui ne fait que se déplacer"
   # The web version cannot run (docs/render/display.md#web): shown in place of the app.
   web:
     webgpu: "Skraft a besoin de WebGPU, que ce navigateur n'offre pas ou a désactivé. Ouvrez-le dans un navigateur récent qui le prend en charge."

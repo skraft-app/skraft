@@ -54,6 +54,9 @@ pub enum StretchError {
     Unsupported(u32),
     /// The compression would make something crossing a cutter vanish or turn inside out.
     Collapsed,
+    /// This face, scaled across a cutter, meets matter that only moves where it would have to
+    /// move otherwise (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    Meets(u32),
 }
 
 impl std::fmt::Display for StretchError {
@@ -64,6 +67,7 @@ impl std::fmt::Display for StretchError {
             StretchError::FaceAcross(_) => t!("error.stretch.face_across"),
             StretchError::Unsupported(_) => t!("error.stretch.unsupported"),
             StretchError::Collapsed => t!("error.stretch.collapsed"),
+            StretchError::Meets(_) => t!("error.stretch.meets"),
         };
         f.write_str(&text)
     }
@@ -166,18 +170,51 @@ impl Stretch {
 
     /// Per section, the extent along the axis of the edges lying wholly in it (`None` for a
     /// section without any): the matter a compression must keep apart (OpenCutList's section
-    /// bounds). Edges crossing a cutter are left out: they are what lengthens or shortens.
+    /// bounds). Edges crossing a cutter are left out: they are what lengthens or shortens. A
+    /// scaled group's edges are left out too, its two ends counted in their sections
+    /// (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md): between them, the display
+    /// mesh is blended as the group is scaled.
     pub fn section_spans(&self, solid: &Solid) -> Vec<Option<(f64, f64)>> {
         let r = solid.record();
         let mut spans = vec![Span::EMPTY; self.moves.len()];
-        for e in &r.edges {
+        let plan = self.plan(r).ok();
+        for (i, e) in r.edges.iter().enumerate() {
+            if plan.as_ref().is_some_and(|p| p.edge_group[i].is_some()) {
+                continue;
+            }
             let s = self.edge_span(r, e);
             let (a, b) = (self.section(s.lo), self.section(s.hi));
             if a == b {
                 spans[a] = spans[a].union(s);
             }
         }
+        for g in plan.iter().flat_map(|p| &p.groups) {
+            for x in [g.lo, g.hi] {
+                let i = self.section(x);
+                spans[i] = spans[i].add(x);
+            }
+        }
         spans.into_iter().map(|s| (s.lo <= s.hi).then_some((s.lo, s.hi))).collect()
+    }
+
+    /// How the display mesh of `solid` follows the stretch, face by face: `None` when the
+    /// stretch refuses it (docs/tools/stretch.md#preview).
+    pub fn mesh_moves(&self, solid: &Solid) -> Option<MeshMoves> {
+        let plan = self.plan(solid.record()).ok()?;
+        Some(MeshMoves { faces: plan.faces, groups: plan.groups.iter().map(|g| g.scale).collect(), edges: plan.edge_group })
+    }
+
+    /// The extents along the axis of the solid's closed curves (a hole's, a round section's
+    /// circles): where a cutter would make them oval (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md).
+    pub fn closed_curve_spans(&self, solid: &Solid) -> Vec<(f64, f64)> {
+        let r = solid.record();
+        r.edges
+            .iter()
+            .filter(|e| e.vertices[0] == e.vertices[1])
+            .map(|e| self.edge_span(r, e))
+            .filter(|s| s.lo < s.hi)
+            .map(|s| (s.lo, s.hi))
+            .collect()
     }
 
     /// What the stretch does to a solid, piece by piece: the move of each vertex, then of
@@ -192,23 +229,131 @@ impl Stretch {
         r.vertices.iter().map(|v| self.move_at(self.axis.dot(v3(v.point)))).chain(ends).collect()
     }
 
+    /// How the stretch treats each face, edge and vertex of a record: faces in one section
+    /// translated, faces along the axis lengthened, the other faces crossing a cutter scaled by
+    /// groups (docs/decisions/0058-stretch-scales-curves-across-a-cutter.md); each vertex's move.
+    fn plan(&self, r: &Record) -> Result<Plan, StretchError> {
+        let a = self.axis;
+        let edge_spans: Vec<Span> = r.edges.iter().map(|e| self.edge_span(r, e)).collect();
+        let face_spans: Vec<Span> = (0..r.faces.len()).map(|i| self.face_span(r, i, &edge_spans)).collect();
+        let faces: Vec<FaceRole> = r
+            .faces
+            .iter()
+            .enumerate()
+            .map(|(i, f)| match self.rigid_move(face_spans[i].lo, face_spans[i].hi) {
+                Some(m) => Ok(FaceRole::Rigid(m)),
+                None => match FaceMap::of(f, a, i as u32) {
+                    Ok(_) => Ok(FaceRole::Lengthened),
+                    Err(StretchError::FaceAcross(_)) => Ok(FaceRole::Scaled(usize::MAX)),
+                    Err(e) => Err(e),
+                },
+            })
+            .collect::<Result<_, _>>()?;
+
+        // Groups: the scaled faces joined through their edges.
+        let mut parent: Vec<usize> = (0..r.faces.len()).collect();
+        fn root(parent: &mut [usize], mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+            i
+        }
+        let scaled: Vec<bool> = faces.iter().map(|f| matches!(f, FaceRole::Scaled(_))).collect();
+        for e in &r.edges {
+            let fs: Vec<usize> = e.uses.iter().map(|u| u.face as usize).filter(|&f| scaled[f]).collect();
+            for w in fs.windows(2) {
+                let (x, y) = (root(&mut parent, w[0]), root(&mut parent, w[1]));
+                parent[x] = y;
+            }
+        }
+        let mut faces = faces;
+        let mut groups: Vec<Group> = Vec::new();
+        let mut index: Vec<Option<usize>> = vec![None; r.faces.len()];
+        for i in 0..r.faces.len() {
+            if !scaled[i] {
+                continue;
+            }
+            let g = root(&mut parent, i);
+            let k = *index[g].get_or_insert_with(|| {
+                groups.push(Group { lo: f64::INFINITY, hi: f64::NEG_INFINITY, scale: Scale::IDENTITY, face: i as u32 });
+                groups.len() - 1
+            });
+            groups[k].lo = groups[k].lo.min(face_spans[i].lo);
+            groups[k].hi = groups[k].hi.max(face_spans[i].hi);
+            faces[i] = FaceRole::Scaled(k);
+        }
+        for g in &mut groups {
+            let (m0, m1) = (self.move_at(g.lo), self.move_at(g.hi));
+            if g.hi - g.lo <= EPS || (g.hi + m1) - (g.lo + m0) <= EPS {
+                return Err(StretchError::Collapsed);
+            }
+            g.scale = Scale { lo: g.lo, m0, k: ((g.hi + m1) - (g.lo + m0)) / (g.hi - g.lo) };
+        }
+
+        let edge_group: Vec<Option<usize>> = r
+            .edges
+            .iter()
+            .map(|e| e.uses.iter().find_map(|u| if let FaceRole::Scaled(g) = faces[u.face as usize] { Some(g) } else { None }))
+            .collect();
+
+        // Vertices: moved as their section, or as their group; where a group's vertex moves
+        // otherwise than its section, every other face there must take any move along the axis.
+        let mut vertex_moves: Vec<f64> = r.vertices.iter().map(|v| self.move_at(a.dot(v3(v.point)))).collect();
+        let mut vertex_group: Vec<Option<usize>> = vec![None; r.vertices.len()];
+        let mut vertex_faces: Vec<Vec<usize>> = vec![Vec::new(); r.vertices.len()];
+        for e in &r.edges {
+            for &v in &e.vertices {
+                vertex_faces[v as usize].extend(e.uses.iter().map(|u| u.face as usize));
+            }
+        }
+        for (ei, e) in r.edges.iter().enumerate() {
+            let Some(g) = edge_group[ei] else { continue };
+            for &v in &e.vertices {
+                let v = v as usize;
+                match vertex_group[v] {
+                    Some(h) if h != g => return Err(StretchError::Meets(groups[g].face)),
+                    _ => vertex_group[v] = Some(g),
+                }
+                let m = groups[g].scale.delta(a.dot(v3(r.vertices[v].point)));
+                if (m - vertex_moves[v]).abs() > EPS {
+                    let free = vertex_faces[v].iter().all(|&f| matches!(faces[f], FaceRole::Lengthened) || faces[f] == FaceRole::Scaled(g));
+                    if !free {
+                        return Err(StretchError::Meets(groups[g].face));
+                    }
+                }
+                vertex_moves[v] = m;
+            }
+        }
+        Ok(Plan { edge_spans, faces, groups, edge_group, vertex_moves })
+    }
+
     /// The solid stretched.
     pub fn apply(&self, solid: &Solid) -> Result<Solid, StretchError> {
         let r0 = solid.record();
+        let plan = self.plan(r0)?;
         let mut r = r0.clone();
         let a = self.axis;
 
-        let vertex_moves: Vec<f64> = r0.vertices.iter().map(|v| self.move_at(a.dot(v3(v.point)))).collect();
-        for (v, m) in r.vertices.iter_mut().zip(&vertex_moves) {
+        for (v, m) in r.vertices.iter_mut().zip(&plan.vertex_moves) {
             v.point = (v3(v.point) + a * *m).to_array();
         }
 
-        // Edges: translated, or lines along the axis lengthened.
-        let spans: Vec<Span> = r0.edges.iter().map(|e| self.edge_span(r0, e)).collect();
+        // Edges: scaled with their group, translated, or lines along the axis lengthened.
         let mut kinds = Vec::with_capacity(r.edges.len());
         for (i, e) in r.edges.iter_mut().enumerate() {
-            match self.rigid_move(spans[i].lo, spans[i].hi) {
+            if let Some(g) = plan.edge_group[i] {
+                let scale = plan.groups[g].scale;
+                scale_edge(e, &scale, a).map_err(|_| StretchError::EdgeAcross(i as u32))?;
+                kinds.push(EdgeKind::Scaled(scale));
+                continue;
+            }
+            let span = plan.edge_spans[i];
+            match self.rigid_move(span.lo, span.hi) {
                 Some(m) => {
+                    if e.vertices.iter().any(|&v| (plan.vertex_moves[v as usize] - m).abs() > EPS) {
+                        return Err(StretchError::Meets(e.uses.first().map_or(0, |u| u.face)));
+                    }
                     translate_curve(&mut e.curve, a * m);
                     if let Some(n) = &mut e.nurbs {
                         translate_curve(n, a * m);
@@ -222,7 +367,7 @@ impl Stretch {
                         _ => return Err(StretchError::EdgeAcross(i as u32)),
                     };
                     let per_mm = a.dot(per_t) / per_t.length_squared();
-                    let [m0, m1] = e.vertices.map(|v| vertex_moves[v as usize]);
+                    let [m0, m1] = e.vertices.map(|v| plan.vertex_moves[v as usize]);
                     let old = e.interval;
                     let new = [old[0] + m0 * per_mm, old[1] + m1 * per_mm];
                     if (new[1] - new[0]) * per_t.length() <= EPS {
@@ -247,16 +392,24 @@ impl Stretch {
             }
         }
 
-        // Faces: translated, or planes, cylinders and extrusions along the axis lengthened.
+        // Faces: scaled with their group, translated, or planes, cylinders and extrusions along
+        // the axis lengthened.
         for fi in 0..r.faces.len() {
-            let span = self.face_span(r0, fi, &spans);
             let f = &mut r.faces[fi];
-            if let Some(m) = self.rigid_move(span.lo, span.hi) {
-                translate_surface(&mut f.surface, a * m);
-                if let Some(n) = &mut f.nurbs {
-                    translate_surface(n, a * m);
+            match plan.faces[fi] {
+                FaceRole::Scaled(g) => {
+                    // Its (u, v) kept: its pcurves stand as they are.
+                    scale_face(f, &plan.groups[g].scale, a).map_err(|_| StretchError::Unsupported(fi as u32))?;
+                    continue;
                 }
-                continue;
+                FaceRole::Rigid(m) => {
+                    translate_surface(&mut f.surface, a * m);
+                    if let Some(n) = &mut f.nurbs {
+                        translate_surface(n, a * m);
+                    }
+                    continue;
+                }
+                FaceRole::Lengthened => {}
             }
             let map = FaceMap::of(f, a, fi as u32)?;
             for lp in &mut f.loops {
@@ -264,6 +417,7 @@ impl Stretch {
                 for oe in edges {
                     match kinds[oe.edge as usize] {
                         EdgeKind::Rigid(m) => shift_pcurve(&mut oe.pcurve, map.shift(m)),
+                        EdgeKind::Scaled(scale) => map_pcurve(&mut oe.pcurve, |p| p + map.shift(scale.delta(map.along_at(self, p)))),
                         EdgeKind::Across { old, new, moves } => {
                             let Curve2::Spline { knots, points } = &mut oe.pcurve else { return Err(StretchError::Unsupported(fi as u32)) };
                             if points.len() != 2 || knots.len() != 4 {
@@ -391,12 +545,185 @@ impl Stretch {
 enum EdgeKind {
     Rigid(f64),
     Across { old: [f64; 2], new: [f64; 2], moves: [f64; 2] },
+    Scaled(Scale),
+}
+
+/// What the stretch does to a face.
+#[derive(Clone, Copy, PartialEq)]
+enum FaceRole {
+    /// In sections that move alike: translated by this move.
+    Rigid(f64),
+    /// Across a cutter, invariant along the axis: lengthened ([`FaceMap`]).
+    Lengthened,
+    /// Across a cutter, curved or slanted: scaled with its group (an index of [`Plan::groups`]).
+    Scaled(usize),
+}
+
+/// Scaled faces joined through their edges: one map along the axis, set by their extent's ends.
+struct Group {
+    lo: f64,
+    hi: f64,
+    scale: Scale,
+    /// One of its faces, to name it in a refusal.
+    face: u32,
+}
+
+/// A record's stretch worked out ([`Stretch::plan`]).
+struct Plan {
+    edge_spans: Vec<Span>,
+    faces: Vec<FaceRole>,
+    groups: Vec<Group>,
+    edge_group: Vec<Option<usize>>,
+    vertex_moves: Vec<f64>,
+}
+
+/// How a solid's display mesh follows a stretch ([`Stretch::mesh_moves`]): each face's points
+/// moved as its section or as its scaled group; a face lengthened along the axis takes any
+/// increasing map, but its points on a group's edge must follow that group.
+pub struct MeshMoves {
+    faces: Vec<FaceRole>,
+    groups: Vec<Scale>,
+    edges: Vec<Option<usize>>,
+}
+
+impl MeshMoves {
+    /// The move along the axis of the point at `x` of the face `face`: its section's or its
+    /// group's; `None` for a face lengthened (or unknown).
+    pub fn of_face(&self, face: u32, x: f64) -> Option<f64> {
+        match self.faces.get(face as usize)? {
+            FaceRole::Rigid(m) => Some(*m),
+            FaceRole::Scaled(g) => Some(self.groups[*g].delta(x)),
+            FaceRole::Lengthened => None,
+        }
+    }
+
+    /// The move along the axis of the point at `x` of the edge `edge`, if it is a scaled
+    /// group's.
+    pub fn of_edge(&self, edge: u32, x: f64) -> Option<f64> {
+        let g = (*self.edges.get(edge as usize)?)?;
+        Some(self.groups[g].delta(x))
+    }
+}
+
+/// A map along the axis, `x ↦ x + delta(x)`, affine: `delta(x) = m0 + (x − lo)(k − 1)`, `k` > 0.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Scale {
+    lo: f64,
+    m0: f64,
+    k: f64,
+}
+
+impl Scale {
+    const IDENTITY: Scale = Scale { lo: 0.0, m0: 0.0, k: 1.0 };
+
+    fn delta(&self, x: f64) -> f64 {
+        self.m0 + (x - self.lo) * (self.k - 1.0)
+    }
+
+    fn point(&self, a: DVec3, p: DVec3) -> DVec3 {
+        p + a * self.delta(a.dot(p))
+    }
+
+    fn vector(&self, a: DVec3, v: DVec3) -> DVec3 {
+        v + a * (a.dot(v) * (self.k - 1.0))
+    }
+
+    fn array(&self, a: DVec3, p: &mut [f64; 3]) {
+        *p = self.point(a, v3(*p)).to_array();
+    }
+
+    fn homogeneous(&self, a: DVec3, h: &mut [f64; 4]) {
+        let w = h[3];
+        let p = self.point(a, dehomogenise(h));
+        *h = [p.x * w, p.y * w, p.z * w, w];
+    }
+}
+
+/// An edge of a group scaled: its NURBS form's points moved (its parameter kept), its curve
+/// saying what it has become — a circle an ellipse. A conic without its NURBS form, or an
+/// intersection curve, cannot.
+fn scale_edge(e: &mut Edge, s: &Scale, a: DVec3) -> Result<(), ()> {
+    if let Some(n) = &mut e.nurbs {
+        scale_curve(n, s, a)?;
+    } else if matches!(e.curve, Curve::Circle { .. } | Curve::Ellipse { .. }) {
+        return Err(());
+    }
+    scale_curve(&mut e.curve, s, a)
+}
+
+fn scale_curve(c: &mut Curve, s: &Scale, a: DVec3) -> Result<(), ()> {
+    match c {
+        Curve::Line { start, end } => {
+            s.array(a, start);
+            s.array(a, end);
+        }
+        Curve::Polyline { points } | Curve::Spline { points, .. } => points.iter_mut().for_each(|p| s.array(a, p)),
+        Curve::RationalSpline { homogeneous, .. } => homogeneous.iter_mut().for_each(|h| s.homogeneous(a, h)),
+        Curve::Circle { frame, radius } => *c = scaled_conic(frame, [*radius, *radius], s, a),
+        Curve::Ellipse { frame, radii } => *c = scaled_conic(frame, *radii, s, a),
+        Curve::SurfaceIntersection { .. } => return Err(()),
+    }
+    Ok(())
+}
+
+/// A circle's or an ellipse's image, `o + cos t U + sin t V`, as an ellipse on its principal
+/// axes (`t` shifted by a constant: only what it is, the edge's parameter being its NURBS's).
+fn scaled_conic(frame: &Frame, radii: [f64; 2], s: &Scale, a: DVec3) -> Curve {
+    let o = s.point(a, v3(frame.origin));
+    let (u, v) = (s.vector(a, v3(frame.x_axis) * radii[0]), s.vector(a, v3(frame.y_axis) * radii[1]));
+    let phi = 0.5 * (2.0 * u.dot(v)).atan2(u.length_squared() - v.length_squared());
+    let (c, si) = (phi.cos(), phi.sin());
+    let (p, q) = (u * c + v * si, v * c - u * si);
+    let frame = Frame { origin: o.to_array(), x_axis: p.normalize().to_array(), y_axis: q.normalize().to_array() };
+    Curve::Ellipse { frame, radii: [p.length(), q.length()] }
+}
+
+/// A face of a group scaled: its NURBS form (or its plane, its net) mapped, its (u, v) kept;
+/// the NURBS form becomes the face's surface. An analytic surface without its NURBS form cannot.
+fn scale_face(f: &mut Face, s: &Scale, a: DVec3) -> Result<(), ()> {
+    if let Some(mut n) = f.nurbs.take() {
+        scale_surface(&mut n, s, a)?;
+        f.surface = n;
+        return Ok(());
+    }
+    scale_surface(&mut f.surface, s, a)
+}
+
+fn scale_surface(sf: &mut Surface, s: &Scale, a: DVec3) -> Result<(), ()> {
+    match sf {
+        Surface::Plane { origin, u_axis, v_axis } => {
+            s.array(a, origin);
+            *u_axis = s.vector(a, v3(*u_axis)).to_array();
+            *v_axis = s.vector(a, v3(*v_axis)).to_array();
+        }
+        Surface::PlaneThrough { origin, u_point, v_point } => {
+            s.array(a, origin);
+            s.array(a, u_point);
+            s.array(a, v_point);
+        }
+        Surface::Spline { points, .. } => points.iter_mut().flatten().for_each(|p| s.array(a, p)),
+        Surface::RationalSpline { homogeneous, .. } => homogeneous.iter_mut().flatten().for_each(|h| s.homogeneous(a, h)),
+        _ => return Err(()),
+    }
+    Ok(())
+}
+
+/// A pcurve's control points mapped by `f` (an affine map of the (u, v) plane: exact).
+fn map_pcurve(c: &mut Curve2, f: impl Fn(DVec2) -> DVec2) {
+    match c {
+        Curve2::Spline { points, .. } => points.iter_mut().for_each(|p| *p = f(DVec2::from_array(*p)).to_array()),
+        Curve2::RationalSpline { homogeneous, .. } => homogeneous.iter_mut().for_each(|h| {
+            let w = h[2];
+            let p = f(DVec2::new(h[0] / w, h[1] / w));
+            *h = [p.x * w, p.y * w, w];
+        }),
+    }
 }
 
 /// How a face crossing a cutter maps a move to a shift of its (u, v).
 enum FaceMap {
     /// A plane: `u_axis`, `v_axis` (not necessarily orthonormal), and the stretch axis.
-    Plane { u: DVec3, v: DVec3, a: DVec3 },
+    Plane { origin: DVec3, u: DVec3, v: DVec3, a: DVec3 },
     /// A surface extruded along the axis — a cylinder, or a NURBS net extruded (a prism's arc
     /// side): its parameter `dir` (0: u, 1: v) grows by `rate` per mm of height along its `z`;
     /// `s` = a · z; heights are measured along `z` from `origin`: `height(t) = h0 + (t - t0) /
@@ -453,9 +780,10 @@ impl FaceMap {
         let unsupported = StretchError::Unsupported(fi);
         match &f.surface {
             Surface::Plane { u_axis, v_axis, .. } | Surface::PlaneThrough { u_point: u_axis, v_point: v_axis, .. } => {
-                let (u, v) = match &f.surface {
-                    Surface::PlaneThrough { origin, .. } => (v3(*u_axis) - v3(*origin), v3(*v_axis) - v3(*origin)),
-                    _ => (v3(*u_axis), v3(*v_axis)),
+                let (origin, u, v) = match &f.surface {
+                    Surface::PlaneThrough { origin, .. } => (v3(*origin), v3(*u_axis) - v3(*origin), v3(*v_axis) - v3(*origin)),
+                    Surface::Plane { origin, .. } => (v3(*origin), v3(*u_axis), v3(*v_axis)),
+                    _ => unreachable!(),
                 };
                 let n = u.cross(v).try_normalize().ok_or(unsupported.clone())?;
                 if n.dot(a).abs() > PARALLEL {
@@ -464,7 +792,7 @@ impl FaceMap {
                 if f.nurbs.is_some() {
                     return Err(unsupported);
                 }
-                Ok(FaceMap::Plane { u, v, a })
+                Ok(FaceMap::Plane { origin, u, v, a })
             }
             // A mirrored cylinder comes back from the kernel as a cone of half angle 0.
             Surface::Cylinder { frame, .. } | Surface::Cone { frame, half_angle: 0.0, .. } => {
@@ -505,7 +833,7 @@ impl FaceMap {
     /// The (u, v) shift of a point moved by `m` along the axis.
     fn shift(&self, m: f64) -> DVec2 {
         match self {
-            FaceMap::Plane { u, v, a } => {
+            FaceMap::Plane { u, v, a, .. } => {
                 // m a lies in the plane: solve m a = α u + β v by its Gram system.
                 let d = *a * m;
                 let (uu, uv, vv) = (u.dot(*u), u.dot(*v), v.dot(*v));
@@ -517,6 +845,17 @@ impl FaceMap {
                 let mut d = DVec2::ZERO;
                 d[*dir] = m * s * rate;
                 d
+            }
+        }
+    }
+
+    /// The position along the stretch axis of the surface's point at `p` in its (u, v).
+    fn along_at(&self, stretch: &Stretch, p: DVec2) -> f64 {
+        match self {
+            FaceMap::Plane { origin, u, v, a } => a.dot(*origin + *u * p.x + *v * p.y),
+            FaceMap::Extrusion { z, origin, dir, rate, t0, h0, .. } => {
+                let h = h0 + (p[*dir] - t0) / rate;
+                stretch.axis.dot(*origin + *z * (h - z.dot(*origin)))
             }
         }
     }
