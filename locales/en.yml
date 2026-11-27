@@ -1781,6 +1781,7 @@ error:
     missing_operand: "missing operand"
     missing_close_parenthesis: "missing closing parenthesis"
     unexpected_close_parenthesis: "unexpected closing parenthesis"
+    too_deep: "expression nested too deeply"
     zero_division: "division by zero"
     invalid_dimension: "incompatible units"
     wrong_unit: "“%{text}”: unexpected unit"

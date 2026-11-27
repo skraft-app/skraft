@@ -96,6 +96,8 @@ pub enum ExprError {
     ArgumentCount(&'static str),
     /// `min(8,12)`: a decimal comma where `;` was meant.
     CommaSeparator(&'static str),
+    /// More nested parentheses, signs or calls than [`MAX_DEPTH`].
+    TooDeep,
 }
 
 impl fmt::Display for ExprError {
@@ -114,6 +116,7 @@ impl fmt::Display for ExprError {
             ExprError::NoMatchingValue(function) => t!("error.expr.no_matching_value", function = function),
             ExprError::ArgumentCount(function) => t!("error.expr.argument_count", function = function),
             ExprError::CommaSeparator(function) => t!("error.expr.comma_separator", function = function),
+            ExprError::TooDeep => t!("error.expr.too_deep"),
         })
     }
 }
@@ -130,7 +133,7 @@ pub fn evaluate(text: &str, literal: &dyn Fn(&Literal) -> Result<Value>, variabl
     if tokens.is_empty() {
         return Err(ExprError::MissingOperand);
     }
-    let mut p = Parser { tokens: &tokens, i: 0 };
+    let mut p = Parser { tokens: &tokens, i: 0, depth: 0 };
     let v = p.sum()?;
     p.end()?;
     Ok(v)
@@ -360,9 +363,16 @@ fn dimension(a: Option<u8>, b: Option<u8>, rule: impl Fn(u8, u8) -> Option<u8>) 
     }
 }
 
+/// How deep parentheses, signs and function calls may nest: far beyond any typed value, far
+/// below what overflows the stack (the parser recurses, and a text can come from a control
+/// client, docs/control-protocol.md).
+const MAX_DEPTH: usize = 64;
+
 struct Parser<'a> {
     tokens: &'a [Tok],
     i: usize,
+    /// How many [`Parser::factor`] calls are open.
+    depth: usize,
 }
 
 impl Parser<'_> {
@@ -419,7 +429,19 @@ impl Parser<'_> {
     }
 
     /// factor = ('+' | '-') factor | '(' sum ')' | function '(' sum (';' sum)+ ')' | value
+    ///
+    /// Every recursion of the grammar goes through here, so the depth is counted here.
     fn factor(&mut self) -> Result<Value> {
+        if self.depth == MAX_DEPTH {
+            return Err(ExprError::TooDeep);
+        }
+        self.depth += 1;
+        let v = self.factor_inner();
+        self.depth -= 1;
+        v
+    }
+
+    fn factor_inner(&mut self) -> Result<Value> {
         match self.peek().cloned() {
             None | Some(Tok::Op('*' | '/' | SEPARATOR)) => Err(ExprError::MissingOperand),
             Some(Tok::Op(')')) => Err(ExprError::UnexpectedCloseParenthesis),
@@ -526,6 +548,18 @@ mod tests {
 
     fn close(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
+    }
+
+    /// A text nested past [`MAX_DEPTH`] is refused, not a stack overflow (issue #8).
+    #[test]
+    fn nesting_depth() {
+        let deep = 100_000;
+        for text in ["(".repeat(deep), "-".repeat(deep), "min(".repeat(deep), format!("{}1{}", "(".repeat(deep), ")".repeat(deep))] {
+            assert_eq!(eval(&text).unwrap_err(), ExprError::TooDeep);
+        }
+        let fine = MAX_DEPTH - 1;
+        assert_eq!(n(&format!("{}2{}", "(".repeat(fine), ")".repeat(fine))), 2.0);
+        assert_eq!(n(&format!("{}2", "-".repeat(fine))), if fine % 2 == 0 { 2.0 } else { -2.0 });
     }
 
     #[test]
