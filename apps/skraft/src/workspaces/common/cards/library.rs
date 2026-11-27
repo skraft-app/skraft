@@ -281,7 +281,7 @@ fn picture(ui: &mut egui::Ui, rect: egui::Rect, thumb: Option<egui::TextureId>, 
         }
         None => {
             ui.painter().rect_filled(rect, 4.0, ui.visuals().faint_bg_color);
-            let icon = if part { icons::BOX } else { icons::COMPONENT };
+            let icon = if part { icons::PART } else { icons::COMPONENT };
             let side = (size.x * 0.45).clamp(12.0, 28.0);
             egui::Image::new(icon).tint(ink.text).paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side)));
         }

@@ -4,7 +4,7 @@ use super::*;
 use crate::kit::list_select;
 
 fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static> {
-    if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
+    if doc.part(o.component).is_ok() { icons::PART } else { icons::COMPONENT }
 }
 
 /// The name of an occurrence — of a component, of a body — in its navigator row, its colour `color`,
