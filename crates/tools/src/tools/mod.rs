@@ -159,6 +159,9 @@ pub enum Command {
     /// The height (whole) of the shape just drawn: the next one can take it again (Shift,
     /// double-click).
     RememberHeight(f64),
+    /// The radius of the fillet just set: the next one can take it again (Shift, double-click),
+    /// whatever the part, for the document's session.
+    RememberFillet(f64),
     /// Sets an option of the active tool, as a click in the bar does (a key that toggles it).
     SetOption {
         key: &'static str,
@@ -659,6 +662,8 @@ pub struct Cx<'a> {
     pub held: bool,
     /// The height (whole) of the last shape drawn, if any.
     pub last_height: Option<f64>,
+    /// The radius of the last fillet set in a profile, if any.
+    pub last_fillet: Option<f64>,
     /// The line Shift holds.
     pub shift_lock: Option<Lock>,
     /// Points tracked (hovered a while), world.

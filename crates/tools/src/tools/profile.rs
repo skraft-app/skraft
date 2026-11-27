@@ -24,6 +24,7 @@
 //!   bisector, just inside; dragged, it rounds the corner (typed: the radius). A rounded corner's
 //!   grip sits at its arc's middle, always shown; brought back onto the corner (10 px) it makes
 //!   it sharp again, as Delete over it does. The radius stops where the side runs out.
+//!   Shift held, or a double-click, takes the last radius set (in any profile of the document).
 //! - An arc's middle sets its bulge (the arc through the cursor), snapping to the half circle
 //!   and to straight within 10 px. Typed: its height (sagitta).
 //! - Delete over a corner takes it away.
@@ -402,11 +403,14 @@ impl ProfileTool {
                 let corner = p[i].p;
                 let q = cx.axes_ray(px).hit_plane(DVec3::new(0.0, 0.0, z), DVec3::Z)?.truncate();
                 let near_corner = cx.camera.project(cx.to_world(corner.extend(z)), cx.size).is_some_and(|w| w.distance(px) <= SNAP_PX);
-                let r = if near_corner {
+                let max = profile::fillet_max(p, i)?;
+                let r = if let Some(last) = cx.last_fillet.filter(|&l| cx.shift_down && l <= max + 1e-9) {
+                    last
+                } else if near_corner {
                     0.0
                 } else {
                     let d = (q - corner).dot(profile::fillet_bisector(p, i)?);
-                    profile::fillet_through(p, i, d)?.min(profile::fillet_max(p, i)?)
+                    profile::fillet_through(p, i, d)?.min(max)
                 };
                 let mut b = base.clone();
                 b.profile[i].fillet = if r < MIN { 0.0 } else { r };
@@ -426,6 +430,22 @@ impl ProfileTool {
         }
         self.done();
         vec![Command::Apply(Operation::SetProfile { target, body, profile: now, scope: cx.part_scope })]
+    }
+
+    /// The fillet of the corner `i` of `base` set to `r` (0: sharp), remembered when it rounds;
+    /// too big for its sides, refused and said.
+    fn set_fillet(&mut self, cx: &Cx<'_>, base: &BodyProfile, i: usize, r: f64) -> Vec<Command> {
+        if profile::fillet_max(&base.profile, i).is_none_or(|m| r > m + 1e-9) {
+            return vec![Command::Say(t!("tool.profile.say.fillet_too_big"))];
+        }
+        let r = if r < MIN { 0.0 } else { r };
+        let mut b = base.clone();
+        b.profile[i].fillet = r;
+        let mut out = self.apply(cx, b);
+        if r > 0.0 && matches!(out.first(), Some(Command::Apply(_))) {
+            out.push(Command::RememberFillet(r));
+        }
+        out
     }
 
     /// Takes the grip `grip` of `b`.
@@ -493,7 +513,16 @@ impl ProfileTool {
             (ToolInput::Click { px, .. }, State::Moving { grip, from, base, drag: false, .. })
             | (ToolInput::DragEnd { px, .. }, State::Moving { grip, from, base, drag: true, .. }) => {
                 if let Some((now, _)) = self.moved(cx, *px, grip, from, &base) {
+                    if let Grip::Fillet(i) = grip {
+                        return self.set_fillet(cx, &base, i, now.profile[i].fillet);
+                    }
                     return self.apply(cx, now);
+                }
+            }
+            // A double-click on a fillet's grip: the last radius set again.
+            (ToolInput::DoubleClick { .. }, State::Moving { grip: Grip::Fillet(i), base, .. }) => {
+                if let Some(last) = cx.last_fillet {
+                    return self.set_fillet(cx, &base, i, last);
                 }
             }
             (ToolInput::Key { key: Key::Delete, .. }, State::Over(Grip::Corner(i))) => return self.apply(cx, removed(&b, i)),
@@ -503,13 +532,7 @@ impl ProfileTool {
                 return self.apply(cx, sharp);
             }
             (ToolInput::Value(VcbValue::Lengths(v)), State::Moving { grip: Grip::Fillet(i), base, .. }) => {
-                let r = v[0].abs();
-                if profile::fillet_max(&base.profile, i).is_none_or(|m| r > m + 1e-9) {
-                    return vec![Command::Say(t!("tool.profile.say.fillet_too_big"))];
-                }
-                let mut b = base.clone();
-                b.profile[i].fillet = if r < MIN { 0.0 } else { r };
-                return self.apply(cx, b);
+                return self.set_fillet(cx, &base, i, v[0].abs());
             }
             (ToolInput::Value(v), State::Moving { grip, from, base, now, .. }) => {
                 let n = base.profile.len();

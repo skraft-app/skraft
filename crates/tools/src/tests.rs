@@ -4789,6 +4789,57 @@ fn profile_fillet_grip_rounds_a_corner_and_makes_it_sharp_again() {
 }
 
 #[test]
+fn profile_fillet_takes_the_last_radius_from_any_part() {
+    let mut e = top_editor(Document::new());
+    let a = draw_box(&mut e, DVec3::ZERO, DVec3::new(600.0, 300.0, 0.0), "18");
+    let b = draw_box(&mut e, DVec3::new(0.0, 1000.0, 0.0), DVec3::new(600.0, 1300.0, 0.0), "18");
+    let at = |e: &Editor, id: Id, c: DVec2| blank_profile(e, id).profile.iter().position(|k| k.p.distance(c) < 1e-6).unwrap();
+    // The fillet grip of the corner `c` (world), shown by hovering it (a rounded corner's shows
+    // always).
+    let grip_of = |e: &mut Editor, c: DVec3| {
+        e.input(ToolInput::Hover { px: px(e, c) });
+        let grips = e.overlay_points().into_iter().filter(|p| p.radius == 4.0 && p.shape == PointShape::Round);
+        grips.map(|p| p.at).min_by(|x, y| x.distance(c).total_cmp(&y.distance(c))).expect("a fillet grip")
+    };
+    let double = |e: &mut Editor, w: DVec3| {
+        click(e, w);
+        e.input(ToolInput::DoubleClick { px: px(e, w), mods: Modifiers::default() });
+    };
+    e.enter(a);
+    e.set_tool(ToolKind::Profile);
+    // No radius set yet: a double-click sets none.
+    let g = grip_of(&mut e, DVec3::new(600.0, 300.0, 18.0));
+    double(&mut e, g);
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert!(blank_profile(&e, a).profile.iter().all(|k| k.fillet == 0.0));
+    // 20 typed on one corner, then a double-click on another's grip: 20 there too.
+    let g = grip_of(&mut e, DVec3::new(600.0, 300.0, 18.0));
+    click(&mut e, g);
+    e.input(ToolInput::Vcb("20".into()));
+    let g = grip_of(&mut e, DVec3::new(600.0, 0.0, 18.0));
+    double(&mut e, g);
+    assert_eq!(blank_profile(&e, a).profile[at(&e, a, DVec2::new(600.0, 0.0))].fillet, 20.0);
+
+    // Another part (out of the body, then of the part): the radius goes with it, by a
+    // double-click or Shift held.
+    e.exit();
+    e.exit();
+    e.enter(b);
+    e.set_tool(ToolKind::Profile);
+    let g = grip_of(&mut e, DVec3::new(600.0, 1300.0, 18.0));
+    double(&mut e, g);
+    assert_eq!(blank_profile(&e, b).profile[at(&e, b, DVec2::new(600.0, 300.0))].fillet, 20.0);
+    let c = DVec3::new(0.0, 1300.0, 18.0);
+    let g = grip_of(&mut e, c);
+    click(&mut e, g);
+    e.set_shift(true);
+    // Anywhere along the bisector: the last radius.
+    click(&mut e, c + DVec3::new(100.0, -100.0, 0.0));
+    e.set_shift(false);
+    assert_eq!(blank_profile(&e, b).profile[at(&e, b, DVec2::new(0.0, 300.0))].fillet, 20.0);
+}
+
+#[test]
 fn profile_shows_where_it_lies_whatever_the_view() {
     let (e, _) = board_profile_editor();
     // No cursor yet: seen from above too, on the bottom cap (z = 0), where the profile lies.

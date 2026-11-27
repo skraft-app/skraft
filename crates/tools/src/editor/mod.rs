@@ -220,6 +220,8 @@ pub struct Editor {
     shift_lock: Option<Lock>,
     /// The height (whole) of the last shape drawn: the next can take it again.
     last_height: Option<f64>,
+    /// The radius of the last fillet set in a profile: the next can take it again.
+    last_fillet: Option<f64>,
     /// Points tracked (docs/tools/inferences.md, step 3): hovered [`TRACK_AFTER`] seconds; the latest
     /// [`MAX_TRACKED`].
     tracked: Vec<DVec3>,
@@ -355,6 +357,7 @@ impl Editor {
             alt: false,
             shift_lock: None,
             last_height: None,
+            last_fillet: None,
             tracked: Vec::new(),
             dwell: None,
             now: 0.0,
@@ -817,6 +820,7 @@ impl Editor {
             alt_down: self.alt,
             held: self.tool_held(),
             last_height: self.last_height,
+            last_fillet: self.last_fillet,
             shift_lock: self.shift_lock,
             tracked: &self.tracked,
             reference: self.reference,
@@ -1658,6 +1662,7 @@ impl Editor {
             Command::SelectPaths(paths, guides) => self.select_parts_and_guides(paths, guides),
             Command::SetOption { key, value } => self.set_tool_option(key, value),
             Command::RememberHeight(h) => self.last_height = Some(h),
+            Command::RememberFillet(r) => self.last_fillet = Some(r),
             Command::Enter(id) => self.enter(id),
             Command::SelectPath(path) => self.select_path(&path),
             Command::EditProfile(body) => {

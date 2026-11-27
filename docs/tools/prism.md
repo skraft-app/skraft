@@ -242,4 +242,7 @@ inside; dragging it rounds the corner, the arc through the cursor's point on the
 the radius). On a fillet, the grip sits at the arc's middle, always shown; brought back onto the
 corner (10 px) it makes it sharp again, as Delete over it does. Dragged, the radius stops where a
 side runs out (its other end's fillet kept); typed too big, it is refused, said
-(`profile::{fillet_middle, fillet_through, fillet_max}`).
+(`profile::{fillet_middle, fillet_through, fillet_max}`). Shift held takes the last radius set,
+a double-click on the grip sets it — the last of any profile of the document, kept for its
+session, so that a fillet goes from one part to another (`Command::RememberFillet`, as the
+box's last height); one too big for the corner is refused, said.
