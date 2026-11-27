@@ -96,10 +96,11 @@ pub fn start() {
             system::language::apply(None);
             let text = if matches!(support, WebGpuSupport::Missing) {
                 log::error!("Skraft needs WebGPU: navigator.gpu is missing");
-                skraft_i18n::t!("error.web.webgpu")
+                skraft_i18n::t!("error.web.webgpu").to_string()
             } else {
                 log::error!("Skraft needs WebGPU: navigator.gpu gives no adapter");
-                skraft_i18n::t!("error.web.adapter")
+                let text = skraft_i18n::t!("error.web.adapter");
+                if is_chrome() { format!("{text} {}", skraft_i18n::t!("error.web.adapter_chrome")) } else { text.to_string() }
             };
             show_failure(&canvas, &text);
             return;
@@ -149,6 +150,15 @@ async fn webgpu_support() -> WebGpuSupport {
         Ok(adapter) if !adapter.is_undefined() && !adapter.is_null() => WebGpuSupport::Ready,
         _ => WebGpuSupport::NoAdapter,
     }
+}
+
+/// Whether the browser is Chrome or one built on it that keeps `chrome://flags` and its
+/// « Unsafe WebGPU Support » (Edge, Opera redirect it): where a blocked GPU can be forced on.
+/// Not Samsung Internet, whose flags have no such setting; not Chrome on iOS (`CriOS`), WebKit.
+#[cfg(target_arch = "wasm32")]
+fn is_chrome() -> bool {
+    let agent = web_sys::window().and_then(|w| w.navigator().user_agent().ok()).unwrap_or_default();
+    agent.contains("Chrome/") && !agent.contains("SamsungBrowser/")
 }
 
 /// `text` on the page's loading screen, failed (`skraftFailed`, web/index.html:
