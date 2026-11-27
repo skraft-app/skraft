@@ -106,6 +106,7 @@ icon!(WARNING, "warning");
 icon!(CHEVRON_DOWN, "chevron_down");
 icon!(TILES, "tiles");
 icon!(LIST, "list");
+icon!(SORT_NAME, "sort_name");
 icon!(HIDE_REST, "hide_rest");
 icon!(BOUGHT, "bought");
 icon!(EXISTING, "existing");

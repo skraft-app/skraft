@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::kit::list_select;
+use skraft_tools::search::NameKey;
 
 fn occurrence_icon(doc: &Document, o: &Occurrence) -> egui::ImageSource<'static> {
     if doc.part(o.component).is_ok() { icons::BOX } else { icons::COMPONENT }
@@ -201,19 +202,28 @@ impl BodyRow<'_> {
     }
 }
 
-/// The navigator, in `area`: the search field `search::GAP` under `line` (the bottom of the
-/// card's title bar line), the model (named `name`, its file's) on the first row, then the
-/// tree; only the rows in view are laid out (a model can hold tens of thousands of
-/// occurrences).
+/// How the navigator is shown: the model's name (its file's), the height of the card's body,
+/// the bottom of its title bar line, whether each kind's rows are by name (an app preference,
+/// docs/ui/interface.md#sorting).
+pub struct NavigatorLook<'a> {
+    pub name: &'a str,
+    pub body: f32,
+    pub line: f32,
+    pub by_name: bool,
+}
+
+/// The navigator, in `area`: the search field `search::GAP` under `line`, the model on the
+/// first row, then the tree; only the rows in view are laid out (a model can hold tens of
+/// thousands of occurrences).
 pub fn navigator(
     ui: &mut egui::Ui,
     editor: &Editor,
     state: &mut NavigatorState,
-    name: &str,
+    look: NavigatorLook<'_>,
     actions: &mut Vec<Action>,
     area: egui::ScrollArea,
-    (body, line): (f32, f32),
 ) {
+    let NavigatorLook { name, body, line, by_name } = look;
     let doc = editor.document();
     // The search field over the whole width, by name only (docs/ui/components-library.md#search),
     // as far from the title bar as the library's from its tabs; the tree in the
@@ -222,7 +232,7 @@ pub fn navigator(
     let top = ui.cursor().top();
     ui.add_space((line + crate::kit::search::GAP - ui.cursor().top()).max(0.0));
     let salt = ui.make_persistent_id("navigator_search");
-    crate::kit::search::field(ui, salt, "navigator", &mut state.search, |_, _| {});
+    crate::kit::search::field(ui, salt, "navigator", &mut state.search, |ui, side| sort_button(ui, side, by_name, actions));
     let left = (body - (ui.cursor().top() - top)).max(0.0);
     let area = area.max_height(left).min_scrolled_height(left);
     let height = ui.spacing().interact_size.y;
@@ -264,10 +274,11 @@ pub fn navigator(
             state.holds = Some((revision, state.search.clone(), FastMap::default()));
         }
         let Some((_, _, holds)) = state.holds.as_mut() else { return };
-        let mut f = Filtered { matcher: &matcher, holds, doc };
+        let mut f = Filtered { matcher: &matcher, holds, doc, by_name };
         f.rows(doc.root(), &mut Vec::new(), &mut rows, false, 0);
     } else {
-        flatten(&state.births, &mut state.open, editor, doc, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
+        let walk = Walk { births: &state.births, editor, doc, by_name };
+        flatten(walk, &mut state.open, doc.root(), &active.occurrences, &mut Vec::new(), &mut rows, false, 0);
     }
     if rows.is_empty() && matcher.is_active() {
         area.show(ui, |ui| {
@@ -914,14 +925,64 @@ impl Births {
     }
 }
 
+/// The button right of the navigator's search, `side` points square: each kind's rows by name,
+/// lit while they are (docs/ui/interface.md#sorting).
+fn sort_button(ui: &mut egui::Ui, side: f32, by_name: bool, actions: &mut Vec<Action>) {
+    use crate::kit::widgets::{IconButton, Look};
+    let r = IconButton::new(icons::SORT_NAME, side, 14.0).look(Look::Framed).lit(by_name).show(ui);
+    crate::kit::handles::publish(|| "navigator:sort".into(), r.rect);
+    let tip = if by_name { t!("panel.navigator.unsort_tip") } else { t!("panel.navigator.sort_tip") };
+    if r.tip(tip).clicked() {
+        actions.push(Action::NavigatorByName(!by_name));
+    }
+}
+
+/// What the walk of the tree reads: the ids reborn, the editor and its document, whether each
+/// kind's rows are by name ([`ordered`]).
+#[derive(Clone, Copy)]
+struct Walk<'a, 'd> {
+    births: &'a Births,
+    editor: &'a Editor,
+    doc: &'d Document,
+    by_name: bool,
+}
+
+/// `items` as the navigator lists them (docs/ui/interface.md#sorting): those `ahead` first —
+/// the assemblies before the parts, the groups before the bodies —, each kind in its order of
+/// creation, or `by_name` by `name` (its order of creation between equal names).
+fn ordered<T>(items: &[T], by_name: bool, ahead: impl Fn(&T) -> bool, name: impl Fn(&T) -> NameKey) -> Vec<&T> {
+    let mut rows: Vec<&T> = items.iter().collect();
+    if by_name {
+        rows.sort_by_cached_key(|x| (!ahead(x), name(x)));
+    } else {
+        rows.sort_by_key(|x| !ahead(x));
+    }
+    rows
+}
+
+/// The occurrences of an assembly as the navigator lists them: the assemblies first, each kind
+/// by the name its row shows first (its own, else its component's) when `by_name`.
+fn occurrences_ordered<'d>(doc: &Document, a: &'d skraft_model::Assembly, by_name: bool) -> Vec<&'d Occurrence> {
+    let name = |o: &Occurrence| {
+        let own = (!o.name.is_empty()).then_some(o.name.as_str());
+        NameKey::new(own.or_else(|| doc.component(o.component).ok().map(|c| c.name.as_str())).unwrap_or_default())
+    };
+    ordered(a.occurrences(), by_name, |o| doc.assembly(o.component).is_ok(), name)
+}
+
+/// The bodies `bodies` of `p` as the navigator lists them: the groups (and the nodes) first, each
+/// kind by the name its row shows first (its own, else its definition's) when `by_name`.
+fn bodies_ordered<'d>(p: &skraft_model::Part, bodies: &'d [skraft_model::Body], by_name: bool) -> Vec<&'d skraft_model::Body> {
+    let name = |b: &skraft_model::Body| NameKey::new(if b.name.is_empty() { &p.def_of(b).name } else { &b.name });
+    ordered(bodies, by_name, |b| p.def_of(b).is_group(), name)
+}
+
 /// The rows of the tree under `assembly`, those of folded assemblies left out (`hidden_above`:
 /// an occurrence above `assembly` is hidden).
 #[allow(clippy::too_many_arguments)]
 fn flatten<'d>(
-    births: &Births,
+    walk: Walk<'_, 'd>,
     folds: &mut FastSet<egui::Id>,
-    editor: &Editor,
-    doc: &'d Document,
     assembly: Id,
     active: &[Id],
     path: &mut Vec<Id>,
@@ -929,13 +990,14 @@ fn flatten<'d>(
     hidden_above: bool,
     depth: usize,
 ) {
+    let Walk { births, editor, doc, by_name } = walk;
     let Ok(a) = doc.assembly(assembly) else { return };
     if depth > skraft_model::MAX_DEPTH {
         return;
     }
     // Above the end of the active path: only its step at this level.
     let step = active.get(path.len()).copied().filter(|_| active.starts_with(path));
-    for o in a.occurrences() {
+    for o in occurrences_ordered(doc, a, by_name) {
         if step.is_some_and(|id| id != o.id) {
             continue;
         }
@@ -965,7 +1027,7 @@ fn flatten<'d>(
                 let at = (path.as_slice(), o.id);
                 // The profile edited, in the group open: its body unfolded.
                 let open = Open { group: open_group.unwrap_or(&[]), profile: open_group.and(editor.profile_body()) };
-                body_rows(births, folds, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| {
+                body_rows((births, by_name), folds, at, p, &p.bodies, &mut Vec::new(), open, &mut |r: BodyLine<'d>| {
                     out.push(row(r.0, r.1, r.2, r.3, r.4))
                 });
             }
@@ -982,7 +1044,7 @@ fn flatten<'d>(
         out.push(NavigatorRow { path: path.clone(), occurrence: o, fold: Some(Fold { key, open }), hidden_above, body: None, dim: false });
         if open {
             path.push(o.id);
-            flatten(births, folds, editor, doc, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
+            flatten(walk, folds, o.component, active, path, out, hidden_above || o.hidden, depth + 1);
             path.pop();
         }
     }
@@ -997,6 +1059,8 @@ pub(super) struct Filtered<'a, 'd> {
     /// Does a definition hold a row that passes?
     pub(super) holds: &'a mut Holds,
     pub(super) doc: &'d Document,
+    /// Each kind's rows by name ([`ordered`]).
+    pub(super) by_name: bool,
 }
 
 impl<'d> Filtered<'_, 'd> {
@@ -1039,7 +1103,7 @@ impl<'d> Filtered<'_, 'd> {
         if depth > skraft_model::MAX_DEPTH {
             return;
         }
-        for o in a.occurrences() {
+        for o in occurrences_ordered(doc, a, self.by_name) {
             let me = self.occurrence(o);
             let below = self.holds(o.component, depth + 1);
             if !me && !below {
@@ -1075,7 +1139,7 @@ impl<'d> Filtered<'_, 'd> {
         if group.len() > skraft_model::MAX_DEPTH {
             return;
         }
-        for b in bodies {
+        for b in bodies_ordered(p, bodies, self.by_name) {
             let me = self.body(p, b);
             let children = p.def_of(b).children();
             let below = self.holds_body(p, children, group.len() + 1);
@@ -1141,12 +1205,12 @@ pub(super) struct Open<'a> {
 }
 
 /// The rows of `bodies` (of the part `p` the occurrence `at` places, in the groups `group`), in
-/// their order of creation (a row toggling its sign stays under the pointer);
-/// under an open group, its children. The groups along `open` (the group open in the part) are
+/// their order of creation (a row toggling its sign stays under the pointer) or by name
+/// (`by_name`), the groups first ([`ordered`]); under an open group, its children. The groups along `open` (the group open in the part) are
 /// unfolded.
 #[allow(clippy::too_many_arguments)]
 fn body_rows<'d>(
-    births: &Births,
+    (births, by_name): (&Births, bool),
     folds: &mut FastSet<egui::Id>,
     at: (&[Id], Id),
     p: &'d skraft_model::Part,
@@ -1163,7 +1227,7 @@ fn body_rows<'d>(
         Some(&id) if open.group.starts_with(group) => Some(id),
         _ => open.profile.filter(|_| open.group == group.as_slice()),
     };
-    for b in bodies {
+    for b in bodies_ordered(p, bodies, by_name) {
         if step.is_some_and(|id| id != b.id) {
             continue;
         }
@@ -1187,7 +1251,7 @@ fn body_rows<'d>(
             out((None, group.clone(), b, bodies, true));
         } else {
             group.push(b.id);
-            body_rows(births, folds, at, p, children, group, open, out);
+            body_rows((births, by_name), folds, at, p, children, group, open, out);
             group.pop();
         }
     }
@@ -1776,4 +1840,19 @@ fn row_menu(
             actions.push(Action::Command("edit.erase"));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ordered;
+
+    #[test]
+    fn ordered_puts_what_goes_ahead_first_each_kind_in_its_order_or_by_name() {
+        use skraft_tools::search::NameKey;
+        let items = ["b4", "a1", "b2", "a3", "b10"];
+        let a = |x: &&str| x.starts_with('a');
+        let name = |x: &&str| NameKey::new(x);
+        assert_eq!(ordered(&items, false, a, name).into_iter().copied().collect::<Vec<_>>(), ["a1", "a3", "b4", "b2", "b10"]);
+        assert_eq!(ordered(&items, true, a, name).into_iter().copied().collect::<Vec<_>>(), ["a1", "a3", "b2", "b4", "b10"]);
+    }
 }

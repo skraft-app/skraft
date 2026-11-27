@@ -58,6 +58,9 @@ pub struct Preferences {
     pub compositions_list: bool,
     /// The « Matières » card as a list.
     pub materials_list: bool,
+    /// The model's navigator lists each kind (assemblies, then parts; groups, then bodies) by
+    /// name, not in its order of creation (docs/ui/interface.md#sorting).
+    pub navigator_by_name: bool,
     /// The colours kept in the colour panels' « Favorites » (docs/ui/interface.md#colours).
     pub favorite_colors: Vec<[u8; 3]>,
     /// The last files opened or saved, the latest first (desktop: the browser gives no path to
@@ -115,6 +118,7 @@ impl Default for Preferences {
             components_list: false,
             compositions_list: false,
             materials_list: false,
+            navigator_by_name: false,
             favorite_colors: Vec::new(),
             recent_files: Vec::new(),
             reopen_documents: true,

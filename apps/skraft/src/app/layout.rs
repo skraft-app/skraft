@@ -401,10 +401,9 @@ impl SkraftApp {
                             *navigator_shown = true;
                             // Salted by the document: its rows' clicks apart from another's.
                             let (doc_id, name) = (doc.id, doc.name());
+                            let look = cards::NavigatorLook { name: &name, body, line: title_line, by_name: self.prefs.navigator_by_name };
                             let (editor, state) = (&doc.editor, &mut doc.navigator);
-                            ui.push_id(doc_id, |ui| {
-                                cards::navigator(ui, editor, state, &name, actions, area.id_salt("navigator"), (body, title_line))
-                            });
+                            ui.push_id(doc_id, |ui| cards::navigator(ui, editor, state, look, actions, area.id_salt("navigator")));
                         }
                     }
                 });

@@ -1085,6 +1085,11 @@ panel:
     # The first row, the model itself (named as its file): a click leaves every assembly and
     # part edited and chooses the model (the entity info shows it).
     model_tip: "Cliquer pour revenir au niveau du modèle"
+    # The button right of the search (docs/ui/interface.md#sorting): each kind's rows
+    # (assemblies then parts, groups then bodies) by name; lit, a click goes back to their
+    # order of creation.
+    sort_tip: "Trier par nom"
+    unsort_tip: "Revenir à l'ordre de création"
     # The eye of a row.
     hide: "$t(common.hide)"
     show: "$t(common.show)"

@@ -986,6 +986,8 @@ panel:
     chamfer_size: "%{size}"
     title: "Navigator"
     model_tip: "Click to go back to the model's level"
+    sort_tip: "Sort by name"
+    unsort_tip: "Back to the order of creation"
     hide: "$t(common.hide)"
     show: "$t(common.show)"
     pieces: "Part in %{count} pieces: needs fixing"

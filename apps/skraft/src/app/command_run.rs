@@ -558,6 +558,7 @@ impl SkraftApp {
                 };
                 return *pref = list;
             }
+            Action::NavigatorByName(on) => return self.prefs.navigator_by_name = on,
             Action::ViewMove(id, before) => {
                 return crate::workspaces::common::viewport::view_bar::move_to(&mut self.prefs.view_bar, id, before);
             }
@@ -583,6 +584,7 @@ impl SkraftApp {
             | Action::ViewMove(..)
             | Action::ViewBarSide(_)
             | Action::CardList(..)
+            | Action::NavigatorByName(_)
             | Action::QuickMove(..)
             | Action::QuickTool(_)
             | Action::RemoteRetry => {}
