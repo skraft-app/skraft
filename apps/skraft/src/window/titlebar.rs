@@ -497,10 +497,10 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
                 ui.weak(&tip);
                 ui.separator();
                 if mark.error.is_some() {
-                    if ui.button(t!("titlebar.remote.retry")).clicked() {
+                    if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.retry")).show(ui) {
                         actions.push(Action::RemoteRetry);
                     }
-                } else if ui.button(t!("titlebar.remote.copy_ping")).clicked() {
+                } else if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.copy_ping")).show(ui) {
                     let token = mark
                         .token_file
                         .as_ref()
@@ -509,10 +509,10 @@ fn remote_mark(ui: &mut egui::Ui, mark: &RemoteMark, actions: &mut Vec<Action>) 
                         "curl -s -H 'X-Skraft: 1' -H \"Authorization: Bearer {token}\" -d '{{\"method\": \"app.ping\"}}' http://{address}/call"
                     ));
                 }
-                if ui.button(t!("titlebar.remote.journal")).clicked() {
+                if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.journal")).show(ui) {
                     actions.push(Action::Command("app.journal"));
                 }
-                if ui.button(t!("titlebar.remote.stop")).clicked() {
+                if crate::kit::widgets::MenuEntry::new(t!("titlebar.remote.stop")).show(ui) {
                     actions.push(Action::Command("app.remote_control"));
                 }
             })

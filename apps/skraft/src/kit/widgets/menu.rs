@@ -25,6 +25,50 @@ pub fn command_item(ui: &mut egui::Ui, v: &CommandView, column: bool) -> bool {
     r.clicked()
 }
 
+/// An entry of a menu that is not a command's (a right click's on a row, a card's item): its
+/// label, as [`command_item`] draws a command's — the menus' look in one place. Enabled or not,
+/// published under a handle when it has one, its tip when it needs one; clicked?
+pub(crate) struct MenuEntry {
+    label: String,
+    enabled: bool,
+    handle: Option<String>,
+    tip: Option<String>,
+}
+
+impl MenuEntry {
+    pub(crate) fn new(label: impl Into<String>) -> Self {
+        MenuEntry { label: label.into(), enabled: true, handle: None, tip: None }
+    }
+
+    pub(crate) fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Its handle for the control protocol (`navigator:menu:rename`).
+    pub(crate) fn handle(mut self, handle: impl Into<String>) -> Self {
+        self.handle = Some(handle.into());
+        self
+    }
+
+    pub(crate) fn tip(mut self, tip: impl Into<String>) -> Self {
+        self.tip = Some(tip.into());
+        self
+    }
+
+    /// Laid out in the menu `ui`: clicked?
+    pub(crate) fn show(self, ui: &mut egui::Ui) -> bool {
+        let r = ui.add_enabled(self.enabled, crate::kit::style::menu_item(self.label, None, false));
+        if let Some(handle) = self.handle {
+            crate::kit::handles::publish_enabled(|| handle, r.rect, self.enabled);
+        }
+        match self.tip {
+            Some(tip) => r.tip(tip).clicked(),
+            None => r.clicked(),
+        }
+    }
+}
+
 /// A row of a menu listing commands to pin (the ribbon's groups, the view bar's and the quick
 /// tools' ▾).
 pub(crate) struct PinItem<'a> {

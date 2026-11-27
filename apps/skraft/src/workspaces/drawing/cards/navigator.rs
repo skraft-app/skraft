@@ -571,14 +571,12 @@ fn presentation_row(
         st.info = InfoOn::Presentation;
     }
     response.context_menu(|ui| {
-        let save = ui.button(t!("menu.drawing.save_template"));
-        crate::kit::handles::publish(|| "navigator:menu:save_template".into(), save.rect);
-        if save.clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("menu.drawing.save_template")).handle("navigator:menu:save_template").show(ui) {
             st.show_presentation(d, p.id);
             actions.push(Action::Command("drawing.save_template"));
             ui.close();
         }
-        if ui.button(t!("drawing.tree.delete_presentation")).clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("drawing.tree.delete_presentation")).show(ui) {
             actions.push(Action::Apply(Operation::DeletePresentation { presentation: p.id }));
             ui.close();
         }
@@ -650,7 +648,7 @@ fn sheet_row(
         st.info = InfoOn::Sheet;
     }
     response.context_menu(|ui| {
-        if ui.button(t!("drawing.delete_sheet")).clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("drawing.delete_sheet")).show(ui) {
             actions.push(Action::Apply(Operation::DeleteSheet { sheet: s.id }));
             ui.close();
         }
@@ -807,9 +805,7 @@ fn element_row(
                 (t!("menu.drawing.explode"), "drawing.explode"),
                 (t!("menu.drawing.make_unique"), "drawing.make_unique"),
             ] {
-                let item = ui.button(label);
-                crate::kit::handles::publish(|| format!("navigator:menu:{command}"), item.rect);
-                if item.clicked() {
+                if crate::kit::widgets::MenuEntry::new(label).handle(format!("navigator:menu:{command}")).show(ui) {
                     st.show_sheet(row.sheet);
                     st.selected = vec![el.id];
                     actions.push(Action::Command(command));
@@ -817,9 +813,7 @@ fn element_row(
                 }
             }
             // One more occurrence of its composition, a little aside.
-            let copy = ui.button(t!("drawing.tree.copy"));
-            crate::kit::handles::publish(|| "navigator:menu:copy".into(), copy.rect);
-            if copy.clicked() {
+            if crate::kit::widgets::MenuEntry::new(t!("drawing.tree.copy")).handle("navigator:menu:copy").show(ui) {
                 st.show_sheet(row.sheet);
                 st.place_composition = el.kind.occurrence().map(|i| i.composition);
                 ui.close();

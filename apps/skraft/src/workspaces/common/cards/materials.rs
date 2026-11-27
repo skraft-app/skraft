@@ -220,17 +220,17 @@ impl Shelf for Materials<'_> {
             }
         }
         egui::Popup::context_menu(&response).style(crate::kit::style::menu).show(|ui| {
-            if ui.button(t!("panel.materials.paint")).clicked() {
+            if crate::kit::widgets::MenuEntry::new(t!("panel.materials.paint")).show(ui) {
                 actions.push(Action::PaintWith(Some(id)));
             }
             ui.separator();
-            if ui.button(t!("panel.components.rename")).clicked() {
+            if crate::kit::widgets::MenuEntry::new(t!("panel.components.rename")).show(ui) {
                 Renaming::start(ui, key);
             }
-            if ui.button(t!("panel.materials.export_one")).clicked() {
+            if crate::kit::widgets::MenuEntry::new(t!("panel.materials.export_one")).show(ui) {
                 actions.push(Action::ExportMaterials(Some(id)));
             }
-            if ui.button(t!("panel.components.delete")).tip(t!("panel.materials.delete_tip")).clicked() {
+            if crate::kit::widgets::MenuEntry::new(t!("panel.components.delete")).tip(t!("panel.materials.delete_tip")).show(ui) {
                 actions.push(Action::DeleteMaterial(id));
             }
         });

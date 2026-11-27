@@ -1693,9 +1693,7 @@ fn body_menu(
                 Some((_, up)) => (t!("menu.edit.move_out"), skraft_model::BodiesTo::Level(up.to_vec())),
                 None => (t!("menu.edit.move_out_of_part"), skraft_model::BodiesTo::NewPart(path.occurrences.clone())),
             };
-            let button = ui.button(label);
-            crate::kit::handles::publish(|| "navigator:menu:move_out".into(), button.rect);
-            if button.clicked() {
+            if crate::kit::widgets::MenuEntry::new(label).handle("navigator:menu:move_out").show(ui) {
                 let scope = scope_in(editor, path);
                 actions.push(Action::Apply(Operation::MoveBodies { from: path.clone(), bodies: with.to_vec(), to, copy: false, scope }));
             }
@@ -1779,18 +1777,14 @@ fn body_row(
 
 /// A navigator menu's entry applying `op`, under the handle `navigator_menu:<handle>`.
 fn menu_op(ui: &mut egui::Ui, handle: &str, label: String, op: Operation, actions: &mut Vec<Action>) {
-    let button = ui.button(label);
-    crate::kit::handles::publish(|| format!("navigator:menu:{handle}"), button.rect);
-    if button.clicked() {
+    if crate::kit::widgets::MenuEntry::new(label).handle(format!("navigator:menu:{handle}")).show(ui) {
         actions.push(Action::Apply(op));
     }
 }
 
 /// The menu's « Aplatir » (docs/model/bodies.md#flattening): clicked?
 fn flatten_button(ui: &mut egui::Ui) -> bool {
-    let button = ui.button(t!("common.flatten"));
-    crate::kit::handles::publish(|| "navigator:menu:flatten".into(), button.rect);
-    button.clicked()
+    crate::kit::widgets::MenuEntry::new(t!("common.flatten")).handle("navigator:menu:flatten").show(ui)
 }
 
 /// A navigator row's right-click menu: « Renommer » (the field a double-click opens, under the
@@ -1816,26 +1810,18 @@ fn row_menu(
             None => vec![(t!("panel.navigator.rename"), rename, "rename")],
         };
         for (label, key, handle) in names {
-            let button = ui.button(label);
-            crate::kit::handles::publish(|| format!("navigator:menu:{handle}"), button.rect);
-            if button.clicked() {
+            if crate::kit::widgets::MenuEntry::new(label).handle(format!("navigator:menu:{handle}")).show(ui) {
                 ui.data_mut(|d| d.insert_temp(egui::Id::unique(RENAMING), key));
             }
         }
         move_out(ui, actions);
         ui.separator();
         flatten(ui, actions);
-        if explodable {
-            let button = ui.button(t!("menu.edit.explode"));
-            crate::kit::handles::publish(|| "navigator:menu:explode".into(), button.rect);
-            if button.clicked() {
-                actions.extend(select.take());
-                actions.push(Action::Command("edit.explode"));
-            }
+        if explodable && crate::kit::widgets::MenuEntry::new(t!("menu.edit.explode")).handle("navigator:menu:explode").show(ui) {
+            actions.extend(select.take());
+            actions.push(Action::Command("edit.explode"));
         }
-        let button = ui.button(t!("menu.edit.erase"));
-        crate::kit::handles::publish(|| "navigator:menu:delete".into(), button.rect);
-        if button.clicked() {
+        if crate::kit::widgets::MenuEntry::new(t!("menu.edit.erase")).handle("navigator:menu:delete").show(ui) {
             actions.extend(select.take());
             actions.push(Action::Command("edit.erase"));
         }
