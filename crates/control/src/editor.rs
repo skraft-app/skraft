@@ -515,6 +515,17 @@ fn expand(e: &Editor, input: &Input) -> Result<Vec<ToolInput>, Error> {
     })
 }
 
+/// The world points `input` gives (`at`), with their pixels: inferred there, they are taken
+/// exactly, not as the pixel's round trip gives them back (docs/control-protocol.md).
+fn pilot_points(e: &Editor, input: &Input) -> Vec<(DVec2, DVec3)> {
+    let pointers: Vec<&Pointer> = match input {
+        Input::Hover(p) | Input::Click(p) | Input::DoubleClick(p) => vec![p],
+        Input::Drag(d) => vec![&d.from, &d.to],
+        _ => Vec::new(),
+    };
+    pointers.into_iter().filter_map(|p| Some((pixel(e, p).ok()?, DVec3::from_array(p.at?)))).collect()
+}
+
 /// An option of the active tool set, as its bar does: refused when the tool has no such
 /// option, or the value is not one of its kind (a choice not among its choices).
 fn set_option(e: &mut Editor, o: &OptionInput) -> Result<(), Error> {
@@ -555,6 +566,7 @@ fn tool_input(e: &mut Editor, p: &ToolInputParams) -> Outcome {
             continue;
         }
         let inputs = expand(e, input).map_err(refused)?;
+        e.set_pilot_points(pilot_points(e, input));
         let px = inputs.iter().find_map(|t| match t {
             ToolInput::Hover { px } => Some(json::v2(*px)),
             _ => None,
