@@ -1894,6 +1894,7 @@ error:
     face_across: "a face neither planar nor cylindrical along the stretch crosses a cut"
     unsupported: "a face crossing a cut has a shape the stretch cannot change"
     collapsed: "compression too strong: the material would vanish"
+    overlaps: "compression too strong: the material of two sections would run into each other"
     meets: "a curved shape stretched across a cut touches material that only moves"
     unreadable: "the stretch wrote an invalid solid (%{what})"
   web:

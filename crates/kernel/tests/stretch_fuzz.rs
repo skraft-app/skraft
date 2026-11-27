@@ -185,10 +185,6 @@ enum Outcome {
     Failed(String),
 }
 
-/// The room the tool keeps between the matter of two sections a compression brings together (mm),
-/// as its `move_range` (crates/tools/src/tools/stretch.rs): `apply` itself does not check it.
-const KEEP: f64 = 1.0;
-
 /// One case: a shape stretched along one of its own axes (now and then any axis), as its placed
 /// record or in its own frame (an occurrence's definition), checked. Everything is measured in
 /// the frame the stretch ran in, the result read back as is: the kernel's transform has quirks of
@@ -217,7 +213,7 @@ fn case(seed: u64) -> (String, Outcome) {
     };
     let len = hi - lo;
     // Cuts inside; moves increasing (lengthening: compression is then the way back), or one
-    // compression within the room the tool leaves.
+    // compression: within the room between the sections' matter, or past it (refused).
     let lengthen = rng.chance(0.75);
     let count = if lengthen && rng.chance(0.2) { 2 } else { 1 };
     let mut cuts: Vec<f64> = (0..count).map(|_| lo + len * rng.f(0.1, 0.9)).collect();
@@ -231,12 +227,9 @@ fn case(seed: u64) -> (String, Outcome) {
     } else {
         let spans = frame(Stretch::new(axis, cuts.clone(), vec![0.0, 0.0]).unwrap()).section_spans(&target);
         let room = match spans[..] {
-            [Some((_, a_hi)), Some((b_lo, _))] => b_lo - a_hi - KEEP,
-            _ => 0.6 * len,
+            [Some((_, a_hi)), Some((b_lo, _))] if rng.chance(0.5) => (b_lo - a_hi).max(0.0),
+            _ => 0.8 * len,
         };
-        if room <= 0.0 {
-            return (what, Outcome::Refused("no room to compress".into()));
-        }
         moves.push(moves[0] - rng.f(0.0, 1.0) * room);
     }
     // What the ends of the matter move apart, once its true ends are known (the cuts are drawn

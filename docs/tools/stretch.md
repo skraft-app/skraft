@@ -371,13 +371,17 @@ the record back into the kernel, which checks its geometry; a refusal cancels th
 - `section_spans` leaves a group's edges out and counts its two ends in their sections: the
   compression stops before a group flattens, and the preview blends between its ends as the
   group is scaled.
+- A compression bringing the matter of two sections that hold some onto each other (a hole near
+  an end, compressed past it) is refused, `StretchError::Overlaps`, for any caller: what lies
+  wholly in a section only moves, the two would run through each other and the record be no
+  solid. The tool stops 1 mm before.
 - **Checked at random** (`crates/kernel/tests/stretch_fuzz.rs`): shapes (boards, fillets, arc
   sides, holes, bores, carved arcs, cylinders, spheres, rounds, chamfers) placed anyhow,
   stretched along their own axes (axis noise included) or any, as placed or in their own frame,
   numbers drawn: each result either refused or read back, its volume moved as the moves, its mesh
   like its volume, its length grown by them, still an operand, and the opposite stretch giving
-  the original back. Compressions stay within the tool's limit (`apply` itself does not check
-  that sections overlap). Seeds replayable, cases dumped as jobs; the failures of known families
+  the original back. Compressions drawn within the room between sections or past it. Seeds
+  replayable, cases dumped as jobs; the failures of known families
   are counted, not failed (listed in the test).
 - **What the kernel's records hold** (checked on boxes and cylinders stretched and compressed,
   read back, then used as a blank and as a tool in a subtraction): the box's planes carry no
