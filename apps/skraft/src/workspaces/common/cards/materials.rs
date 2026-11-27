@@ -305,11 +305,15 @@ pub(crate) fn paint_material(ui: &egui::Ui, doc: &Document, rect: egui::Rect, id
         let coats = doc.coats_of(id);
         ui.painter().rect_filled(rect, radius, ui.visuals().faint_bg_color);
         let n = coats.len().max(1) as f32;
+        // The bottom band takes the swatch's bottom corners, the top one its top corners.
+        let round = radius.round().clamp(0.0, 255.0) as u8;
         for (k, (_, c)) in coats.iter().enumerate() {
             let [r, g, b] = c.color;
             let top = rect.bottom() - rect.height() * (k + 1) as f32 / n;
             let band = egui::Rect::from_min_max(egui::pos2(rect.left(), top), egui::pos2(rect.right(), top + rect.height() / n));
-            ui.painter().rect_filled(band, 0.0, egui::Color32::from_rgb(r, g, b));
+            let (low, high) = (if k == 0 { round } else { 0 }, if k + 1 == coats.len() { round } else { 0 });
+            let corners = egui::CornerRadius { nw: high, ne: high, sw: low, se: low };
+            ui.painter().rect_filled(band, corners, egui::Color32::from_rgb(r, g, b));
         }
         return;
     }
