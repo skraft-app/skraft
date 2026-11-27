@@ -259,6 +259,8 @@ impl SkraftApp {
         let _ = check_updates;
         let journal = self.docs.active().map(|d| (d.name(), d.editor.journal()));
         crate::dialogs::journal_window::show(ctx, &mut self.journal_window, journal);
+        let doc = self.docs.active().map(|d| d.editor.document());
+        crate::dialogs::kit_gallery::show(ctx, &mut self.kit_gallery, views, &self.theme, doc);
         self.palette_window(ctx, views, actions);
         self.save_prompt(ctx);
         self.delete_coat_prompt(ctx);

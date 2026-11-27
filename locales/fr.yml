@@ -190,6 +190,8 @@ menu:
   debug:
     title: "Débogage"
     crash_kernel: "Faire planter le noyau"
+    # The kit's gallery (docs/ui/interface.md#the-kits-gallery).
+    kit_gallery: "Galerie du kit"
 
 # The tool bar's tooltips: a command's label and shortcut.
 toolbar:
@@ -2106,3 +2108,46 @@ error:
     unreadable: "préférences illisibles : %{error}"
     no_config_dir: "pas de dossier de configuration"
     no_browser_storage: "stockage du navigateur indisponible"
+
+# The kit's gallery (docs/ui/interface.md#the-kits-gallery): every widget of the kit in its
+# states, under the call drawing it. The samples are what the widgets show.
+gallery:
+  title: "$t(menu.debug.kit_gallery)"
+  tab:
+    buttons: "Boutons"
+    choices: "Choix"
+    fields: "Champs"
+    menus: "Menus"
+    rows: "Lignes"
+    marks: "Marques"
+    colors: "Couleurs"
+    frames: "Cadres"
+    overlays: "Superpositions"
+  sample:
+    label: "Libellé"
+    long: "Un libellé bien trop long pour sa place"
+    ok: "Valider"
+    cancel: "Annuler"
+    menu: "Menu"
+    item: "Élément"
+    one: "Un"
+    two: "Deux"
+    three: "Trois"
+    name: "Nom"
+    length: "Longueur"
+    width: "Largeur"
+    unreadable: "Valeur illisible"
+    warning: "Cette opération change trois pièces liées."
+    tip: "Une bulle d'aide"
+    tip_more: "Ce qu'elle ajoute, plus petit, dessous."
+    note: "Une note sous les lignes du menu."
+    pin: "Épingler"
+    unpin: "Retirer de la galerie"
+    assembly: "$t(common.assembly)"
+    part: "$t(common.part)"
+    body: "Corps"
+    hidden: "Corps masqué"
+    no_materials: "Les matières du document affiché viennent ici."
+    turned: "Texte tourné"
+    card: "Une carte"
+    section: "Une section"

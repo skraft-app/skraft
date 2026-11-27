@@ -362,6 +362,24 @@ Elsewhere:
 *Why:* each screen had grown its own copy, and the copies drifted apart (the code cleanliness
 review of 2026-11-23 found five icon buttons, three menu rows, two selection rectangles).
 
+## The kit's gallery
+
+« Galerie du kit » (`dialogs/kit_gallery.rs`, in the Débogage menu: `SKRAFT_DEBUG` on the
+desktop, `?debug` on the web) shows every widget of the list above, drawn by the kit itself,
+in its states — at rest, lit, disabled, wrong… —, each under the call that draws it
+(`Look::Framed`, `.lit(true)`: code, not translated). A tab a family: buttons, choices, fields,
+menus, rows, marks, colours, frames, overlays. Its specimens work: a list opens, a field
+applies, a row folds and is renamed; the menus' rows are the commands' as they show now, the
+materials the shown document's. Its tabs are handles (`gallery:tab:<family>`), so that
+`ui.screenshot` takes each one.
+
+A test keeps it whole (`kit/guard.rs`): every name `kit/widgets.rs` gives is used in the
+gallery, but those it lists as no widget of their own (a widget's settings, what it answers,
+its constants, the helpers painting for it).
+
+*Why:* the list above says what exists, not what it looks like; before drawing a widget, one
+looks there for the variant already made, and sees a change to the kit everywhere at once.
+
 ## Colours
 
 A colour is shown and edited in **one colour box** (`kit::widgets::color`), wherever it is: a
