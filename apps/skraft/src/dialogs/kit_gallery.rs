@@ -1,6 +1,6 @@
 //! The kit's gallery (docs/ui/interface.md#the-kits-gallery): every widget of the kit, drawn by
 //! the kit itself in its states, each under the call that draws it — a tab a family. Opened by
-//! « Galerie du kit » (the Débogage menu: `SKRAFT_DEBUG`, `?debug` on the web). A widget the kit
+//! « Galerie du kit » (the Débogage menu: a dev build, `SKRAFT_DEBUG`, `?debug` on the web). A widget the kit
 //! gains comes here too: a test checks it (`kit/guard.rs`).
 //!
 //! The captions under the specimens are code (`Look::Framed`, `.lit(true)`), not texts of the

@@ -180,9 +180,13 @@ struct Palette {
     at_top: bool,
 }
 
-/// The Débogage menu is asked for at launch, in any build (no dev build needed): `?debug` in
-/// the page's address on the web, `SKRAFT_DEBUG` set in the environment on the desktop.
+/// The Débogage menu: always in a dev build (the kit's gallery is a developer's tool); in a
+/// release build, asked for at launch: `?debug` in the page's address on the web, `SKRAFT_DEBUG`
+/// set in the environment on the desktop.
 fn debug_menu_wanted() -> bool {
+    if cfg!(debug_assertions) {
+        return true;
+    }
     #[cfg(target_arch = "wasm32")]
     {
         web_sys::window()

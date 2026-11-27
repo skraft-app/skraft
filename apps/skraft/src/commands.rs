@@ -22,7 +22,7 @@ pub enum Menu {
     View,
     Tools,
     Solids,
-    /// Only with the debug menu (`?debug`, `SKRAFT_DEBUG`).
+    /// Only with the debug menu (a dev build, `?debug`, `SKRAFT_DEBUG`).
     Debug,
 }
 
