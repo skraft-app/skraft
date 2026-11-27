@@ -1,5 +1,5 @@
 //! The « Matières » card (docs/ui/catalog.md, docs/render/look.md): the document's materials,
-//! coverings and colorations in a tab each, as tiles or rows, how many parts show each, the
+//! coverings and finishes in a tab each, as tiles or rows, how many parts show each, the
 //! unused ones apart. A click chooses one (what the paint tool paints with, its properties in
 //! the entity info) without changing the tool.
 
@@ -60,7 +60,7 @@ fn rows_of(doc: &Document, matcher: &Matcher, family: Family) -> Rows {
     rows
 }
 
-/// The card's content, in `area`: the tabs (materials, coverings, colorations), the search, the
+/// The card's content, in `area`: the tabs (materials, coverings, finishes), the search, the
 /// buttons (new, export, import) and the grid / list toggle, then the tab's items in their
 /// sections.
 pub fn card(ui: &mut egui::Ui, editor: &Editor, state: &mut MaterialsState, look: Look, actions: &mut Vec<Action>, area: egui::ScrollArea) {
@@ -71,15 +71,15 @@ pub fn card(ui: &mut egui::Ui, editor: &Editor, state: &mut MaterialsState, look
         Family::ALL.map(|f| rows_of(doc, &matcher, f))
     });
     // The tabs, as the library's, without counts: three would not fit the card's width.
-    let labels = [t!("panel.materials.materials_tab"), t!("panel.materials.coverings_tab"), t!("panel.materials.colorations_tab")];
+    let labels = [t!("panel.materials.materials_tab"), t!("panel.materials.coverings_tab"), t!("panel.materials.finishes_tab")];
     let ids = [
         ui.make_persistent_id("materials_tab_materials"),
         ui.make_persistent_id("materials_tab_coverings"),
-        ui.make_persistent_id("materials_tab_colorations"),
+        ui.make_persistent_id("materials_tab_finishes"),
     ];
     let m = look.margin as i8;
     let inset = egui::Margin { left: m, right: m, top: (ui.cursor().top() - look.band_top).max(0.0).ceil() as i8, bottom: 0 };
-    let handles = ["materials:materials_tab", "materials:coverings_tab", "materials:colorations_tab"];
+    let handles = ["materials:materials_tab", "materials:coverings_tab", "materials:finishes_tab"];
     let shown = Family::ALL.iter().position(|f| *f == state.family).unwrap_or(0);
     if let Some(k) =
         crate::window::ribbon::tab_strip(ui, &labels, &ids, Some(shown), ui.available_width(), inset, Corners::Square, &handles)
@@ -134,7 +134,7 @@ fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, family: Family, actions
     let tip = match family {
         Family::Material => t!("panel.materials.new"),
         Family::Covering => t!("panel.materials.new_covering"),
-        Family::Coloration => t!("panel.materials.new_coloration"),
+        Family::Finish => t!("panel.materials.new_finish"),
     };
     if button(ui, true, icons::ADD, tip, "materials:new") {
         let count = doc.materials().count();
@@ -142,7 +142,7 @@ fn buttons(ui: &mut egui::Ui, doc: &Document, side: f32, family: Family, actions
         let named = |k| match family {
             Family::Material => t!("default_name.material", number = k),
             Family::Covering => t!("default_name.covering", number = k),
-            Family::Coloration => t!("default_name.coloration", number = k),
+            Family::Finish => t!("default_name.finish", number = k),
         };
         let name = (1..).map(named).find(|n| !taken(n)).unwrap_or_default();
         let kind = family.kinds().first().copied();

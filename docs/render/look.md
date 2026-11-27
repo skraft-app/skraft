@@ -106,7 +106,7 @@ symbols the code writes, and of Greek.
 
 ## Palette and materials
 
-- **Three families, a table each** (`Catalog`: `materials`, `coverings`, `colorations`, under
+- **Three families, a table each** (`Catalog`: `materials`, `coverings`, `finishes`, under
   the file's `catalog`), every item a `Material { name, kind, color, texture, props }` (sRGB; a
   texture: [Textures](#textures); properties: [Properties](../model/properties.md); ids unique
   across the tables) — [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md):
@@ -115,13 +115,13 @@ symbols the code writes, and of Greek.
     « Panneau » (`Sheet`), « Profilé » (`Profile`);
   - **coverings**, what covers a face; their type: « Générique » (`GenericCovering`, a new
     one's), « Placage » (`Veneer`), « Chant » (`Edge`);
-  - **colorations**, what colours a part or a face, never counted; the colours of imports are
-    colorations. A **coat** (« Couche », `Coat`, a new one's) has a `blend` — « Couvrant »
+  - **finishes**, what colours a part or a face, never counted; the colours of imports are
+    finishes. A **coat** (« Couche », `Coat`, a new one's) has a `blend` — « Couvrant »
     (`Cover`: laid over what is under, its `intensity` its opacity) or « Teintant » (`Tint`:
     multiplying it, its intensity its strength) — and an `intensity` (0 to 1); a **scheme**
     (« Schéma », `Scheme`) lays coats of the catalog, referred to, from the bottom up
     (`coats`; one level, a coat may come twice; `SetCoat`, `SetCoats`).
-  An item's family is its type's (`Material::family`, a coloration without one); a type changes
+  An item's family is its type's (`Material::family`, a finish without one); a type changes
   only within its family (`SetMaterialKind`), an item never changes family. A file's item
   without a type of its table's family takes the family's first.
 - **Where they go** (`Family`), on the part's definition, so every occurrence shows them; an
@@ -129,8 +129,8 @@ symbols the code writes, and of Greek.
 
   | | Counted | Seen |
   |---|---|---|
-  | Part | `Part.material` | `Part.coloration` over its material |
-  | Face | `Part.coverings` | `Part.faces` (its coloration), else the part's, over its covering, else the part's material |
+  | Part | `Part.material` | `Part.finish` over its material |
+  | Face | `Part.coverings` | `Part.faces` (its finish), else the part's, over its covering, else the part's material |
 
   What is seen is a pair, `Seen { under, over }` (`Part::shown`, `Part::faces_shown`,
   `PlacedPart::shown`); under nothing, the theme's default; back faces keep the back colour. An item laid in a slot of another family is
@@ -142,10 +142,10 @@ symbols the code writes, and of Greek.
   material is refused.
 - **Rendering**: a **palette** (a storage buffer of linear RGBA), an entry per pair seen (the
   app's `Viewport::colours`): what is under's colour, its texture beside it, and the
-  coloration's coats composed into one map per channel, `x -> A·x + B` (`compose`: covering
+  finish's coats composed into one map per channel, `x -> A·x + B` (`compose`: covering
   `(1 − t)·x + t·c`, tinting `x·((1 − t) + t·c)`), two `vec4` per entry in a third buffer
   (`Style::overlays`) that the shader applies over the colour or the texture: a scheme of any
-  number of coats costs one; a coloration has no texture, its colour alone. Each instance
+  number of coats costs one; a finish has no texture, its colour alone. Each instance
   carries a palette index (what its part shows), each vertex the index of what its face shows
   (or none).
   Changing a material's colour rewrites only the palette; painting a part only the instances
@@ -158,7 +158,7 @@ symbols the code writes, and of Greek.
   click lays the current item (none: it is taken off) where its family goes: a material on
   « la pièce » — the part clicked, every part below an assembly clicked, or the whole
   selection when it is in it —, a covering on « la face » clicked, on every occurrence of its
-  part; a coloration on either, as its option « Peindre » says (Tab turns it over), shown only
+  part; a finish on either, as its option « Peindre » says (Tab turns it over), shown only
   then. « Aucune » takes off the family of the card's tab it was chosen in
   (`Editor::set_paint_family`). Under the « Parts » scope ([Selection](../tools/selection.md)), the part under
   the cursor at any depth, in its assembly (the parts selected when it is one of them), and
@@ -175,28 +175,28 @@ symbols the code writes, and of Greek.
   - **Preview** (OCL's `_preview_instances`): what a click (or the rectangle) would paint is
     drawn in the colour it would take (`Preview::paint`, `Mark::Painted`: no tint, hovered
     edges): each part under the targets as it would then show — every copy of it shown under
-    « Tous les exemplaires »; a material under a coloration shows the coloration —; a face
+    « Tous les exemplaires »; a material under a finish shows the finish —; a face
     alone, on every occurrence of its part, as it would show. Not in an open part.
   - The other modifier held (Command on macOS, Alt elsewhere) holds « Prélever » over it
     ([tool stack](../tools/interaction.md#tool-stack)).
 - **« Prélever »** (`tool.sample`, SketchUp's Sample Paint, OCL's `ACTION_PICK`; ribbon
   « Apparence », no key): a click takes what is shown under the cursor — the face's
-  coloration, else its covering, else the part's coloration, else its material, else none — as
+  finish, else its covering, else the part's finish, else its material, else none — as
   the paint tool's; its
   tooltip names that material, its cursor is OCL's `picker`. Chosen on its own, it then starts
   the paint tool with it; held over the paint tool, each click takes, until the key is released
   (or Esc).
 - **Interface**: the **Matières** card ([Catalog cards](../ui/catalog.md#the-materials-card)):
   the materials as tiles or rows; one chosen is what the paint tool paints with and is edited
-  in the entity info. A part's material and coloration in its entity info (« Matériau »,
-  « Coloration »: every copy).
+  in the entity info. A part's material and finish in its entity info (« Matériau »,
+  « Finition »: every copy).
   The paint tool or « Prélever » started, whatever started it, shows the panel, unfolded (closed or folded,
   it would hide what the tool paints with); it stays so when the tool ends.
 
 ## Textures
 
 A material or a covering may have a **texture**: an image laid on the faces at its real size.
-A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when it is read,
+A finish never does (`Refusal::FinishTexture`; a file's is dropped when it is read,
 `Catalog::insert`): it only colours what is under,
 [decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md).
 
@@ -211,7 +211,7 @@ A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when 
   `color`), which shows until the image is loaded and wherever no image is drawn; it is not
   edited while the texture is there (`EditMaterial` keeps it, the entity info hides the colour
   row). The texture removed, that colour stays and is edited again. Colour and image together
-  are made with a coloration over the material
+  are made with a finish over the material
   ([decision 0057](../decisions/0057-materials-on-the-definition-typed-sources.md)). A size
   or a rotation changed keeps the colour.
 - **Mapping**: nothing per face nor per vertex — a **box projection in the part's axes**, in
@@ -243,7 +243,7 @@ A coloration never does (`Refusal::ColorationTexture`; a file's is dropped when 
   turned too); the colour box shows that mean, locked
   (« Couleur moyenne », a padlock): the texture wins, and nothing is lost by a misplaced click —
   only the ✕ removes the image. Then the texture's width and height, typed as lengths (the
-  image's own, which a turn does not swap). A coloration has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, decoded once per image and turned by moving their pixels, a texture per quarter turn shown (`materials::thumbnail`: then drawn as any image, its corners rounded), decoded
+  image's own, which a turn does not swap). A finish has its « Couleur » box alone, the field's width. Thumbnails: 256 texels, decoded once per image and turned by moving their pixels, a texture per quarter turn shown (`materials::thumbnail`: then drawn as any image, its corners rounded), decoded
   off the interface's thread, two at a time (one per frame in the browser, without threads).
 
 ### Why

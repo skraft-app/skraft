@@ -336,7 +336,7 @@ fn part(e: &Editor, pp: &PlacedPart, p: &GeometryParams, volumes: &mut HashMap<u
         "occurrence_name": occurrence.map(|o| o.name.as_str()).filter(|n| !n.is_empty()),
         "hidden": pp.hidden_at.is_some(),
         "material": pp.material.map(|m| m.0),
-        "coloration": pp.coloration.map(|m| m.0),
+        "finish": pp.finish.map(|m| m.0),
         "transform": json::affine(&pp.transform),
         "pieces": pp.shape.pieces(),
     });

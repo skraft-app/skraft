@@ -434,7 +434,7 @@ pub enum Operation {
     /// Replaces the document's settings (display style, units).
     SetSettings(Settings),
     /// A new item of the catalog (docs/render/look.md): a material or a covering of `kind`, a
-    /// coloration without one.
+    /// finish without one.
     AddMaterial {
         name: String,
         color: [u8; 3],
@@ -492,7 +492,7 @@ pub enum Operation {
     /// Shows every occurrence hidden, in every assembly.
     ShowAll,
     /// Paints faces of a part's shape, by their index in its record, on `layer` — their veneer
-    /// or edge, or their coloration — (every occurrence of the part shows it; `None`: they show
+    /// or edge, or their finish — (every occurrence of the part shows it; `None`: they show
     /// what is under again).
     PaintFaces {
         part: Id,
@@ -1161,8 +1161,8 @@ impl Document {
                 Ok(Outcome::default())
             }
             Operation::SetTexture { material, texture, image, color } => {
-                if texture.is_some() && self.material(*material)?.family() == crate::Family::Coloration {
-                    return Err(Error::Invalid(Refusal::ColorationTexture));
+                if texture.is_some() && self.material(*material)?.family() == crate::Family::Finish {
+                    return Err(Error::Invalid(Refusal::FinishTexture));
                 }
                 if let Some(a) = image {
                     self.assets.insert(a.id(), a.clone());
@@ -1236,7 +1236,7 @@ impl Document {
                     let p = self.part_mut(id)?;
                     p.faces.retain(|_, m| m != material);
                     p.coverings.retain(|_, m| m != material);
-                    for slot in [&mut p.material, &mut p.coloration] {
+                    for slot in [&mut p.material, &mut p.finish] {
                         if *slot == Some(*material) {
                             *slot = None;
                         }
@@ -1393,7 +1393,7 @@ impl Document {
                     shape: None,
                     failed: Default::default(),
                     material: None,
-                    coloration: None,
+                    finish: None,
                     coverings: Default::default(),
                     faces: Default::default(),
                 };

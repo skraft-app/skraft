@@ -36,12 +36,12 @@ fn scope(cx: &Cx<'_>) -> Scope {
 }
 
 /// Where what the tool lays goes, on a part and on a face (none: not there): a material on the
-/// part, a covering on a face, a coloration on either (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+/// part, a covering on a face, a finish on either (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
 fn layers(cx: &Cx<'_>) -> (Option<Family>, Option<Family>) {
     match cx.family {
         Family::Material => (Some(Family::Material), None),
         Family::Covering => (None, Some(Family::Covering)),
-        Family::Coloration => (Some(Family::Coloration), Some(Family::Coloration)),
+        Family::Finish => (Some(Family::Finish), Some(Family::Finish)),
     }
 }
 

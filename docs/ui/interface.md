@@ -66,9 +66,9 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   bodies lie on a band of their own (`band_color`: the card's colour a shade towards the text;
   white in the light theme), the tree of assemblies and parts on the card's, the band and the
   hover reaching the card's border across its margin (`style::CARD_MARGIN`). Before a
-  part's name, its material then its coloration, a swatch each (`materials::paint_material`,
+  part's name, its material then its finish, a swatch each (`materials::paint_material`,
   as the « Matières » card and the material fields draw it), then, when faces carry a covering
-  or a coloration of their own, a swatch cut across (the most used of them in its lower half,
+  or a finish of their own, a swatch cut across (the most used of them in its lower half,
   all named in its tooltip). Left of an occurrence's eye, its marks: the chain of a part
   shaping others, then a component's source when not « Fabriqué » (`icons::BOUGHT`, a tag;
   `icons::EXISTING`, a wall; its tooltip naming it, [Parts list](parts-list.md#rows)). The tree follows
@@ -131,7 +131,7 @@ stay, to look into an assembly or a part without entering it.
 
 The entity info shows the selection, whatever it is: an assembly or a part — first its
 definition's rows (name, source — « Provenance »: « Fabriqué », « Acheté », « Existant »,
-[Parts list](parts-list.md#rows) —, material, coloration, dimensions), then under a separator
+[Parts list](parts-list.md#rows) —, material, finish, dimensions), then under a separator
 the occurrence's own (« Exemplaire », position) —, a guide, and a part open, the body or group
 selected in it — its name as the navigator gives it (« Extrusion 3 »), blank or machining (read
 only: the sign is toggled in the navigator), failed or empty, its solid's size, how many bodies

@@ -21,12 +21,12 @@ colours, picture, interaction, section headers.
 
 ## The materials card
 
-- **Three tabs**, the library's: « Matériaux », « Revêtements », « Colorations » (no counts:
+- **Three tabs**, the library's: « Matériaux », « Revêtements », « Finitions » (no counts:
   three would not fit the card's width), each with its own « + » (an item of its family, its first type),
   « Aucune », search results and unused items
   ([Palette and materials](../render/look.md#palette-and-materials)).
 - **« Aucune »** comes first, but under a search: it takes off what its tab's family lays (a
-  part's material, a face's covering, a coloration).
+  part's material, a face's covering, a finish).
 - **A click chooses** a material (`Editor::choose_material`): the paint tool's material, **the
   active tool unchanged** and the selection kept, so a selection can still be painted. Its
   entity info shows until the selection changes, something else is chosen, or a click in the
@@ -40,7 +40,7 @@ colours, picture, interaction, section headers.
   « Catégorie » among its family's (« Générique », « Bois massif », « Panneau », « Profilé »;
   « Générique », « Placage », « Chant »; « Couche », « Schéma »); a coat's « Mode » (« Couvrant », « Teintant ») and
   « Intensité » (%); a scheme's « Couches »: « Ajouter une couche » (among the coats, laid on top),
-  then its coats as they lie, the top one first, each moved up or down or taken out; a coloration's
+  then its coats as they lie, the top one first, each moved up or down or taken out; a finish's
   « Couleur » but for a scheme; a material's or a covering's « Aspect », its colour and its texture side by
   side ([Textures](../render/look.md#textures)), then the texture's width and height; its [properties](../model/properties.md). A scheme's tile shows
   its coats as bands, the bottom one below.

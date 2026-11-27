@@ -1790,8 +1790,8 @@ fn paint_tool_paints_occurrences_the_selection_and_faces() {
     let oak = e.document().materials().next().unwrap().0;
     e.set_paint_material(Some(oak));
     assert_eq!(e.paint_material(), Some(oak));
-    // Colorations (« Aucune » taking them off).
-    e.set_paint_family(skraft_model::Family::Coloration);
+    // Finishes (« Aucune » taking them off).
+    e.set_paint_family(skraft_model::Family::Finish);
 
     // A click on an occurrence paints it.
     e.set_tool(ToolKind::Paint);
@@ -1844,7 +1844,7 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
         marks
     };
     e.set_tool(ToolKind::Paint);
-    e.set_paint_family(skraft_model::Family::Coloration);
+    e.set_paint_family(skraft_model::Family::Finish);
     e.set_paint_material(Some(walnut));
     click(&mut e, top_b);
     e.set_paint_material(Some(oak));
@@ -1890,7 +1890,7 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
     assert_eq!(e.paint_material(), None);
     e.apply(Operation::PaintParts {
         targets: vec![EntityPath::root(a)],
-        layer: skraft_model::Family::Coloration,
+        layer: skraft_model::Family::Finish,
         material: Some(walnut),
         scope: Scope::All,
     })
@@ -1919,7 +1919,7 @@ fn paint_tool_previews_its_colour_and_picks_with_its_pipette() {
     let root = e.document().root();
     e.apply(Operation::PaintParts {
         targets: vec![EntityPath::root(a)],
-        layer: skraft_model::Family::Coloration,
+        layer: skraft_model::Family::Finish,
         material: None,
         scope: Scope::All,
     })
@@ -6506,7 +6506,7 @@ fn drawers_editor() -> (Editor, [Id; 5]) {
     (e, [a, b, c, g, g2])
 }
 
-/// What the part `path` leads to shows: its coloration, else its material.
+/// What the part `path` leads to shows: its finish, else its material.
 fn part_material(e: &Editor, path: &EntityPath) -> Option<Id> {
     e.document().resolve_part(path).ok().and_then(|(_, p, _)| p.shown().top())
 }
@@ -6933,7 +6933,7 @@ fn paint_paints_what_a_rectangle_takes_and_the_level_chosen_in_the_tree() {
     assert!(e.deep_selection().is_empty());
 }
 
-/// The paint tool lays a material on the part, a covering on a face, a coloration where its
+/// The paint tool lays a material on the part, a covering on a face, a finish where its
 /// option says (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
 #[test]
 fn paint_lays_each_family_on_its_layer() {
@@ -6973,8 +6973,8 @@ fn paint_lays_each_family_on_its_layer() {
     click(&mut e, top);
     assert_eq!((part(&e).material, part(&e).coverings.len()), (None, 1));
 
-    // A coloration: the option, on the part or the face.
-    e.set_paint_family(skraft_model::Family::Coloration);
+    // A finish: the option, on the part or the face.
+    e.set_paint_family(skraft_model::Family::Finish);
     hover(&mut e, top);
     assert!(target(&e));
 }
@@ -7026,7 +7026,7 @@ fn draw_in_editor() -> (Editor, [Id; 5], Id) {
         .unwrap();
     e.apply(Operation::PaintParts {
         targets: vec![EntityPath::new(vec![g], a)],
-        layer: skraft_model::Family::Coloration,
+        layer: skraft_model::Family::Finish,
         material: Some(oak),
         scope: Scope::All,
     })

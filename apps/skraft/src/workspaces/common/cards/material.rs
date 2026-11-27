@@ -13,7 +13,7 @@ pub(crate) fn family_label(family: Family) -> String {
     match family {
         Family::Material => t!("panel.materials.family.material"),
         Family::Covering => t!("panel.materials.family.covering"),
-        Family::Coloration => t!("panel.materials.family.coloration"),
+        Family::Finish => t!("panel.materials.family.finish"),
     }
 }
 
@@ -34,7 +34,7 @@ pub(crate) fn kind_label(kind: MaterialKind) -> String {
 }
 
 /// A material picked among those `keep` lets through (`none` first, the word agreeing with the
-/// row's: « Aucun » matériau, « Aucune » coloration), framed as a [`framed_field`]: its name and
+/// row's: « Aucun » matériau, « Aucune » finish), framed as a [`framed_field`]: its name and
 /// a downward triangle. `Some(choice)` when it changed.
 pub(super) fn material_choice(
     ui: &mut egui::Ui,
@@ -364,8 +364,8 @@ pub(super) fn material_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions:
             if m.kind == Some(MaterialKind::Coat) {
                 coat_rows(ui, id, m, width, actions);
             }
-            // A coloration has its colour alone (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
-            if m.family() == Family::Coloration {
+            // A finish has its colour alone (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
+            if m.family() == Family::Finish {
                 field_label(ui, t!("panel.materials.color"));
                 if let Some(c) = ui.vertical(|ui| color_box(ui, id, m.color, egui::vec2(width, TEXTURE_HEIGHT))).inner {
                     actions.push(Action::Apply(Operation::EditMaterial { material: id, name: m.name.clone(), color: c }));

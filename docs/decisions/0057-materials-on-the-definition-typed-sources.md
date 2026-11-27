@@ -1,8 +1,8 @@
-# Materials, coverings, colorations: three families, on the part's definition
+# Materials, coverings, finishes: three families, on the part's definition
 
 - Status: accepted (2026-11-26; step 1 built: the material on the definition; three families
   decided the same day; « Importer comme » dropped and the navigator's source mark decided
-  the same day; colorations without texture decided the same day; the generic types, the
+  the same day; finishes without texture decided the same day; the generic types, the
   default of materials and coverings, decided the same day)
 - Design: [Palette and materials](../render/look.md#palette-and-materials),
   [Parts list](../ui/parts-list.md), [Data model](../model/data-model.md),
@@ -44,8 +44,8 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   - **coverings** (« Revêtements »): what covers a face, counted (later, with stable face
     names); a type: « Générique » (the default: a laminate, a fabric, a leather), « Placage »,
     « Chant »;
-  - **colorations** (« Colorations »): what colours a face, never counted. The colours of
-    imports are colorations. Two categories:
+  - **finishes** (« Finitions »): what colours a face, never counted. The colours of
+    imports are finishes. Two categories:
     - a **coat** (« Couche », the default): a colour, never a texture, a **mode** and an
       **intensity** (0 to 100 %): « Couvrant » lays it over what is under (normal blending,
       the intensity its opacity: a paint, a thinned paint), « Teintant » multiplies what is
@@ -54,7 +54,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
     - a **scheme** (« Schéma »): an ordered list of coats of the catalog, referred to, not
       copied — « Noyer verni » is « Teinte noyer » then « Vernis ambré », the varnish existing
       once whatever the schemes using it. One level: a scheme holds coats, never schemes.
-  Each item has a colour to be seen; a material or a covering maybe a texture, a coloration
+  Each item has a colour to be seen; a material or a covering maybe a texture, a finish
   never (a file's is not read; an imported one keeps its image's mean colour). **A type changes only within its
   family**, and every type of a family goes to the same place: nothing can end up where it does
   not go. An item never changes family (a new one is made).
@@ -64,12 +64,12 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 
   | | Counted | Seen |
   |---|---|---|
-  | Part | its material | its coloration over its material |
-  | Face | its covering | its coloration, else the part's, over its covering, else the part's material |
+  | Part | its material | its finish over its material |
+  | Face | its covering | its finish, else the part's, over its covering, else the part's material |
 
-  Under a coloration, the theme's default when nothing is there. A slot takes only an item of
+  Under a finish, the theme's default when nothing is there. A slot takes only an item of
   its family (the model refuses any other); a coat or a scheme alike.
-- **A coloration is composed, not drawn layer by layer**: each coat maps what is under, per
+- **A finish is composed, not drawn layer by layer**: each coat maps what is under, per
   channel, to `A·x + B` (covering: `(1 − a)·x + a·c`; tinting: `x·((1 − s) + s·c)`), and the
   coats of a scheme compose into one such map, worked out once, applied by the shader over what
   is under (its colour or its texture): any number of coats costs one.
@@ -90,7 +90,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **The paint tool lays what it is given where its family goes**: a material on the part
   clicked (the definition, with the scope: « Tous les exemplaires » / « Celui-ci », the second
   making the part unique); a covering on the face clicked (on every occurrence of its part); a
-  coloration on the part or on the face, as the tool's option says (« La pièce / La face »),
+  finish on the part or on the face, as the tool's option says (« La pièce / La face »),
   shown only for it. « Aucune » takes off the family of the tab it was chosen in. An assembly
   clicked lays it on the parts below it, at any depth, an article's or an existing component's
   included.
@@ -99,12 +99,12 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   for stable face names.
 - **Imports**:
   - STEP: a product's source from `.BOUGHT.` (`.MADE.` and `.NOT_KNOWN.` give `Made`); a colour
-    on a body or a shell becomes a **coloration** of its part, a part's product's
+    on a body or a shell becomes a **finish** of its part, a part's product's
     `MATERIAL_DESIGNATION` a material (generic).
   - SketchUp: an instance's material becomes a **material** of its part (what it is made of),
-    a face's a **coloration** of its face — or, by OpenCutList's type of it when it has one,
-    the material, covering or coloration it says (sheet good, dimensional, edge, veneer…; a
-    type that does not go where it is laid gives a coloration); a definition painted
+    a face's a **finish** of its face — or, by OpenCutList's type of it when it has one,
+    the material, covering or finish it says (sheet good, dimensional, edge, veneer…; a
+    type that does not go where it is laid gives a finish); a definition painted
     differently by its instances is made unique, one per item (decided 2026-11-26, as the
     user's earlier files were converted).
   - No option at import: the occurrence imported comes in selected, its source set in the
@@ -125,7 +125,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 - **One material for the solid and the veneer**, where it is laid telling them apart: counted
   and cut alike, which they are not.
 - **Three cards**: three places to choose what the paint tool lays.
-- **An opacity alone** for colorations: a thinned white over walnut greys it; a stain darkens
+- **An opacity alone** for finishes: a thinned white over walnut greys it; a stain darkens
   and colours the wood, its grain still seen — a multiplication, not a mix.
 - **Coats copied into each scheme**: the varnish (its product, its price) repeated in every
   combination.
@@ -142,7 +142,7 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
   covered fully, its image's mean colour otherwise — a thinned grain shown as a plain veil.
   Keeping the texture under a partial intensity holds one textured coat per scheme in the map
   (`x·(A + E·T) + B + D·T`), a second texture sampled; a texture belongs to what a part is
-  made of or covered with, a coloration only colours it.
+  made of or covered with, a finish only colours it.
 - **The type deciding nothing, the tool's option choosing the target**: the user picks a mode
   where the material already says where it goes.
 - **« Acheté » as a material type** (OpenCutList's *hardware*): a bought slide has a substance
@@ -164,14 +164,14 @@ and a product is made or bought (`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SO
 
 - **Files**: earlier files whose faces are painted no longer open, and materials painted on
   occurrences are lost (format v1 until 0.1.0: no compatibility code); the changelog says so.
-- One part, one material: trying a copy in walnut makes it unique (a coloration too: it is
+- One part, one material: trying a copy in walnut makes it unique (a finish too: it is
   the part's).
 - An article assembly shows no material in the parts list until articles get their
   reference, supplier and price.
 - Coverings in the parts list wait for stable face names.
-- The renderer shows what is under and the coloration over it: a palette entry per pair met
-  (what is under, the coloration), its colour or texture and the coloration's map.
-- **Files**: a coloration's texture in an earlier file is dropped when it is read, its colour
+- The renderer shows what is under and the finish over it: a palette entry per pair met
+  (what is under, the finish), its colour or texture and the finish's map.
+- **Files**: a finish's texture in an earlier file is dropped when it is read, its colour
   (the image's mean) kept; a SketchUp face painted with a textured material and no
   OpenCutList type gets its mean colour, no longer the image; the changelog says so.
 - Later modes (« Éclaircissant », a whitewash: lighten or overlay) fit the same map only in

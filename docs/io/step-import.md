@@ -43,7 +43,7 @@ shell or a body the reader refuses is excluded and counted.
 ## Colours
 
 A `STYLED_ITEM`'s surface colour (`COLOUR_RGB`, pre-defined colours), on the body, its shell, or
-shared by all its faces, becomes a **coloration** (one per colour, « Couleur #RRGGBB ») of its
+shared by all its faces, becomes a **finish** (one per colour, « Couleur #RRGGBB ») of its
 part. Not yet: other face colours (a face's index in the built B-rep would
 have to be matched).
 
@@ -60,7 +60,7 @@ Read from the exchange beside the product structure, which carries neither
   AP203, a set in AP214 and AP242 — a product definition, its `PRODUCT_DEFINITION_SHAPE`, its
   formation or its product) gives a **material** « Générique » of that name (one per name, a
   neutral grey: the file gives no colour) to the parts of the product's own bodies; a colour
-  stays a coloration over it.
+  stays a finish over it.
 
 ## Model
 

@@ -631,7 +631,7 @@ fn a_part_flattened_is_one_free_body_its_painted_faces_kept() {
         .unwrap()
         .material
         .unwrap();
-    h.apply(Operation::PaintFaces { part, faces: vec![2], layer: Family::Coloration, material: Some(material) }).unwrap();
+    h.apply(Operation::PaintFaces { part, faces: vec![2], layer: Family::Finish, material: Some(material) }).unwrap();
     let before = h.document().part(part).unwrap().shape().clone();
     h.apply(Operation::FlattenPart { target: target.clone(), scope: Scope::All }).unwrap();
     let p = h.document().part(part).unwrap();

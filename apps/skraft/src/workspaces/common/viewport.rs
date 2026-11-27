@@ -932,9 +932,9 @@ impl Viewport {
         *self.slots.entry(seen).or_insert(next)
     }
 
-    /// The palette, its entries' textures and colorations (docs/render/look.md#palette-and-materials):
+    /// The palette, its entries' textures and finishes (docs/render/look.md#palette-and-materials):
     /// each pair seen at its entry — what is under (its colour, its texture once ready; the
-    /// theme's default under nothing), the coloration over it as `A·x + B`, its coats composed —
+    /// theme's default under nothing), the finish over it as `A·x + B`, its coats composed —
     /// then an open part's tools' colours, from the returned slot; and the textures' layers.
     fn colours(&self, doc: &skraft_model::Document, theme: &Theme) -> Colours {
         let mut layers: Vec<String> = doc.materials().filter_map(|(_, m)| m.texture.as_ref().map(|t| t.image.clone())).collect();
@@ -1388,7 +1388,7 @@ fn unblend(black: &[u8], white: &[u8]) -> Vec<u8> {
 const THUMBNAIL_EDGE_SCALE: f32 = 0.5;
 
 /// What a sheet view's picture is drawn with: the theme, the palette, its textures and
-/// colorations, what is seen's entries, its points' pixels.
+/// finishes, what is seen's entries, its points' pixels.
 struct SheetLook<'a> {
     theme: &'a Theme,
     palette: &'a [[f32; 4]],
@@ -1409,7 +1409,7 @@ struct Colours {
     layers: Vec<String>,
 }
 
-/// A coat as [`compose`] reads it: its blend, intensity, linear colour (a coloration has no
+/// A coat as [`compose`] reads it: its blend, intensity, linear colour (a finish has no
 /// texture).
 struct Coat {
     blend: BlendMode,

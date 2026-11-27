@@ -370,7 +370,7 @@ impl Document {
     }
 
     /// A document just read: checked, its automatic names settled, the images no material uses
-    /// dropped (a coloration's texture is not read: [`crate::document::Catalog`]).
+    /// dropped (a finish's texture is not read: [`crate::document::Catalog`]).
     fn settled(mut self) -> Result<Document> {
         self.prune_assets();
         self.check()?;

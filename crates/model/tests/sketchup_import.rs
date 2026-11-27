@@ -123,10 +123,10 @@ fn faces_take_the_material_of_their_side_facing_out_and_textures_come_along() {
     assert!((normal - DVec3::X).length() < 1e-9 && (point.x - 100.0).abs() < 1e-9, "the face at X 100");
 
     // The instance's material, what its part is made of, its texture with its image; the faces'
-    // are colorations.
+    // are finishes.
     let wood = doc.material(cube.as_part().unwrap().material.unwrap()).unwrap();
     assert_eq!(wood.family(), Family::Material);
-    assert!(part.faces.values().all(|m| doc.material(*m).unwrap().family() == Family::Coloration));
+    assert!(part.faces.values().all(|m| doc.material(*m).unwrap().family() == Family::Finish));
     assert!(wood.name.starts_with("Bois"), "{}", wood.name);
     let texture = wood.texture.as_ref().unwrap();
     assert_eq!(texture.size, [100.0, 50.0]);
@@ -178,7 +178,7 @@ fn opencutlist_types_put_materials_where_they_go() {
     let oak = top.iter().find(|p| p.material.is_some()).unwrap();
     assert_eq!(item(oak.material), Some(("Chêne massif", solid)));
     let banded = top.iter().find(|p| p.material.is_none()).unwrap();
-    assert_eq!(item(banded.coloration), Some(("Chant chêne", coat)));
+    assert_eq!(item(banded.finish), Some(("Chant chêne", coat)));
     assert_eq!(face(oak, DVec3::Z, false), ("Laque blanche", coat));
     assert_eq!(face(oak, -DVec3::Z, true), ("Placage noyer", veneer));
 
@@ -192,7 +192,7 @@ fn opencutlist_types_put_materials_where_they_go() {
     let knob = parts("Bouton");
     assert_eq!(knob.len(), 2);
     assert!(knob.iter().any(|p| item(p.material) == Some(("Charnière", generic))));
-    assert!(knob.iter().any(|p| p.material.is_none() && item(p.coloration) == Some(("Rainure", coat))));
+    assert!(knob.iter().any(|p| p.material.is_none() && item(p.finish) == Some(("Rainure", coat))));
 
     // One item per material and type: « MDF » and « Chant chêne » twice, « Rainure » once.
     let named = |n: &str| doc.materials().filter(|(_, m)| m.name == n).count();

@@ -41,7 +41,7 @@ pub(crate) fn info_label_width(ui: &egui::Ui) -> f32 {
         "panel.entity_info.name",
         "panel.entity_info.occurrence",
         "panel.entity_info.material",
-        "panel.entity_info.coloration",
+        "panel.entity_info.finish",
         "panel.entity_info.materials",
         "panel.entity_info.dimensions",
         "panel.entity_info.position",
@@ -216,12 +216,10 @@ pub fn info(ui: &mut egui::Ui, editor: &Editor, name: &str, actions: &mut Vec<Ac
                         actions.push(Action::Apply(op));
                     }
                     ui.end_row();
-                    field_label(ui, t!("panel.entity_info.coloration"));
-                    let seen = |m: &skraft_model::Material| m.family() == Family::Coloration;
-                    if let Some(m) =
-                        material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen, t!("panel.materials.none"))
-                    {
-                        let op = Operation::PaintParts { targets: targets(), layer: Family::Coloration, material: m, scope: Scope::All };
+                    field_label(ui, t!("panel.entity_info.finish"));
+                    let seen = |m: &skraft_model::Material| m.family() == Family::Finish;
+                    if let Some(m) = material_choice(ui, doc, ("part_finish", c.id), p.finish, field, seen, t!("panel.materials.none")) {
+                        let op = Operation::PaintParts { targets: targets(), layer: Family::Finish, material: m, scope: Scope::All };
                         actions.push(Action::Apply(op));
                     }
                     ui.end_row();
@@ -324,14 +322,14 @@ fn source_row(ui: &mut egui::Ui, c: &skraft_model::Component, width: f32, action
 }
 
 /// A component chosen in the library (docs/ui/components-library.md#managing): its nature, its name
-/// (edited there), its source, a part's material and coloration (edited there too), its dimensions, the
+/// (edited there), its source, a part's material and finish (edited there too), its dimensions, the
 /// materials it and its faces carry.
 fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<Action>) {
     let doc = editor.document();
     let Ok(c) = doc.component(id) else { return };
     let units = &doc.settings().units;
     let field = info_field_width(ui);
-    // Its materials and colorations, the part's and its faces'; in the order of the document's.
+    // Its materials and finishes, the part's and its faces'; in the order of the document's.
     let mut used: FastSet<Id> = FastSet::default();
     if let ComponentKind::Part(p) = &c.kind {
         used.extend(p.materials_held());
@@ -357,11 +355,11 @@ fn component_info(ui: &mut egui::Ui, editor: &Editor, id: Id, actions: &mut Vec<
                 actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Material, material: m }));
             }
             ui.end_row();
-            field_label(ui, t!("panel.entity_info.coloration"));
-            let seen = |m: &skraft_model::Material| m.family() == Family::Coloration;
+            field_label(ui, t!("panel.entity_info.finish"));
+            let seen = |m: &skraft_model::Material| m.family() == Family::Finish;
             let none = t!("panel.materials.none");
-            if let Some(m) = material_choice(ui, doc, ("part_coloration", c.id), p.coloration, field, seen, none) {
-                actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Coloration, material: m }));
+            if let Some(m) = material_choice(ui, doc, ("part_finish", c.id), p.finish, field, seen, none) {
+                actions.push(Action::Apply(Operation::PaintPart { part: c.id, layer: Family::Finish, material: m }));
             }
             ui.end_row();
             if let Some(error) = pieces_error(p.pieces()) {
