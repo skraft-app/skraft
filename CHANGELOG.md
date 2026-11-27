@@ -14,6 +14,7 @@ An entry is written when a version is tagged (`/changelog` in Claude Code, from
 - The navigator shows a part's material and finish side by side, then a mark for faces painted with a covering or a finish of their own, named in its tooltip.
 - The finish of a library part can be changed in the entity info, even when the part is not placed in the model.
 - A fillet takes the last radius typed by a double-click or with Shift, from one part to the next.
+- The navigator selects as your system's lists do: a click selects a row alone, ⌘-click (Ctrl-click on Windows and Linux) adds or removes it, Shift-click selects the rows in between, and the arrow keys move the selection (Shift extends it) and fold or unfold rows. In the 3D view, Shift still adds or removes.
 
 ### Changed
 - Colorations are now called **Finishes** and schemes **Sequences**.
