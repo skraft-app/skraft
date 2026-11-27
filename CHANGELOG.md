@@ -20,6 +20,7 @@ An entry is written when a version is tagged (`/changelog` in Claude Code, from
 - Colorations are now called **Finishes** and schemes **Sequences**.
 - A tool's refusal shows as an error toast near where you work, instead of in the status bar. Warnings and errors go away after 10 seconds, unless they wait for a choice.
 - A tall box keeps the rectangle you drew as its profile, as a tall prism or cylinder does.
+- A body's sign in the navigator goes − → + → ∩ on each click, in the order of the drawing tools' option bar.
 - Files made with an earlier version lose the finishes of their parts and faces, and no longer open when they hold a sequence.
 
 ### Fixed
@@ -27,6 +28,8 @@ An entry is written when a version is tagged (`/changelog` in Claude Code, from
 - **Stretch** no longer halves a board stretched back across an arc it had already scaled, and stretches through a chamfer.
 - **Stretch** refuses a handle between two cutters that would move nothing, instead of doing nothing silently.
 - **Stretch** refuses a compression that would run a part's matter through itself, such as a hole near an end compressed past it, instead of making a broken part.
+- A value typed with too many nested parentheses is refused instead of closing the app.
+- The web version says plainly when the browser offers no graphics card to WebGPU (some Android phones), and stops its loading bar and the kernel's download.
 
 ## [0.0.6] - 2026-11-26
 
