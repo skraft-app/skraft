@@ -55,6 +55,8 @@ On a phone's screen the window takes the compact arrangement instead: [Touch scr
   ([Components library: search](components-library.md#search)).
 - **A row dragged** carries a translucent copy of itself under the pointer, in the model's tree as
   in the drawing's (`widgets::paint_drag_ghost`): its icon, its name, « +n » for what goes with it.
+  A finger picks it up by a long press, then a move, its drag scrolling the list
+  (`kit::touch::drag_source`, [Touch screens](touch.md#lists)).
 - **A right-click on a navigator row opens its menu**: « Renommer » (the field a double-click
   opens; on a row with an occurrence name, « Renommer l'exemplaire » and « Renommer la définition »); on a body, « Sortir du groupe » (« Sortir de la pièce » at the part's root), « Rompre le lien » on a linked one; on a part off its linked machining, « Replacer », « Amener l'usinage ici », « Séparer » ([Links](../model/bodies.md#links)); then « Aplatir » on a group or a part with a tree, « Éclater » on an assembly or a group, « Effacer ». Separators set these groups apart.
   Opening it changes nothing; its row stays highlighted while it is open. Its commands act on the whole selection when the row is in it,

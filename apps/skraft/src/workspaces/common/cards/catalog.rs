@@ -301,8 +301,7 @@ fn grid<S: Shelf>(ui: &mut egui::Ui, shelf: &mut S, rows: &Rows, actions: &mut V
                                 if !shelf.has(id) {
                                     continue;
                                 }
-                                let (rect, response) =
-                                    ui.allocate_exact_size(egui::vec2(tile, tile + TILE_LABEL), egui::Sense::click_and_drag());
+                                let (rect, response) = ui.allocate_exact_size(egui::vec2(tile, tile + TILE_LABEL), egui::Sense::click());
                                 let mut rename = Renaming::of(ui, shelf.rename_salt(), id);
                                 if ui.is_rect_visible(rect) {
                                     let (name, auto) = shelf.name(id);

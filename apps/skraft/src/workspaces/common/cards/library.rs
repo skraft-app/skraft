@@ -308,7 +308,7 @@ fn item(
     let tip =
         if cx.editor.on_active_path(id) { format!("{name}\n{tip}\n{}", t!("panel.components.on_path")) } else { format!("{name}\n{tip}") };
     // Dragged out of the card too (docs/ui/components-library.md#placing).
-    let response = ui.interact(response.rect, response.id, egui::Sense::click_and_drag());
+    let (response, lifted) = crate::kit::touch::drag_source(ui, response);
     let response = if response.dragged() { response } else { response.tip(tip) };
     if cx.disabled {
         return;
@@ -324,7 +324,7 @@ fn item(
     // cursor (chosen meanwhile), but of an assembly along the active path (it would hold
     // itself).
     let place = cx.editor.can_place_component(id);
-    if response.drag_started_by(egui::PointerButton::Primary) && place {
+    if lifted && place {
         actions.push(Action::PlaceComponent(id));
     } else if response.clicked() {
         actions.push(Action::ChooseComponent(id));

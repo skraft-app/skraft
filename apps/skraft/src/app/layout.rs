@@ -300,7 +300,12 @@ impl SkraftApp {
                     let scroll = &mut ui.spacing_mut().scroll;
                     scroll.bar_outer_margin = -(CARD_MARGIN - 1.0);
                     scroll.bar_width = CARD_MARGIN;
-                    let area = egui::ScrollArea::vertical().auto_shrink(false).max_height(body).min_scrolled_height(body);
+                    // Under a finger, dragged from the first touch on (docs/ui/touch.md#lists).
+                    let area = egui::ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .max_height(body)
+                        .min_scrolled_height(body)
+                        .scroll_source(crate::kit::touch::list_scroll(ui.ctx()));
                     match id {
                         PanelId::EntityInfo => {
                             // Salted by the document: a field focused in one is not another's.
