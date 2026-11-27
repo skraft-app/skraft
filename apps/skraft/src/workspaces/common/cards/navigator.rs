@@ -346,7 +346,7 @@ fn occurrence_look(ui: &egui::Ui, cx: TreeCx<'_>, row: &NavigatorRow<'_>, errors
     OccurrenceLook { selected, tint, greyed, pieces, broken, inner, here, link_off, link_below, rename, rename_occurrence, renaming }
 }
 
-/// The line of an occurrence: its fold, icon, name (or the field editing it), material and eye.
+/// The line of an occurrence: its fold, icon, material, name (or the field editing it) and eye.
 /// Its response; the eye clicked, the name typed, where its own name ends.
 fn occurrence_line(
     ui: &mut egui::Ui,
@@ -376,12 +376,6 @@ fn occurrence_line(
         if let Some(parts) = &links.shapes {
             ui.add(linked_mark(ui, mark)).tip(t!("panel.navigator.imprints_in", parts = parts));
         }
-        // What a part shows, if anything: a dot of its colour left of the eye, a column of its
-        // own so the names stay aligned.
-        let top = doc.part(o.component).ok().map(|p| p.shown()).and_then(|s| s.top());
-        if let Some(m) = top.and_then(|m| doc.material(m).ok()) {
-            material_dot(ui, m, greyed);
-        }
         // A component bought or existing: its mark, left of the rest (docs/ui/parts-list.md#rows).
         let source = doc.component(o.component).map_or(Source::Made, |c| c.source);
         let source_mark = match source {
@@ -407,6 +401,11 @@ fn occurrence_line(
             Some(true) => return (rename_field(ui, rename_occurrence, &o.name), None),
             Some(false) => return (rename_field(ui, rename, name), None),
             None => {}
+        }
+        // What a part shows, if anything: its swatch before its name.
+        let top = doc.part(o.component).ok().map(|p| p.shown()).and_then(|s| s.top());
+        if let Some(m) = top.filter(|m| doc.material(*m).is_ok()) {
+            material_swatch(ui, doc, m, greyed);
         }
         let auto = doc.component(o.component).is_ok_and(|c| !c.named);
         let back = ui.visuals().window_fill;
@@ -599,17 +598,20 @@ fn occurrence_row(
     }
 }
 
-/// A navigator row's material: a round dot of its colour, ringed so a pale one shows on the
-/// band, faded on a hidden row (`greyed`); its name in the tip.
-fn material_dot(ui: &mut egui::Ui, m: &skraft_model::Material, greyed: bool) {
-    const SIZE: f32 = 10.0;
-    let (r, response) = ui.allocate_exact_size(egui::vec2(SIZE, SIZE), egui::Sense::hover());
-    let [red, g, b] = m.color;
-    let alpha = if greyed { 0.4 } else { 1.0 };
-    let fill = egui::Color32::from_rgb(red, g, b).gamma_multiply(alpha);
-    let ring = ui.visuals().widgets.noninteractive.fg_stroke.color.gamma_multiply(0.5 * alpha);
-    ui.painter().circle(r.center(), SIZE / 2.0 - 0.5, fill, egui::Stroke::new(1.0, ring));
-    response.tip(&m.name);
+/// A navigator row's material: its swatch as the « Matières » card and the material fields draw
+/// it (a scheme its coats), faded on a hidden row (`greyed`); its name in the tip.
+fn material_swatch(ui: &mut egui::Ui, doc: &Document, m: Id, greyed: bool) {
+    let side = crate::kit::style::MENU_MARK;
+    let (r, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+    // Faded in a child that takes no room (a scope would add a gap before the name).
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    if greyed {
+        child.multiply_opacity(0.4);
+    }
+    super::materials::paint_material(&child, doc, r, m, 2.0);
+    if let Ok(m) = doc.material(m) {
+        response.tip(&m.name);
+    }
 }
 
 /// The model, the navigator's first row, at the list's left edge (no indent, no fold nor eye):
