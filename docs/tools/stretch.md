@@ -334,7 +334,8 @@ refusal cancels the stretch.
     grown; or a **NURBS net extruded along the axis** (same form, as the face's own surface:
     SolidCore writes a prism's arc sides — fillets included — so), stretched the same way;
   - the kernel writes a mirrored solid's lines as degree-1 splines over ±1234567 and its
-    cylinders as cones of half angle 0: both taken as what they are; a prism's upright edges are
+    cylinders as cones of half angle 0, their NURBS nets sometimes running along u rather than
+    v (the height then u): all taken as what they are; a prism's upright edges are
     degree-1 splines on their own length: a spline (or a two-point polyline) across a cutter has
     its knots and points grown with its interval, else it is no longer read back ("parameter
     interval outside the natural domain") — a filleted prism stretched along its height.

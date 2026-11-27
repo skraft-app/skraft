@@ -159,6 +159,25 @@ fn a_cutter_beside_an_arc_is_not_across_it() {
 }
 
 #[test]
+fn a_bracket_stretches_beside_its_arc() {
+    // A user's bracket, 480 long along X: straight up to x = 220, then a concave arc to 350 (its
+    // circle reaches back to x = 76), and a round along its whole length whose NURBS net runs
+    // along u. The cutter at x ≈ 115 crosses only straight matter.
+    let record = serde_json::from_str(include_str!("fixtures/bracket-round-along-u.json")).unwrap();
+    let bracket = Solid::from_record(record);
+    let volume = |s: &Solid| s.volume().unwrap();
+    // Its section at the cutter, mm².
+    let section = 3184.9;
+    for d in [100.0, -50.0] {
+        let s = read_back(&x_stretch(&[115.0], &[0.0, d]).apply(&bracket).unwrap());
+        assert_close(bounds(&s).1.x, 480.0 + d, 1e-9);
+        assert_close(volume(&s), volume(&bracket) + d * section, 1e-4);
+        let hole = Solid::new_cylinder(DVec3::new(400.0 + d, 200.0, -5.0), 10.0, 60.0).unwrap();
+        s.boolean(&hole, BooleanOp::Difference).unwrap();
+    }
+}
+
+#[test]
 fn a_tool_is_stretched_in_its_own_frame() {
     // A tool along its own Z, placed along the part's X from x = 100 to 150.
     let tool = Solid::new_cylinder(DVec3::ZERO, 8.0, 50.0).unwrap();

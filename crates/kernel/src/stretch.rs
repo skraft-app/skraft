@@ -9,9 +9,9 @@
 //!   straight degree-1 spline;
 //! - a face: a plane containing the axis direction (its pcurves shift in (u, v), planes being
 //!   affine), or a cylinder whose axis is the stretch axis (its NURBS net, linear in the height
-//!   along v, has its columns moved and its v knots shifted) — or a cone of half angle 0, as
-//!   the kernel writes a mirrored cylinder — or a NURBS net extruded along the axis, as the
-//!   kernel writes a prism's arc sides (stretched like a cylinder's net).
+//!   along u or v, has its points moved and that parameter's knots shifted) — or a cone of half
+//!   angle 0, as the kernel writes a mirrored cylinder — or a NURBS net extruded along the axis,
+//!   as the kernel writes a prism's arc sides (stretched like a cylinder's net).
 //!
 //! Anything else across a cutter refuses the stretch ([`StretchError`]), as OpenCutList refuses
 //! a curve crossing a cutter. The result is only checked by the kernel when it reads the record
@@ -398,9 +398,10 @@ enum FaceMap {
     /// A plane: `u_axis`, `v_axis` (not necessarily orthonormal), and the stretch axis.
     Plane { u: DVec3, v: DVec3, a: DVec3 },
     /// A surface extruded along the axis — a cylinder, or a NURBS net extruded (a prism's arc
-    /// side): v grows by `rate` per mm of height along its `z`; `s` = a · z; heights are
-    /// measured along `z` from `origin`: `height(v) = h0 + (v - v0) / rate`.
-    Extrusion { z: DVec3, origin: DVec3, s: f64, rate: f64, v0: f64, h0: f64, net: Net },
+    /// side): its parameter `dir` (0: u, 1: v) grows by `rate` per mm of height along its `z`;
+    /// `s` = a · z; heights are measured along `z` from `origin`: `height(t) = h0 + (t - t0) /
+    /// rate`.
+    Extrusion { z: DVec3, origin: DVec3, s: f64, dir: usize, rate: f64, t0: f64, h0: f64, net: Net },
 }
 
 /// Where an extruded face holds a NURBS net to stretch with it.
@@ -414,22 +415,36 @@ enum Net {
     Surface,
 }
 
-/// A NURBS net extruded along `z`, as SMLib and SolidCore write one: degree 1 along v (four v
-/// knots), two columns of equal weights. Its `(v0, h0, rate)` ([`FaceMap::Extrusion`]), the
-/// heights along `z`.
-fn extruded_net(z: DVec3, v_knots: &[f64], homogeneous: &[Vec<[f64; 4]>]) -> Option<(f64, f64, f64)> {
-    let linear =
-        v_knots.len() == 4 && homogeneous.iter().all(|row| row.len() == 2 && (row[0][3] - row[1][3]).abs() <= 1e-12 * row[0][3].abs());
-    if !linear || homogeneous.is_empty() {
+/// A NURBS net extruded along `z`, as SMLib and SolidCore write one: degree 1 along one of its
+/// parameters (four knots), two points of equal weights that way. Along v (SMLib's cylinders, a
+/// prism's arc sides): rows of two; along u (a round's cone of half angle 0 out of a boolean,
+/// seen on a user's part): two rows, each pair apart
+/// along `z` alike. Its `(dir, t0, h0, rate)` ([`FaceMap::Extrusion`]), the heights along `z`.
+fn extruded_net(z: DVec3, u_knots: &[f64], v_knots: &[f64], homogeneous: &[Vec<[f64; 4]>]) -> Option<(usize, f64, f64, f64)> {
+    let paired = |p: &[f64; 4], q: &[f64; 4]| (p[3] - q[3]).abs() <= 1e-12 * p[3].abs();
+    let (dir, knots, p, q) =
+        if !homogeneous.is_empty() && v_knots.len() == 4 && homogeneous.iter().all(|row| row.len() == 2 && paired(&row[0], &row[1])) {
+            (1, v_knots, homogeneous[0][0], homogeneous[0][1])
+        } else if let [r0, r1] = homogeneous
+            && u_knots.len() == 4
+            && !r0.is_empty()
+            && r0.len() == r1.len()
+        {
+            let d = dehomogenise(&r1[0]) - dehomogenise(&r0[0]);
+            let along = r0.iter().zip(r1).all(|(p, q)| paired(p, q) && (dehomogenise(q) - dehomogenise(p) - d).length() <= EPS);
+            if !along || d.cross(z).length() > PARALLEL * d.length() {
+                return None;
+            }
+            (0, u_knots, r0[0], r1[0])
+        } else {
+            return None;
+        };
+    let (h0, h1) = (z.dot(dehomogenise(&p)), z.dot(dehomogenise(&q)));
+    let (t0, t1) = (knots[0], knots[3]);
+    if (h1 - h0).abs() <= EPS || (t1 - t0).abs() <= 0.0 {
         return None;
     }
-    let h = |j: usize| z.dot(dehomogenise(&homogeneous[0][j]));
-    let (h0, h1) = (h(0), h(1));
-    let (v0, v1) = (v_knots[0], v_knots[3]);
-    if (h1 - h0).abs() <= EPS || (v1 - v0).abs() <= 0.0 {
-        return None;
-    }
-    Some((v0, h0, (v1 - v0) / (h1 - h0)))
+    Some((dir, t0, h0, (t1 - t0) / (h1 - h0)))
 }
 
 impl FaceMap {
@@ -461,17 +476,17 @@ impl FaceMap {
                 let s = a.dot(z);
                 match &f.nurbs {
                     // `origin + v z + …`: v is the height from the origin.
-                    None => Ok(FaceMap::Extrusion { z, origin, s, rate: 1.0, v0: 0.0, h0: z.dot(origin), net: Net::None }),
-                    Some(Surface::RationalSpline { v_knots, homogeneous, .. }) => {
-                        let (v0, h0, rate) = extruded_net(z, v_knots, homogeneous).ok_or(unsupported)?;
-                        Ok(FaceMap::Extrusion { z, origin, s, rate, v0, h0, net: Net::Shadow })
+                    None => Ok(FaceMap::Extrusion { z, origin, s, dir: 1, rate: 1.0, t0: 0.0, h0: z.dot(origin), net: Net::None }),
+                    Some(Surface::RationalSpline { u_knots, v_knots, homogeneous, .. }) => {
+                        let (dir, t0, h0, rate) = extruded_net(z, u_knots, v_knots, homogeneous).ok_or(unsupported)?;
+                        Ok(FaceMap::Extrusion { z, origin, s, dir, rate, t0, h0, net: Net::Shadow })
                     }
                     Some(_) => Err(unsupported),
                 }
             }
             // A NURBS net extruded along the axis: each row's two points apart along it, by the
             // same height.
-            Surface::RationalSpline { v_knots, homogeneous, .. } if f.nurbs.is_none() => {
+            Surface::RationalSpline { u_knots, v_knots, homogeneous, .. } if f.nurbs.is_none() => {
                 let Some(first) = homogeneous.first().filter(|row| row.len() == 2) else { return Err(across) };
                 let origin = dehomogenise(&first[0]);
                 let d = dehomogenise(&first[1]) - origin;
@@ -480,8 +495,8 @@ impl FaceMap {
                 if !homogeneous.iter().all(along) {
                     return Err(across);
                 }
-                let (v0, h0, rate) = extruded_net(z, v_knots, homogeneous).ok_or(unsupported)?;
-                Ok(FaceMap::Extrusion { z, origin, s: a.dot(z), rate, v0, h0, net: Net::Surface })
+                let (_, t0, h0, rate) = extruded_net(z, u_knots, v_knots, homogeneous).filter(|n| n.0 == 1).ok_or(unsupported)?;
+                Ok(FaceMap::Extrusion { z, origin, s: a.dot(z), dir: 1, rate, t0, h0, net: Net::Surface })
             }
             _ => Err(across),
         }
@@ -498,7 +513,11 @@ impl FaceMap {
                 let det = uu * vv - uv * uv;
                 DVec2::new((du * vv - dv * uv) / det, (dv * uu - du * uv) / det)
             }
-            FaceMap::Extrusion { s, rate, .. } => DVec2::new(0.0, m * s * rate),
+            FaceMap::Extrusion { s, dir, rate, .. } => {
+                let mut d = DVec2::ZERO;
+                d[*dir] = m * s * rate;
+                d
+            }
         }
     }
 
@@ -522,26 +541,27 @@ impl FaceMap {
                 }
                 f.domain = [[lo.x, hi.x], [lo.y, hi.y]];
             }
-            FaceMap::Extrusion { z, origin, s, rate, v0, h0, net } => {
+            FaceMap::Extrusion { z, origin, s, dir, rate, t0, h0, net } => {
                 let a = stretch.axis;
                 // Position along the stretch axis of the point at height h on the line along `z` through
                 // `origin`.
                 let along = |h: f64| a.dot(*origin + *z * (h - z.dot(*origin)));
-                let height = |v: f64| h0 + (v - v0) / rate;
-                let dv = |v: f64| stretch.move_at(along(height(v))) * s * rate;
-                let [u, [d0, d1]] = f.domain;
-                let domain = [d0 + dv(d0), d1 + dv(d1)];
+                let height = |t: f64| h0 + (t - t0) / rate;
+                let dt = |t: f64| stretch.move_at(along(height(t))) * s * rate;
+                let [d0, d1] = f.domain[*dir];
+                let domain = [d0 + dt(d0), d1 + dt(d1)];
                 if (domain[1] - domain[0]) / rate.abs() <= EPS {
                     return Err(StretchError::Collapsed);
                 }
-                f.domain = [u, domain];
+                f.domain[*dir] = domain;
                 if *net != Net::None {
                     let net = if *net == Net::Shadow { f.nurbs.as_mut() } else { Some(&mut f.surface) };
-                    let Some(Surface::RationalSpline { v_knots, homogeneous, .. }) = net else { unreachable!() };
-                    let (k0, k1) = (v_knots[0], v_knots[3]);
-                    let (n0, n1) = (k0 + dv(k0), k1 + dv(k1));
-                    v_knots[..2].fill(n0);
-                    v_knots[2..].fill(n1);
+                    let Some(Surface::RationalSpline { u_knots, v_knots, homogeneous, .. }) = net else { unreachable!() };
+                    let knots = if *dir == 0 { u_knots } else { v_knots };
+                    let (k0, k1) = (knots[0], knots[3]);
+                    let (n0, n1) = (k0 + dt(k0), k1 + dt(k1));
+                    knots[..2].fill(n0);
+                    knots[2..].fill(n1);
                     for row in homogeneous.iter_mut() {
                         for h in row.iter_mut() {
                             let m = stretch.move_at(a.dot(dehomogenise(h)));
