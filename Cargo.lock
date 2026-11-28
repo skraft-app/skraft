@@ -3413,6 +3413,7 @@ dependencies = [
  "serde_json",
  "skraft-i18n",
  "skraft-kernel",
+ "skraft-theme",
  "web-time",
  "zip",
 ]

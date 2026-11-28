@@ -48,6 +48,33 @@ impl SkraftApp {
         }
     }
 
+    /// Opens the export box on the shown document (docs/io/step-export.md), the parts of the
+    /// whole model and of the selection counted.
+    pub(super) fn open_export(&mut self) {
+        let Some(d) = self.docs.active() else { return };
+        let model = model_stem(&d.name());
+        let count = |selection| d.editor.step_export_plan(selection, &model).map(|p| p.parts);
+        self.export = Some(crate::workspaces::common::dialogs::export::Dialog::new(d.id, count(false), count(true)));
+    }
+
+    /// The export box: « Exporter » has the kernel write the file, then asks where to save it.
+    pub(super) fn export_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = &mut self.export else { return };
+        let Some(d) = self.docs.by_id_mut(dialog.doc) else {
+            self.export = None;
+            return;
+        };
+        match dialog.show(ctx) {
+            crate::workspaces::common::dialogs::export::Answer::Open => {}
+            crate::workspaces::common::dialogs::export::Answer::Cancel => self.export = None,
+            crate::workspaces::common::dialogs::export::Answer::Export { selection } => {
+                let model = model_stem(&d.name());
+                d.editor.export_step(selection, &model);
+                self.export = None;
+            }
+        }
+    }
+
     /// « Empreindre »: the selection imprinted at once, else the tool; the kernel's answer opens
     /// the confirmation (`imprint_dialog`).
     pub(super) fn start_imprint(&mut self) {
@@ -329,6 +356,11 @@ impl SkraftApp {
             self.palette = None;
         }
     }
+}
+
+/// A document's name without its extension: the model's, an export's top product.
+fn model_stem(name: &str) -> String {
+    std::path::Path::new(name).file_stem().map_or_else(|| name.to_owned(), |s| s.to_string_lossy().into_owned())
 }
 
 /// One of the app's modal boxes, under `id`, `width` wide: egui's popup frame with room around

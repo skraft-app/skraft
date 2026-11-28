@@ -99,6 +99,9 @@ pub enum Task {
         #[serde(with = "serde_bytes_compat")]
         bytes: Vec<u8>,
     },
+    /// Writes a STEP file of products whose bodies are the job's inputs
+    /// (docs/io/step-export.md). Produces no solid of the job's: an [`Output::StepFile`].
+    ExportStep { export: Box<crate::StepExport> },
     /// Panics with `message`, on purpose: tests how a kernel crash is recovered from (the
     /// app's Débogage menu). Natively the panic is caught: an error. In the web
     /// worker it aborts the wasm: the worker is replaced.
@@ -180,6 +183,8 @@ pub enum Output {
     Step(Box<crate::StepImport>),
     /// A SketchUp file read (boxed: far larger than the others).
     SketchUp(Box<crate::SketchUpImport>),
+    /// A STEP file written: its text ([`Task::ExportStep`]).
+    StepFile(String),
 }
 
 /// A file's bytes crossing to the web worker as one MessagePack binary, not one number per

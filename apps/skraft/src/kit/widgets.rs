@@ -19,7 +19,7 @@ pub(crate) use button::{
 };
 pub(crate) use choice::{ChoiceList, choice_field, choice_item};
 pub(crate) use field::{Field, FieldLook, cut_label, field_stroke, framed_field, live_field, rename_field};
-pub(crate) use form::{FormField, form_message, form_row, warning_box};
+pub(crate) use form::{FormField, form_choice, form_message, form_row, warning_box};
 pub(crate) use keypad::{KeypadAct, keypad};
 pub(crate) use menu::{MenuEntry, PinEvent, PinItem, PinMenu, PinTexts, command_item, is_toggle, pin_list, pin_menu, unpin_menu};
 pub(crate) use segmented::{Segment, segmented, segmented_sized};

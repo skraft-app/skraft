@@ -9,6 +9,10 @@ impl SkraftApp {
         // every document: one in the background goes on computing.
         for d in self.docs.iter_mut() {
             d.editor.poll();
+            // A file the kernel wrote (STEP, docs/io/step-export.md), saved where the user says.
+            if let Some((name, bytes)) = d.editor.take_exported() {
+                file::export_file(bytes, &name, "STEP", "step", &self.inbox, &self.ctx);
+            }
         }
         // Their undo histories kept within the memory allowed, the meshes just come weighed.
         self.docs.cap_histories(u64::from(self.prefs.history_memory) << 20);
@@ -65,7 +69,7 @@ impl SkraftApp {
             file::Outcome::Exported { path } => {
                 self.toasts.push(Note::success(t!("toast.written", file = file_name(&path))).with_action(t!("toast.open"), Act::Open(path)))
             }
-            file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.export_failed"), error)),
+            file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.write_failed"), error)),
             file::Outcome::Saved { doc, path, revision } => {
                 self.add_recent_file(&path);
                 if let Some(d) = self.docs.by_id_mut(doc) {

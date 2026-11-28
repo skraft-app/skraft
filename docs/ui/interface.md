@@ -282,7 +282,8 @@ In `apps/skraft/src/kit/widgets.rs`:
 - **A modal box's form** (`form.rs`): **`form_row`**, a row — the label on the left (lit, in
   semibold and the accent's ink, while a figure beside the form shows what its value sets), the
   field (`FORM_FIELD_WIDTH`) and its unit against the right edge, so that the fields line up
-  with each other and with the buttons;
+  with each other and with the buttons; **`form_choice`**, a row choosing among a few values,
+  the label on the left, a `segmented` control against the right edge (the export box);
   **`form_message`**, the line saying what is wrong, kept empty so the box does not jump;
   **`warning_box`**, a warning in a box tinted with the error colour (« Empreindre »'s
   confirmation, the naming box's message).

@@ -65,3 +65,4 @@ state and link the records behind it.
 | 0056 | [Touch screens: a phone looks at a model, a tablet models](0056-touch-screens-phone-views-tablet-models.md) | accepted (2026-11-25; step 1 built) |
 | 0057 | [Materials, coverings, finishes: three families, on the part's definition](0057-materials-on-the-definition-typed-sources.md) | accepted (2026-11-26; step 1 built) |
 | 0058 | [Stretch: what crosses a cutter curved is scaled along the axis](0058-stretch-scales-curves-across-a-cutter.md) | accepted (2026-11-27; prototype) |
+| 0059 | [Exporters: STEP exact, by the kernel; SketchUp later, as meshes](0059-exporters-step-exact-skp-meshed.md) | accepted (2026-11-28; STEP built) |

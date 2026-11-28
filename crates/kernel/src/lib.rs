@@ -36,6 +36,7 @@ mod shared;
 mod sketchup;
 mod snaps;
 mod step;
+mod step_export;
 mod stretch;
 pub mod topo;
 mod weight;
@@ -55,6 +56,7 @@ pub use shared::{KernelHandle, SharedKernel};
 pub use sketchup::{SketchUpChild, SketchUpDefinition, SketchUpImport, SketchUpMaterial, SketchUpNode, SketchUpPart, SketchUpTexture};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 pub use step::{StepBody, StepExcluded, StepImport, StepInstance, StepProduct};
+pub use step_export::{MIRROR, StepExport, StepExportBody, StepExportProduct};
 pub use stretch::{MeshMoves, Stretch, StretchError};
 
 /// Why a kernel call failed. SolidCore's own messages stay as it words them (English).

@@ -68,6 +68,8 @@ pub const COMMANDS: &[Command] = &[
     c("file.new", || t!("menu.file.new"), M::File, Some("Cmd+N")),
     c("file.open", || ellipsis(t!("menu.file.open")), M::File, Some("Cmd+O")),
     c("file.import", || ellipsis(t!("menu.file.import")), M::File, Some("Cmd+I")),
+    // The export box: a format, the model or the selection (docs/io/step-export.md).
+    c("file.export", || ellipsis(t!("menu.file.export")), M::File, Some("Cmd+E")),
     c("file.save", || t!("menu.file.save"), M::File, Some("Cmd+S")),
     c("file.save_as", || ellipsis(t!("menu.file.save_as")), M::File, Some("Cmd+Shift+S")),
     // The shown document's tab (docs/ui/file-tabs.md).

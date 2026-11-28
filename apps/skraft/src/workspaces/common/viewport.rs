@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use glam::{DMat4, DVec2, DVec3};
 use skraft_i18n::t;
-use skraft_model::{BlendMode, Seen};
+use skraft_model::{Coat, Seen, compose};
 use skraft_render as render;
 use skraft_theme::{Rgba, Theme};
 use skraft_tools::draw;
@@ -967,7 +967,7 @@ impl Viewport {
             // The coats over it, composed (docs/decisions/0057-materials-on-the-definition-typed-sources.md).
             let coats = seen.over.map(|o| doc.coats_of(o)).unwrap_or_default();
             let layers: Vec<Coat> =
-                coats.iter().map(|(_, m)| Coat { blend: m.blend, intensity: m.intensity, color: linear(m.color) }).collect();
+                coats.iter().map(|(_, m)| Coat { blend: m.blend, intensity: m.intensity, color: rgb(linear(m.color)) }).collect();
             let (a, b) = compose(&layers);
             overlays[2 * k] = [a[0], a[1], a[2], 1.0];
             overlays[2 * k + 1] = [b[0], b[1], b[2], 0.0];
@@ -1407,41 +1407,6 @@ struct Colours {
     tool_slot: u32,
     /// The textures' images ready, a layer each.
     layers: Vec<String>,
-}
-
-/// A coat as [`compose`] reads it: its blend, intensity, linear colour (a finish has no
-/// texture).
-struct Coat {
-    blend: BlendMode,
-    intensity: f32,
-    color: [f32; 4],
-}
-
-/// The coats `coats`, from the bottom up, composed per channel into one map of what is under,
-/// `x -> A·x + B` (docs/decisions/0057-materials-on-the-definition-typed-sources.md): covering,
-/// `(1 − t)·x + t·c`; tinting, `x·((1 − t) + t·c)`.
-fn compose(coats: &[Coat]) -> ([f32; 3], [f32; 3]) {
-    let (mut a, mut b) = ([1.0f32; 3], [0.0f32; 3]);
-    for coat in coats {
-        let t = coat.intensity.clamp(0.0, 1.0);
-        let c = coat.color;
-        match coat.blend {
-            BlendMode::Cover => {
-                for ch in 0..3 {
-                    a[ch] *= 1.0 - t;
-                    b[ch] = b[ch] * (1.0 - t) + t * c[ch];
-                }
-            }
-            BlendMode::Tint => {
-                for ch in 0..3 {
-                    let m = 1.0 - t + t * c[ch];
-                    a[ch] *= m;
-                    b[ch] *= m;
-                }
-            }
-        }
-    }
-    (a, b)
 }
 
 /// The palette entry of `seen` among `slots`, none when it has none.
@@ -2161,24 +2126,6 @@ impl Viewport {
 
 #[cfg(test)]
 mod tests {
-    use super::{Coat, compose};
-    use skraft_model::BlendMode;
-
-    #[test]
-    fn coats_compose_into_one_map_of_what_is_under() {
-        let coat = |blend, intensity, c: f32| Coat { blend, intensity, color: [c, c, c, 1.0] };
-        let apply = |(a, b): ([f32; 3], [f32; 3]), x: f32| x * a[0] + b[0];
-        // A paint covering fully hides what is under; half covering, half of each.
-        assert!((apply(compose(&[coat(BlendMode::Cover, 1.0, 0.2)]), 0.9) - 0.2).abs() < 1e-6);
-        assert!((apply(compose(&[coat(BlendMode::Cover, 0.5, 0.2)]), 0.8) - 0.5).abs() < 1e-6);
-        // A stain multiplies: the wood darker, its grain (x) still there.
-        assert!((apply(compose(&[coat(BlendMode::Tint, 1.0, 0.5)]), 0.8) - 0.4).abs() < 1e-6);
-        assert!((apply(compose(&[coat(BlendMode::Tint, 0.5, 0.5)]), 0.8) - 0.6).abs() < 1e-6);
-        // A sequence: a stain then a covering varnish at 20 %, one map, as laid one after the other.
-        let two = compose(&[coat(BlendMode::Tint, 1.0, 0.5), coat(BlendMode::Cover, 0.2, 1.0)]);
-        assert!((apply(two, 0.8) - (0.8 * 0.5 * 0.8 + 0.2)).abs() < 1e-6);
-    }
-
     /// A tooltip goes under the cursor's drawing, above it at the view's bottom, and stays in
     /// the view.
     #[test]
