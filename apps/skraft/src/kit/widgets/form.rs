@@ -4,6 +4,7 @@
 
 use super::button::OPTION_HEIGHT;
 use super::field::{FieldLook, live_field};
+use super::segmented::{Segment, segmented};
 
 /// A form field's width (points): a length, a count.
 pub(crate) const FORM_FIELD_WIDTH: f32 = 72.0;
@@ -53,6 +54,24 @@ pub(crate) fn form_row(ui: &mut egui::Ui, id: egui::Id, text: &mut String, f: Fo
             live_field(ui, id, text, look)
         })
         .inner
+    })
+    .inner
+}
+
+/// A row choosing among a few values: the label on the left, the values as a [`segmented`]
+/// control against the right edge (the export box's format and content). The index of a value
+/// clicked other than the chosen one; each segment published as `handle(index)`.
+pub(crate) fn form_choice(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    label: &str,
+    segments: &[Segment],
+    handle: impl Fn(usize) -> String,
+) -> Option<usize> {
+    let row = egui::vec2(ui.available_width(), OPTION_HEIGHT);
+    ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| segmented(ui, id, segments, handle)).inner
     })
     .inner
 }
