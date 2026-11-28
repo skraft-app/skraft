@@ -1,19 +1,44 @@
-//! The model as a STEP file's products (docs/io/step-export.md,
+//! The model as an export's products (docs/io/export.md,
 //! docs/decisions/0059-exporters-step-exact-skp-meshed.md): one per component, shared by its
-//! occurrences, a part's final shape its one body; the kernel writes them.
+//! occurrences, a part's final shape its one body; the kernel writes them as a STEP or a
+//! SketchUp file.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::DAffine3;
-use skraft_kernel::{Job, MIRROR, Solid, StepExport, StepExportBody, StepExportProduct, Task};
+use skraft_kernel::{
+    ExportBody, ExportProduct, Facets, Job, MIRROR, Paint, PaintTexture, SkpExport, SkpImage, SkpRelease, SkpUnit, SkpUnits, Solid,
+    StepExport, Task,
+};
 
 use crate::document::{ComponentKind, Document, EntityPath, Id};
 
-/// What [`Document::step_export`] gathers as it goes.
+/// A file format an export writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// STEP (AP242), exact (docs/io/export.md#step).
+    Step,
+    /// SketchUp, as faces (docs/io/export.md#sketchup).
+    Skp { release: SkpRelease, facets: Facets },
+}
+
+impl ExportFormat {
+    /// Its files' extension.
+    pub fn extension(self) -> &'static str {
+        match self {
+            ExportFormat::Step => "step",
+            ExportFormat::Skp { .. } => "skp",
+        }
+    }
+}
+
+/// What [`Document::export`] gathers as it goes.
 struct Gather<'a> {
     doc: &'a Document,
-    products: Vec<StepExportProduct>,
+    /// Placements must be rigid (STEP): a mirror places a mirrored twin.
+    rigid: bool,
+    products: Vec<ExportProduct>,
     /// A product per component and hand (mirrored or not).
     index: HashMap<(Id, bool), usize>,
     inputs: Vec<Arc<Solid>>,
@@ -21,6 +46,9 @@ struct Gather<'a> {
     input_of: HashMap<*const Solid, u32>,
     /// Bodies written, to tell whether the file holds anything.
     bodies: usize,
+    /// The images textures show, each once (a SketchUp export's), and each one's index.
+    images: Vec<Arc<[u8]>>,
+    image_of: HashMap<String, u32>,
 }
 
 impl Gather<'_> {
@@ -32,31 +60,26 @@ impl Gather<'_> {
         }
         let doc = self.doc;
         let c = doc.component(component).ok()?;
-        let mut product = StepExportProduct { name: c.name.clone(), ..Default::default() };
+        let mut product = ExportProduct { name: c.name.clone(), ..Default::default() };
         match &c.kind {
             ComponentKind::Part(part) => {
                 let shape = part.shape();
                 if !shape.record().faces.is_empty() {
                     let solid = self.input(shape);
-                    let color = doc.seen_srgb(part.shown());
+                    let color = self.paint(part.shown());
                     let faces = part
                         .faces_shown()
                         .into_iter()
-                        .filter_map(|(f, seen)| doc.seen_srgb(seen).filter(|c| Some(*c) != color).map(|c| (f, c)))
+                        .filter_map(|(f, seen)| self.paint(seen).filter(|c| Some(c) != color.as_ref()).map(|c| (f, c)))
                         .collect();
-                    product.bodies.push(StepExportBody { name: c.name.clone(), solid, mirrored, color, faces });
+                    product.bodies.push(ExportBody { name: c.name.clone(), solid, mirrored, color, faces });
                     self.bodies += 1;
                 }
             }
             ComponentKind::Assembly(a) => {
                 let hand = if mirrored { MIRROR } else { DAffine3::IDENTITY };
                 for o in a.occurrences().iter().filter(|o| !o.hidden) {
-                    // STEP places rigidly: a placement that mirrors places the child's twin,
-                    // the mirror moved into it.
-                    let placed = hand * o.transform;
-                    let twin = placed.matrix3.determinant() < 0.0;
-                    let placement = if twin { placed * MIRROR } else { placed };
-                    if let Some(child) = self.product(o.component, twin) {
+                    if let Some((child, placement)) = self.place(o.component, hand * o.transform) {
                         product.children.push((child, placement, o.name.clone()));
                     }
                 }
@@ -66,6 +89,33 @@ impl Gather<'_> {
         self.products.push(product);
         self.index.insert((component, mirrored), i);
         Some(i)
+    }
+
+    /// The product `component` placed by `placed` is, and its placement: where placements are
+    /// rigid, a placement that mirrors places the component's twin, the mirror moved into it.
+    fn place(&mut self, component: Id, placed: DAffine3) -> Option<(usize, DAffine3)> {
+        let twin = self.rigid && placed.matrix3.determinant() < 0.0;
+        let placement = if twin { placed * MIRROR } else { placed };
+        Some((self.product(component, twin)?, placement))
+    }
+
+    /// What `seen` goes out as: its colour, and — in a SketchUp file (placements not rigid),
+    /// with no finish over it — the texture of what is under, its image taken once.
+    fn paint(&mut self, seen: crate::Seen) -> Option<Paint> {
+        let doc = self.doc;
+        let mut paint = doc.seen_paint(seen)?;
+        let texture = seen.under.filter(|_| !self.rigid && seen.over.is_none()).and_then(|m| doc.material(m).ok()?.texture.as_ref());
+        if let Some(t) = texture
+            && let Some(asset) = doc.asset(&t.image)
+        {
+            let next = self.images.len() as u32;
+            let image = *self.image_of.entry(t.image.clone()).or_insert(next);
+            if image == next {
+                self.images.push(asset.bytes.clone());
+            }
+            paint.texture = Some(PaintTexture { image, size: t.size });
+        }
+        Some(paint)
     }
 
     fn input(&mut self, solid: &Arc<Solid>) -> u32 {
@@ -78,8 +128,8 @@ impl Gather<'_> {
     }
 }
 
-/// A STEP export ready for the kernel ([`Document::step_export`]).
-pub struct StepExportPlan {
+/// An export ready for the kernel ([`Document::export`]).
+pub struct ExportPlan {
     /// The job writing it.
     pub job: Job,
     /// Its top product's name, the file's offered: the component exported alone, else the
@@ -90,14 +140,24 @@ pub struct StepExportPlan {
 }
 
 impl Document {
-    /// The STEP export of `paths` (occurrences, docs/io/step-export.md), the whole model when
+    /// The export of `paths` (occurrences, docs/io/export.md) as `format`, the whole model when
     /// none: their visible occurrences, each component once. One component goes out in its own
     /// axes, as the top product; several are placed in their common parent's axes, under a top
     /// product named after it (`name`, the model's, when it is the model). None when it holds no
     /// solid.
-    pub fn step_export(&self, paths: &[EntityPath], name: &str) -> Option<StepExportPlan> {
-        let mut g =
-            Gather { doc: self, products: Vec::new(), index: HashMap::new(), inputs: Vec::new(), input_of: HashMap::new(), bodies: 0 };
+    pub fn export(&self, paths: &[EntityPath], name: &str, format: ExportFormat) -> Option<ExportPlan> {
+        let rigid = format == ExportFormat::Step;
+        let mut g = Gather {
+            doc: self,
+            rigid,
+            products: Vec::new(),
+            index: HashMap::new(),
+            inputs: Vec::new(),
+            input_of: HashMap::new(),
+            bodies: 0,
+            images: Vec::new(),
+            image_of: HashMap::new(),
+        };
         let paths = outermost(paths);
         let (root, name) = match paths.as_slice() {
             [] => (g.product(self.root, false)?, name.to_owned()),
@@ -112,15 +172,12 @@ impl Document {
                 let prefix = &first[..common];
                 let parent = self.context_of(prefix).ok()?;
                 let frame = self.transform_of(prefix).ok()?.inverse();
-                let mut top = StepExportProduct { name: String::new(), ..Default::default() };
+                let mut top = ExportProduct { name: String::new(), ..Default::default() };
                 for p in many {
                     let o = self.resolve(p).ok()?;
                     let mut chain = p.occurrences.clone();
                     chain.push(p.entity);
-                    let placed = frame * self.transform_of(&chain).ok()?;
-                    let twin = placed.matrix3.determinant() < 0.0;
-                    let placement = if twin { placed * MIRROR } else { placed };
-                    if let Some(child) = g.product(o.component, twin) {
+                    if let Some((child, placement)) = g.place(o.component, frame * self.transform_of(&chain).ok()?) {
                         top.children.push((child, placement, o.name.clone()));
                     }
                 }
@@ -134,13 +191,30 @@ impl Document {
         }
         g.products[root].name = name.clone();
         let parts = placed_parts(&g.products, root, &mut HashMap::new());
-        let export = StepExport {
-            products: g.products,
-            root,
-            file_name: format!("{name}.step"),
-            program: format!("Skraft {}", env!("CARGO_PKG_VERSION")),
+        let task = match format {
+            ExportFormat::Step => Task::ExportStep {
+                export: Box::new(StepExport {
+                    products: g.products,
+                    root,
+                    file_name: format!("{name}.step"),
+                    program: format!("Skraft {}", env!("CARGO_PKG_VERSION")),
+                }),
+            },
+            ExportFormat::Skp { release, facets } => {
+                let images = g.images.iter().map(|b| SkpImage { bytes: b.to_vec() }).collect();
+                let u = &self.settings.units;
+                let unit = match u.length {
+                    crate::LengthUnit::Millimeter => SkpUnit::Millimeter,
+                    crate::LengthUnit::Centimeter => SkpUnit::Centimeter,
+                    crate::LengthUnit::Meter => SkpUnit::Meter,
+                    crate::LengthUnit::Inch => SkpUnit::Inch,
+                    crate::LengthUnit::Foot => SkpUnit::Foot,
+                };
+                let units = SkpUnits { unit, decimals: u.decimals, symbol: u.symbol };
+                Task::ExportSkp { export: Box::new(SkpExport { products: g.products, root, release, facets, units, images }) }
+            }
         };
-        Some(StepExportPlan { job: Job { inputs: g.inputs, tasks: vec![Task::ExportStep { export: Box::new(export) }] }, name, parts })
+        Some(ExportPlan { job: Job { inputs: g.inputs, tasks: vec![task] }, name, parts })
     }
 }
 
@@ -162,7 +236,7 @@ fn outermost(paths: &[EntityPath]) -> Vec<EntityPath> {
 }
 
 /// How many parts the product `i` places, its own body counted.
-fn placed_parts(products: &[StepExportProduct], i: usize, memo: &mut HashMap<usize, usize>) -> usize {
+fn placed_parts(products: &[ExportProduct], i: usize, memo: &mut HashMap<usize, usize>) -> usize {
     if let Some(&n) = memo.get(&i) {
         return n;
     }
@@ -180,7 +254,7 @@ mod tests {
     use crate::{Document, Family, History, MaterialKind, Operation, Primitive};
 
     fn written(doc: &Document) -> String {
-        let plan = doc.step_export(&[], "Meuble").expect("something to write");
+        let plan = doc.export(&[], "Meuble", crate::ExportFormat::Step).expect("something to write");
         match skraft_kernel::run(&plan.job).unwrap().pop() {
             Some(Output::StepFile(text)) => text,
             o => panic!("{o:?}"),
@@ -206,7 +280,7 @@ mod tests {
     /// An empty model writes nothing.
     #[test]
     fn an_empty_model_has_nothing_to_write() {
-        assert!(Document::new().step_export(&[], "Vide").is_none());
+        assert!(Document::new().export(&[], "Vide", crate::ExportFormat::Step).is_none());
     }
 
     /// Two copies of a part and a mirrored one: one product per hand, placed three times, its
@@ -283,8 +357,8 @@ mod tests {
         out
     }
 
-    fn export(doc: &Document, paths: &[crate::EntityPath]) -> (crate::StepExportPlan, StepImport) {
-        let plan = doc.step_export(paths, "Meuble").unwrap();
+    fn export(doc: &Document, paths: &[crate::EntityPath]) -> (crate::ExportPlan, StepImport) {
+        let plan = doc.export(paths, "Meuble", crate::ExportFormat::Step).unwrap();
         let text = match skraft_kernel::run(&plan.job).unwrap().pop() {
             Some(Output::StepFile(t)) => t,
             o => panic!("{o:?}"),
@@ -332,5 +406,33 @@ mod tests {
         both.push(inside[0].clone());
         let (plan, _) = export(doc, &both);
         assert_eq!((plan.parts, plan.name.as_str()), (2, "Étagère"));
+    }
+
+    /// As a SketchUp file, a mirrored copy places the part itself (SketchUp keeps mirrors):
+    /// one product with a body, placed three times, read back as three parts.
+    #[test]
+    fn a_sketchup_file_keeps_mirrors() {
+        use skraft_kernel::{Facets, SkpRelease};
+        let mut h = History::new(Document::new());
+        let first = add_box(&mut h);
+        let root = h.document().root();
+        let mirrored = DAffine3::from_translation(DVec3::new(-300.0, 0.0, 0.0)) * skraft_kernel::MIRROR;
+        for transform in [DAffine3::from_translation(DVec3::new(0.0, 100.0, 0.0)), mirrored] {
+            h.apply(Operation::Duplicate { context: root, entities: vec![first], transform }).unwrap();
+        }
+        let format = crate::ExportFormat::Skp { release: SkpRelease::R2017, facets: Facets::Normal };
+        let plan = h.document().export(&[], "Meuble", format).unwrap();
+        assert_eq!(plan.parts, 3);
+        let Task::ExportSkp { export } = &plan.job.tasks[0] else { panic!() };
+        assert_eq!(export.products.iter().filter(|p| !p.bodies.is_empty()).count(), 1);
+        let bytes = match skraft_kernel::run(&plan.job).unwrap().pop() {
+            Some(Output::SkpFile { bytes, .. }) => bytes,
+            o => panic!("{o:?}"),
+        };
+        let job = skraft_kernel::Job { inputs: vec![], tasks: vec![Task::ImportSketchUp { bytes }] };
+        let Some(Output::SketchUp(skp)) = skraft_kernel::run(&job).unwrap().pop() else { panic!() };
+        let placed: usize = skp.nodes[skp.root].children.len();
+        assert_eq!(placed, 3);
+        assert!(skp.parts.iter().all(|p| p.solid.is_ok()));
     }
 }

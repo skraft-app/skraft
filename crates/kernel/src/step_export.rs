@@ -1,15 +1,16 @@
 //! Exporting a model as a STEP file (AP242): the products the model gathers, each body's record
 //! written exactly by SolidCore's writer (`solidcore_step::write::product`), off the UI thread
-//! (docs/io/step-export.md, docs/decisions/0059-exporters-step-exact-skp-meshed.md).
+//! (docs/io/export.md, docs/decisions/0059-exporters-step-exact-skp-meshed.md).
 
-use glam::DAffine3;
 use serde::{Deserialize, Serialize};
+
+use crate::ExportProduct;
 
 /// What to write: products, the top one, and the header's names.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StepExport {
     /// Every product written, children before or after their parents.
-    pub products: Vec<StepExportProduct>,
+    pub products: Vec<ExportProduct>,
     /// Index of the top product in [`StepExport::products`].
     pub root: usize,
     /// The file's name, for its header.
@@ -17,34 +18,6 @@ pub struct StepExport {
     /// The program that writes it (its header's preprocessor and originating system).
     pub program: String,
 }
-
-/// A part or an assembly: its own bodies and the products it places.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct StepExportProduct {
-    pub name: String,
-    pub bodies: Vec<StepExportBody>,
-    /// The products it places: an index into [`StepExport::products`], the rigid placement in
-    /// this product's axes, the occurrence's name.
-    pub children: Vec<(usize, DAffine3, String)>,
-}
-
-/// A body of a product, in its axes (mm).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct StepExportBody {
-    pub name: String,
-    /// The job's input holding its record.
-    pub solid: u32,
-    /// Written mirrored across its YZ plane (x → −x): a mirrored occurrence's twin.
-    pub mirrored: bool,
-    /// sRGB, the whole body's colour.
-    pub color: Option<[u8; 3]>,
-    /// Faces with colours of their own: index in the record's faces, sRGB.
-    pub faces: Vec<(u32, [u8; 3])>,
-}
-
-/// The mirror a twin's records are written through, in the component's axes.
-pub const MIRROR: DAffine3 =
-    DAffine3 { matrix3: glam::DMat3::from_cols(glam::DVec3::NEG_X, glam::DVec3::Y, glam::DVec3::Z), translation: glam::DVec3::ZERO };
 
 #[cfg(feature = "engine")]
 pub(crate) mod write {
@@ -55,11 +28,12 @@ pub(crate) mod write {
 
     use solidcore_record::brep::{Brep, Surface};
 
-    use solidcore_step::write::product::{Colour, ExportBody, ExportProduct, Header, products};
+    use solidcore_step::write::product::{Colour, ExportBody as StepBody, ExportProduct as StepProduct, Header, products};
 
-    use super::{MIRROR, StepExport};
+    use super::StepExport;
     use crate::engine::row_major;
     use crate::{Error, Result, Solid};
+    use crate::{MIRROR, Paint};
 
     fn err(message: impl Into<String>) -> Error {
         Error::Kernel { call: "step export".into(), message: message.into() }
@@ -84,8 +58,8 @@ pub(crate) mod write {
         Cow::Owned(r)
     }
 
-    fn colour(c: [u8; 3]) -> Colour {
-        Colour { rgb: c.map(|v| f32::from(v) / 255.0), opacity: 1.0, name: String::new() }
+    fn colour(p: &Paint) -> Colour {
+        Colour { rgb: p.rgb.map(|v| f32::from(v) / 255.0), opacity: 1.0, name: p.name.clone() }
     }
 
     /// The STEP text of `export`, its bodies' records found by `input`; the mirrored ones
@@ -110,22 +84,22 @@ pub(crate) mod write {
             let mut bodies = Vec::with_capacity(p.bodies.len());
             for b in &p.bodies {
                 let record: &Brep = &ready[&(b.solid, b.mirrored)];
-                bodies.push(ExportBody {
+                bodies.push(StepBody {
                     name: b.name.clone(),
                     record,
-                    color: b.color.map(colour),
+                    color: b.color.as_ref().map(colour),
                     // A face index the record lacks is dropped: a boolean renumbered the faces
                     // since it was painted (docs/render/look.md).
                     faces: b
                         .faces
                         .iter()
                         .filter(|(f, _)| (*f as usize) < record.faces.len())
-                        .map(|(f, c)| (*f as usize, colour(*c)))
+                        .map(|(f, c)| (*f as usize, colour(c)))
                         .collect(),
                 });
             }
             let children = p.children.iter().map(|(c, t, name)| (*c, row_major(t), name.clone())).collect();
-            list.push(ExportProduct { name: p.name.clone(), bodies, children });
+            list.push(StepProduct { name: p.name.clone(), bodies, children });
         }
         let header = Header {
             file_name: export.file_name.clone(),
@@ -144,7 +118,7 @@ mod tests {
     use glam::{DAffine3, DVec3};
 
     use super::*;
-    use crate::{Job, Output, Solid, Task};
+    use crate::{ExportBody, ExportProduct, Job, MIRROR, Output, Paint, Solid, Task};
 
     fn written(export: StepExport, inputs: Vec<Arc<Solid>>) -> String {
         let job = Job { inputs, tasks: vec![Task::ExportStep { export: Box::new(export) }] };
@@ -154,8 +128,14 @@ mod tests {
         }
     }
 
-    fn body(solid: u32, mirrored: bool) -> StepExportBody {
-        StepExportBody { name: "Planche".into(), solid, mirrored, color: Some([200, 100, 50]), faces: vec![(0, [10, 20, 30])] }
+    fn body(solid: u32, mirrored: bool) -> ExportBody {
+        ExportBody {
+            name: "Planche".into(),
+            solid,
+            mirrored,
+            color: Some(Paint::new("Chêne", [200, 100, 50])),
+            faces: vec![(0, Paint::new("Noyer", [10, 20, 30]))],
+        }
     }
 
     /// A box placed twice, once mirrored: two products under the top one, each read back by the
@@ -167,13 +147,13 @@ mod tests {
         let left = DAffine3::from_translation(DVec3::new(-50.0, 0.0, 0.0)) * MIRROR;
         let export = StepExport {
             products: vec![
-                StepExportProduct {
+                ExportProduct {
                     name: "Modèle".into(),
                     bodies: vec![],
                     children: vec![(1, right, "Droite".into()), (2, left * MIRROR, "Gauche".into())],
                 },
-                StepExportProduct { name: "Planche".into(), bodies: vec![body(0, false)], children: vec![] },
-                StepExportProduct { name: "Planche".into(), bodies: vec![body(0, true)], children: vec![] },
+                ExportProduct { name: "Planche".into(), bodies: vec![body(0, false)], children: vec![] },
+                ExportProduct { name: "Planche".into(), bodies: vec![body(0, true)], children: vec![] },
             ],
             root: 0,
             file_name: "test.step".into(),
@@ -215,7 +195,7 @@ mod tests {
         let cyl = crate::Primitive::Cylinder { origin: DVec3::ZERO, radius: 10.0, height: 30.0 }.build().unwrap();
         let faces = cyl.record().faces.len();
         let export = StepExport {
-            products: vec![StepExportProduct { name: "Tourillon".into(), bodies: vec![body(0, false)], children: vec![] }],
+            products: vec![ExportProduct { name: "Tourillon".into(), bodies: vec![body(0, false)], children: vec![] }],
             root: 0,
             file_name: "t.step".into(),
             program: "Skraft".into(),
@@ -240,7 +220,7 @@ mod tests {
             }
         }
         let export = StepExport {
-            products: vec![StepExportProduct { name: "Tourillon".into(), bodies: vec![body(0, false)], children: vec![] }],
+            products: vec![ExportProduct { name: "Tourillon".into(), bodies: vec![body(0, false)], children: vec![] }],
             root: 0,
             file_name: "t.step".into(),
             program: "Skraft".into(),

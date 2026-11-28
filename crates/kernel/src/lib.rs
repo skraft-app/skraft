@@ -24,6 +24,7 @@ use solidcore_record::brep::Brep as Record;
 pub mod drawing;
 #[cfg(feature = "engine")]
 mod engine;
+mod export;
 mod imprint;
 mod job;
 pub mod names;
@@ -34,6 +35,7 @@ mod polyhedron;
 pub mod profile;
 mod shared;
 mod sketchup;
+mod skp_export;
 mod snaps;
 mod step;
 mod step_export;
@@ -49,14 +51,16 @@ pub use engine::{Context, Inline, parallel_map, run, run_with};
 /// The stack every thread running SolidCore gets: it recurses legitimately, and a stack
 /// overflow aborts (it is no panic).
 pub const KERNEL_STACK: usize = 256 << 20;
+pub use export::{ExportBody, ExportProduct, MIRROR, Paint, PaintTexture};
 pub use imprint::Clearance;
 pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Progress, Quality, Task, Waker, decode, encode};
 pub use polyhedron::{PolyFace, Polyhedron};
 pub use shared::{KernelHandle, SharedKernel};
 pub use sketchup::{SketchUpChild, SketchUpDefinition, SketchUpImport, SketchUpMaterial, SketchUpNode, SketchUpPart, SketchUpTexture};
+pub use skp_export::{Facets, SkpExport, SkpImage, SkpRelease, SkpUnit, SkpUnits};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 pub use step::{StepBody, StepExcluded, StepImport, StepInstance, StepProduct};
-pub use step_export::{MIRROR, StepExport, StepExportBody, StepExportProduct};
+pub use step_export::StepExport;
 pub use stretch::{MeshMoves, Stretch, StretchError};
 
 /// Why a kernel call failed. SolidCore's own messages stay as it words them (English).

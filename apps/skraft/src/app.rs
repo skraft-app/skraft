@@ -70,8 +70,10 @@ pub struct SkraftApp {
     zoom_applied: Option<f32>,
     /// The dialog naming a part just made (docs/tools/quick-tools.md).
     naming: Option<crate::workspaces::common::dialogs::naming::Dialog>,
-    /// The export box open (docs/io/step-export.md).
+    /// The export box open (docs/io/export.md).
     export: Option<crate::workspaces::common::dialogs::export::Dialog>,
+    /// The export's format and options last chosen, for the session.
+    export_choice: crate::workspaces::common::dialogs::export::Choice,
     /// The confirmation of « Empreindre » (decision 0055).
     imprint: Option<crate::workspaces::modelling::dialogs::imprint::Dialog>,
     /// A coat to delete that sequences lay, waiting for its confirmation: its document, its id,
@@ -347,6 +349,7 @@ impl SkraftApp {
             closing: None,
             naming: None,
             export: None,
+            export_choice: Default::default(),
             imprint: None,
             deleting_coat: None,
             quit_ok: false,
