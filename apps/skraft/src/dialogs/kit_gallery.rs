@@ -16,9 +16,9 @@ use crate::kit::widgets::color::{Rgb, color_box, paint_swatch};
 use crate::kit::widgets::{
     ChoiceList, Field, FieldLook, Fold, FormField, IconButton, Keycaps, LabelButton, Look, MenuEntry, MenuFace, PinEvent, PinItem, PinMenu,
     PinTexts, RENAMING, Segment, TextButton, Tick, TreeLine, badge, badge_button, bar_menu, choice_field, choice_item, command_item,
-    confirm_buttons, cut_label, form_choice, form_message, form_row, framed_field, keycaps, keypad, linked_badge, linked_mark, live_field,
-    option_button, picture_badge, pin_list, pin_menu, rename_field, segmented, segmented_sized, start_rename, tick, tree_line, tree_row,
-    unpin_menu, warning, warning_box,
+    confirm_buttons, cut_label, form_choice, form_message, form_row, framed_field, key_toggle, keycaps, keypad, linked_badge, linked_mark,
+    live_field, option_button, picture_badge, pin_list, pin_menu, rename_field, segmented, segmented_sized, start_rename, tick, tree_line,
+    tree_row, unpin_menu, warning, warning_box,
 };
 use crate::kit::{icons, overlay, search};
 use crate::window::ribbon::{Corners, tab_strip};
@@ -93,6 +93,8 @@ pub struct KitGallery {
     names: [String; 4],
     pinned: [bool; 3],
     strip: usize,
+    /// The modifier keys of `key_toggle` (⇧ on).
+    keys: [bool; 4],
 }
 
 impl Default for KitGallery {
@@ -120,6 +122,7 @@ impl Default for KitGallery {
             names: [t!("gallery.sample.assembly"), t!("gallery.sample.part"), t!("gallery.sample.body"), t!("gallery.sample.hidden")],
             pinned: [true, false, true],
             strip: 0,
+            keys: [true, false, false, false],
         }
     }
 }
@@ -739,6 +742,15 @@ fn rows(ui: &mut egui::Ui, g: &mut KitGallery) {
                 specimen(ui, 2, call, |ui| {
                     let rect = space(ui, egui::vec2(width(2), 24.0));
                     keycaps(ui, &keys, rect.right_center(), look);
+                });
+            }
+        });
+    });
+    entry(ui, "key_toggle", |ui| {
+        row(ui, |ui| {
+            for (k, key) in ["⇧", "⌃", "⌥", "⌘"].iter().enumerate() {
+                specimen(ui, 1, if g.keys[k] { "on" } else { "off" }, |ui| {
+                    key_toggle(ui, key, &mut g.keys[k], 24.0);
                 });
             }
         });

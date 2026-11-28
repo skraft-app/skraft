@@ -38,36 +38,82 @@ pub enum Keycaps {
     Fixed,
 }
 
-/// A shortcut drawn as the keys to press (`⇧` `⌘` `S`), each a key cap, as `look` says. Laid
-/// right to left from `right` (the right end of its middle line); the rect it covers.
-pub fn keycaps(ui: &egui::Ui, keys: &[String], right: egui::Pos2, look: Keycaps) -> egui::Rect {
-    const GAP: f32 = 3.0;
-    const PAD: f32 = 5.0;
-    let visuals = ui.visuals();
+/// A key cap's padding, the gap between two caps; a cap's height (the body text's, plus 4).
+const KEY_PAD: f32 = 5.0;
+const KEY_GAP: f32 = 3.0;
+fn key_height(ui: &egui::Ui) -> f32 {
+    (ui.text_style_height(&egui::TextStyle::Body) + 4.0).round()
+}
+
+/// One key cap: `key` laid out, as wide as it needs (at least square).
+fn key_galley(ui: &egui::Ui, key: &str, ink: egui::Color32) -> (std::sync::Arc<egui::Galley>, egui::Vec2) {
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let height = (ui.text_style_height(&egui::TextStyle::Body) + 4.0).round();
-    let (ink, edge, fill) = match look {
+    let g = ui.painter().layout_no_wrap(key.to_owned(), font, ink);
+    let height = key_height(ui);
+    let width = (g.size().x + 2.0 * KEY_PAD).max(height);
+    (g, egui::vec2(width, height))
+}
+
+/// Paints one key cap at `cap`, as `look` says; `hovered` takes the hovered widgets' edge.
+fn paint_key(ui: &egui::Ui, cap: egui::Rect, g: std::sync::Arc<egui::Galley>, look: Keycaps, hovered: bool) {
+    let visuals = ui.visuals();
+    let (ink, mut edge, fill) = key_colors(visuals, look);
+    if hovered {
+        edge = visuals.widgets.hovered.bg_stroke.color;
+    }
+    let radius = egui::CornerRadius::same(4);
+    // The edge, one point thicker at the bottom: a key, not a field (a fixed one flat).
+    if look != Keycaps::Fixed {
+        ui.painter().rect_filled(cap.translate(egui::vec2(0.0, 1.0)), radius, edge);
+    }
+    ui.painter().rect(cap, radius, fill, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+    ui.painter().galley(cap.center() - g.size() / 2.0, g, ink);
+}
+
+/// A look's ink, edge and fill.
+fn key_colors(visuals: &egui::Visuals, look: Keycaps) -> (egui::Color32, egui::Color32, egui::Color32) {
+    match look {
         Keycaps::Plain => (visuals.text_color(), visuals.widgets.noninteractive.bg_stroke.color, visuals.widgets.inactive.weak_bg_fill),
         Keycaps::Lit => (visuals.selection.stroke.color, visuals.selection.stroke.color, visuals.selection.bg_fill),
         Keycaps::Fixed => (visuals.weak_text_color(), visuals.widgets.noninteractive.bg_stroke.color, egui::Color32::TRANSPARENT),
-    };
-    let radius = egui::CornerRadius::same(4);
+    }
+}
+
+/// A shortcut drawn as the keys to press (`⇧` `⌘` `S`), each a key cap, as `look` says. Laid
+/// right to left from `right` (the right end of its middle line); the rect it covers.
+pub fn keycaps(ui: &egui::Ui, keys: &[String], right: egui::Pos2, look: Keycaps) -> egui::Rect {
+    let (ink, _, _) = key_colors(ui.visuals(), look);
     let mut x = right.x;
     let mut covered = egui::Rect::NOTHING;
     for key in keys.iter().rev() {
-        let g = ui.painter().layout_no_wrap(key.clone(), font.clone(), ink);
-        let width = (g.size().x + 2.0 * PAD).max(height);
-        let cap = egui::Rect::from_min_max(egui::pos2(x - width, right.y - height / 2.0), egui::pos2(x, right.y + height / 2.0));
-        // The edge, one point thicker at the bottom: a key, not a field (a fixed one flat).
-        if look != Keycaps::Fixed {
-            ui.painter().rect_filled(cap.translate(egui::vec2(0.0, 1.0)), radius, edge);
-        }
-        ui.painter().rect(cap, radius, fill, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
-        ui.painter().galley(cap.center() - g.size() / 2.0, g, ink);
+        let (g, size) = key_galley(ui, key, ink);
+        let cap = egui::Rect::from_min_max(egui::pos2(x - size.x, right.y - size.y / 2.0), egui::pos2(x, right.y + size.y / 2.0));
+        paint_key(ui, cap, g, look, false);
         covered = covered.union(cap);
-        x -= width + GAP;
+        x -= size.x + KEY_GAP;
     }
     covered
+}
+
+/// A modifier key as a toggle (a gesture's ⇧ ⌃ ⌥ ⌘): one key cap, lit while `on`, plain when
+/// off, its edge the hovered widgets' under the pointer; at least `min_width` wide. Clicked, it
+/// flips `on`.
+pub fn key_toggle(ui: &mut egui::Ui, key: &str, on: &mut bool, min_width: f32) -> egui::Response {
+    let look = if *on { Keycaps::Lit } else { Keycaps::Plain };
+    let (ink, _, _) = key_colors(ui.visuals(), look);
+    let (g, size) = key_galley(ui, key, ink);
+    // One point more below: the cap's thicker bottom edge.
+    let (rect, mut r) = ui.allocate_exact_size(egui::vec2(size.x.max(min_width), size.y + 1.0), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let cap = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), size.y));
+        paint_key(ui, cap, g, look, r.hovered() || r.has_focus());
+    }
+    if r.clicked() {
+        *on = !*on;
+        r.mark_changed();
+    }
+    r.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *on, key));
+    r
 }
 
 /// The warning sign before an error to correct (a part in several pieces, a shortcut's
