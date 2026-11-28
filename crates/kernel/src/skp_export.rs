@@ -286,15 +286,29 @@ pub(crate) mod write {
                 owner.push((f, false));
                 continue;
             }
-            for t in tris {
-                let n = (point(t[1]) - point(t[0])).cross(point(t[2]) - point(t[0])).normalize_or_zero();
-                if n == DVec3::ZERO {
+            // A curved face's facets, the coplanar ones joined: a cylinder's or a cone's strips
+            // as SketchUp draws them, one face each rather than two triangles.
+            for cluster in coplanar(tris, &point) {
+                let tris: Vec<[u32; 3]> = cluster.iter().map(|&k| tris[k]).collect();
+                if tris.len() > 1
+                    && let Some(face) = polygon(&tris, &point)
+                {
+                    faces.push(MeshFace { pid: f, ..face });
+                    owner.push((f, !planar));
                     continue;
                 }
-                faces.push(MeshFace { pid: f, outer: t.to_vec(), normal: n.to_array(), ..MeshFace::default() });
-                owner.push((f, !planar));
+                for t in tris {
+                    let n = (point(t[1]) - point(t[0])).cross(point(t[2]) - point(t[0])).normalize_or_zero();
+                    if n == DVec3::ZERO {
+                        continue;
+                    }
+                    faces.push(MeshFace { pid: f, outer: t.to_vec(), normal: n.to_array(), ..MeshFace::default() });
+                    owner.push((f, !planar));
+                }
             }
         }
+
+        let vertices = drop_collinear(&mut faces, vertices);
 
         // Every edge of every ring, once; soft and smooth between two facets of one curved face.
         let mut edges: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
@@ -318,6 +332,106 @@ pub(crate) mod write {
             .collect();
         let n = vertices.len();
         Ok(Mesh { vertices, vertex_pids: vec![0; n], faces, edges, vertices_in: Vec::new() })
+    }
+
+    /// The vertices of `faces` that lie on a straight line between their two neighbours in every
+    /// ring holding them (a cylinder's rows along its strips' sides) taken out of every ring —
+    /// so no ring keeps one its neighbour lost —, rings of three kept whole; the vertices left,
+    /// renumbered.
+    fn drop_collinear(faces: &mut [MeshFace], vertices: Vec<[f64; 3]>) -> Vec<[f64; 3]> {
+        let point = |v: u32| DVec3::from_array(vertices[v as usize]);
+        // Per vertex: is it straight in every ring seen so far (none: not seen).
+        let mut straight: Vec<Option<bool>> = vec![None; vertices.len()];
+        for f in faces.iter() {
+            for ring in std::iter::once(&f.outer).chain(&f.holes) {
+                let n = ring.len();
+                for i in 0..n {
+                    let (a, v, b) = (point(ring[(i + n - 1) % n]), point(ring[i]), point(ring[(i + 1) % n]));
+                    let ab = b - a;
+                    let on = n > 3
+                        && ab.length() > 0.0
+                        && (v - a).cross(ab).length() / ab.length() < 1e-9
+                        && (v - a).dot(ab) > 0.0
+                        && (b - v).dot(ab) > 0.0;
+                    let s = &mut straight[ring[i] as usize];
+                    *s = Some(s.unwrap_or(true) && on);
+                }
+            }
+        }
+        let drop = |v: &u32| straight[*v as usize] == Some(true);
+        for f in faces.iter_mut() {
+            for ring in std::iter::once(&mut f.outer).chain(f.holes.iter_mut()) {
+                if ring.iter().filter(|v| !drop(v)).count() >= 3 {
+                    ring.retain(|v| !drop(v));
+                }
+            }
+        }
+        // A vertex kept by some ring stays; the others go, the rest renumbered.
+        let mut used = vec![false; vertices.len()];
+        for f in faces.iter() {
+            for &v in std::iter::once(&f.outer).chain(&f.holes).flatten() {
+                used[v as usize] = true;
+            }
+        }
+        let mut new = vec![u32::MAX; vertices.len()];
+        let mut kept = Vec::new();
+        for (i, p) in vertices.into_iter().enumerate() {
+            if used[i] {
+                new[i] = kept.len() as u32;
+                kept.push(p);
+            }
+        }
+        for f in faces.iter_mut() {
+            for v in std::iter::once(&mut f.outer).chain(f.holes.iter_mut()).flatten() {
+                *v = new[*v as usize];
+            }
+        }
+        kept
+    }
+
+    /// `tris` (one face's facets) gathered by plane: two facets sharing an edge are in one group
+    /// when they lie in one plane (their normals within 1e-8 of each other, the far corner within
+    /// a nanometre of the other's plane). Each group by its facets' indices.
+    fn coplanar(tris: &[[u32; 3]], point: &impl Fn(u32) -> DVec3) -> Vec<Vec<usize>> {
+        let normal = |t: &[u32; 3]| (point(t[1]) - point(t[0])).cross(point(t[2]) - point(t[0])).normalize_or_zero();
+        let normals: Vec<DVec3> = tris.iter().map(normal).collect();
+        let mut by_edge: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+        for (k, t) in tris.iter().enumerate() {
+            for i in 0..3 {
+                let (a, b) = (t[i], t[(i + 1) % 3]);
+                by_edge.entry((a.min(b), a.max(b))).or_default().push(k);
+            }
+        }
+        // Union-find over the facets.
+        let mut parent: Vec<usize> = (0..tris.len()).collect();
+        fn find(parent: &mut [usize], mut k: usize) -> usize {
+            while parent[k] != k {
+                parent[k] = parent[parent[k]];
+                k = parent[k];
+            }
+            k
+        }
+        for users in by_edge.values() {
+            let &[a, b] = users.as_slice() else { continue };
+            let (na, nb) = (normals[a], normals[b]);
+            if na == DVec3::ZERO || nb == DVec3::ZERO || na.dot(nb) < 1.0 - 1e-8 {
+                continue;
+            }
+            // The corner of `b` off the shared edge, against `a`'s plane (metres).
+            let far = tris[b].iter().find(|v| !tris[a].contains(v)).copied();
+            if far.is_some_and(|v| na.dot(point(v) - point(tris[a][0])).abs() < 1e-9) {
+                let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+                parent[ra] = rb;
+            }
+        }
+        let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+        for k in 0..tris.len() {
+            let r = find(&mut parent, k);
+            groups.entry(r).or_default().push(k);
+        }
+        let mut out: Vec<Vec<usize>> = groups.into_values().collect();
+        out.sort_unstable();
+        out
     }
 
     /// A planar face's triangles as one polygon: its boundary (the edges one triangle uses)
@@ -394,6 +508,22 @@ mod tests {
             Some(Output::SkpFile { bytes, .. }) => bytes,
             o => panic!("{o:?}"),
         }
+    }
+
+    /// A cylinder's side goes out as SketchUp draws one: its strips one face each, not two
+    /// triangles; soft and smooth between them. A sphere keeps its triangles.
+    #[test]
+    fn a_cylinder_side_goes_out_in_strips() {
+        let cyl = crate::Primitive::Cylinder { origin: DVec3::ZERO, radius: 10.0, height: 30.0 }.build().unwrap();
+        let m = write::mesh(&cyl, Facets::Normal).unwrap();
+        assert!(m.faces.len() > 3, "{}", m.faces.len());
+        assert!(m.faces.iter().all(|f| f.outer.len() >= 4), "{:?}", m.faces.iter().map(|f| f.outer.len()).collect::<Vec<_>>());
+        // Two caps, the rest strips.
+        let strips = m.faces.len() - 2;
+        assert_eq!(m.edges.iter().filter(|e| e.soft && e.smooth).count(), strips);
+        let ball = crate::Primitive::Sphere { center: DVec3::ZERO, radius: 10.0 }.build().unwrap();
+        let m = write::mesh(&ball, Facets::Normal).unwrap();
+        assert!(m.faces.iter().any(|f| f.outer.len() == 3));
     }
 
     /// A board placed twice, once mirrored, and a holed plate, in both releases: read back by

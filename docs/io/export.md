@@ -72,9 +72,12 @@ skpwright (`crates/kernel/src/skp_export.rs`), the same way.
 - **Faces**: each part's final shape meshed (`solidcore_tess`, at the facets chosen), the
   facets' corners welded (to a nanometre). A **planar face is one SketchUp face**: its
   triangles' boundary chained into loops, the widest the outer one, the others its holes, all
-  turning about the face's normal. A **curved face is its facets**, the edges between two of
-  them **soft and smooth** (SketchUp draws them as one surface); the edges between two faces
-  stay drawn.
+  turning about the face's normal. A **curved face is its facets**, the coplanar ones joined
+  into one polygon (`coplanar`: a cylinder's or a cone's strips, one face each as SketchUp
+  draws them, where a sphere or a round's corner keeps its triangles), the edges between them
+  **soft and smooth** (SketchUp draws them as one surface); the edges between two faces stay
+  drawn. Then a vertex lying straight between its neighbours in every ring holding it (the
+  rows along a strip's sides) leaves them all (`drop_collinear`): no edge is cut for nothing.
 - **Facets** (`Facets`): « Normales » as Skraft displays them (`MeshTolerance::display_of`),
   « Grossières » a chord four times larger and facets turning twice as much, « Fines » a
   quarter of the chord and half the turn.
