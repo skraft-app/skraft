@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use glam::DAffine3;
 use skraft_kernel::{
-    ExportBody, ExportProduct, Facets, Job, MIRROR, Paint, PaintTexture, SkpExport, SkpImage, SkpRelease, Solid, StepExport, Task,
+    ExportBody, ExportProduct, Facets, Job, MIRROR, Paint, PaintTexture, SkpExport, SkpImage, SkpRelease, SkpUnit, SkpUnits, Solid,
+    StepExport, Task,
 };
 
 use crate::document::{ComponentKind, Document, EntityPath, Id};
@@ -201,7 +202,16 @@ impl Document {
             },
             ExportFormat::Skp { release, facets } => {
                 let images = g.images.iter().map(|b| SkpImage { bytes: b.to_vec() }).collect();
-                Task::ExportSkp { export: Box::new(SkpExport { products: g.products, root, release, facets, images }) }
+                let u = &self.settings.units;
+                let unit = match u.length {
+                    crate::LengthUnit::Millimeter => SkpUnit::Millimeter,
+                    crate::LengthUnit::Centimeter => SkpUnit::Centimeter,
+                    crate::LengthUnit::Meter => SkpUnit::Meter,
+                    crate::LengthUnit::Inch => SkpUnit::Inch,
+                    crate::LengthUnit::Foot => SkpUnit::Foot,
+                };
+                let units = SkpUnits { unit, decimals: u.decimals, symbol: u.symbol };
+                Task::ExportSkp { export: Box::new(SkpExport { products: g.products, root, release, facets, units, images }) }
             }
         };
         Some(ExportPlan { job: Job { inputs: g.inputs, tasks: vec![task] }, name, parts })

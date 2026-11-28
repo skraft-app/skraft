@@ -18,9 +18,38 @@ pub struct SkpExport {
     pub root: usize,
     pub release: SkpRelease,
     pub facets: Facets,
+    /// How the file shows lengths: the document's units.
+    #[serde(default)]
+    pub units: SkpUnits,
     /// The images the paints' textures show (PNG or JPEG), each once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<SkpImage>,
+}
+
+/// How a SketchUp file shows lengths (Model Info › Units), as the document shows them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkpUnits {
+    pub unit: SkpUnit,
+    /// Decimals shown (SketchUp holds 0 to 6).
+    pub decimals: u8,
+    /// The unit's symbol after a length.
+    pub symbol: bool,
+}
+
+impl Default for SkpUnits {
+    fn default() -> Self {
+        SkpUnits { unit: SkpUnit::Millimeter, decimals: 0, symbol: false }
+    }
+}
+
+/// A length unit SketchUp shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkpUnit {
+    Millimeter,
+    Centimeter,
+    Meter,
+    Inch,
+    Foot,
 }
 
 /// An image a texture shows: its bytes, a PNG or a JPEG.
@@ -59,7 +88,7 @@ pub(crate) mod write {
     use solidcore_record::brep::Surface;
     use solidcore_tess::{DISPLAY_ANGLE, MeshTolerance};
 
-    use super::{Facets, SkpExport, SkpRelease};
+    use super::{Facets, SkpExport, SkpRelease, SkpUnit, SkpUnits};
     use crate::{Error, ExportBody, Paint, Result, Solid};
 
     const MM_PER_INCH: f64 = 25.4;
@@ -77,6 +106,34 @@ pub(crate) mod write {
                 Facets::Normal => normal,
                 Facets::Fine => MeshTolerance { chord: normal.chord / 4.0, angle: Some(DISPLAY_ANGLE / 2.0) },
             }
+        }
+    }
+
+    /// `u` as SketchUp's units: decimal, its unit, its decimals, the unit shown or not; lengths
+    /// snapped to the last decimal shown; areas and volumes in the same family (mm², mm³…).
+    pub(crate) fn units(u: SkpUnits) -> skpwright::Units {
+        // SketchUp's codes: lengths 0 in, 1 ft, 2 mm, 3 cm, 4 m; areas and volumes alike.
+        let code = match u.unit {
+            SkpUnit::Inch => 0,
+            SkpUnit::Foot => 1,
+            SkpUnit::Millimeter => 2,
+            SkpUnit::Centimeter => 3,
+            SkpUnit::Meter => 4,
+        };
+        let decimals = u.decimals.min(6);
+        skpwright::Units {
+            length_format: 0,
+            length_unit: code,
+            length_precision: u32::from(decimals),
+            length_snap: true,
+            length_snap_length: 10f64.powi(-i32::from(decimals)),
+            suppress_units_display: !u.symbol,
+            force_inch_display: false,
+            area_unit: Some(code),
+            volume_unit: Some(code),
+            area_precision: Some(u32::from(decimals)),
+            volume_precision: Some(u32::from(decimals)),
+            ..skpwright::Units::sketchup_default()
         }
     }
 
@@ -230,6 +287,7 @@ pub(crate) mod write {
         };
         model.geometry.push(GeometryRun { def_index: None, placed: top, ..GeometryRun::default() });
         model.instances = named;
+        model.units = units(export.units);
         model.material_links = (1..=materials.list.len()).map(|s| (s as u16, s - 1)).collect();
         model.materials = materials.list;
 
@@ -591,6 +649,7 @@ mod tests {
                 root: 0,
                 release,
                 facets: Facets::Normal,
+                units: SkpUnits::default(),
                 images: Vec::new(),
             };
             let bytes = written(export, vec![board.clone(), plate.clone()]);
@@ -634,6 +693,7 @@ mod tests {
                 root: 0,
                 release,
                 facets: Facets::Normal,
+                units: SkpUnits { unit: SkpUnit::Centimeter, decimals: 1, symbol: true },
                 images: vec![SkpImage { bytes: png.clone() }],
             };
             let model = skpwright::Model::parse(&written(export, vec![board.clone()])).unwrap();
@@ -648,6 +708,9 @@ mod tests {
             let top = model.geometry.iter().find(|r| r.def_index.is_none()).unwrap();
             assert!(top.placed.iter().all(|p| p.material != 0));
             assert!(model.geometry.iter().flat_map(|r| &r.mesh.faces).all(|f| f.front_material.is_none()));
+            // Lengths in decimal centimetres to a tenth, the symbol shown.
+            let u = &model.units;
+            assert_eq!((u.length_format, u.length_unit, u.length_precision, u.suppress_units_display), (0, 3, 1, false), "{release:?}");
         }
     }
 }

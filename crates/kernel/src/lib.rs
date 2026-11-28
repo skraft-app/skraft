@@ -57,7 +57,7 @@ pub use job::{Display, EARLIER, Job, JobId, JobResult, KernelService, Output, Pr
 pub use polyhedron::{PolyFace, Polyhedron};
 pub use shared::{KernelHandle, SharedKernel};
 pub use sketchup::{SketchUpChild, SketchUpDefinition, SketchUpImport, SketchUpMaterial, SketchUpNode, SketchUpPart, SketchUpTexture};
-pub use skp_export::{Facets, SkpExport, SkpImage, SkpRelease};
+pub use skp_export::{Facets, SkpExport, SkpImage, SkpRelease, SkpUnit, SkpUnits};
 pub use snaps::{Plane, SnapCurve, SnapEdge, Snaps};
 pub use step::{StepBody, StepExcluded, StepImport, StepInstance, StepProduct};
 pub use step_export::StepExport;

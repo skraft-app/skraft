@@ -89,6 +89,10 @@ skpwright (`crates/kernel/src/skp_export.rs`), the same way.
   size, its mean colour beside it. **No placement per face**: on the instance, SketchUp lays
   it its own way, so the grain and the texture's rotation may not follow Skraft's box
   projection. A finish over a texture goes out as its composed colour.
+- **Units** (`SkpUnits`, Model Info › Units): the document's — decimal lengths in its unit
+  (mm, cm, m, inches, feet), **its decimals as the length precision** (SketchUp holds 0 to 6),
+  its symbol shown or not; lengths snapped to the last decimal shown; areas and volumes in the
+  same unit's family. The geometry itself does not depend on them.
 - **Release** (`SkpRelease`): **2017** (`Model::to_release(Release::R2017)`), opened by
   SketchUp Make 2017 and every later release, or **2026** (`Model::to_archive`), the current
   container, read from SketchUp 2021. What the release cannot hold comes back as notes: a
