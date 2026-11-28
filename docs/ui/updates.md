@@ -12,14 +12,20 @@ What it found is kept in the preferences, so a launch that does not check still 
 builds do not check by themselves, unless `SKRAFT_UPDATE_URL` names a manifest to try.
 
 « Vérifier les mises à jour » in the general preferences turns the automatic check off. The command
-`app.updates` (palette, a button in « À propos »; in no menu) always works and tells the outcome.
+`app.updates` (palette, a button in « À propos »; in no menu) always works and tells the outcome in
+the same box: the search, then « à jour » or the failure, closed by **OK**.
 
 ## What the user sees
 
 A newer version shows a **magenta badge in the title bar**, « 0.0.3 disponible », after the app's
-version (and a dev build's badge), and **one toast** per version. Either opens the window: the
-version, the release's notes, then **Télécharger** (this platform's installer, in the browser),
-**Plus tard** and **Ignorer cette version**. An ignored version loses its badge and toast; the next one has them again.
+version (and a dev build's badge), and **one toast** per version. Either opens a **modal box**,
+laid out as the save prompt's: the version, the release's notes, then **Ignorer cette version**
+alone on the left, **Plus tard** and **Télécharger** (filled, Enter; this platform's installer,
+in the browser) on the right; Esc is « Plus tard ». An ignored version loses its badge and toast;
+the next one has them again.
+
+**Why a modal box:** it asks a question and waits for its answer, as the save prompt; its veil
+tells it from the window it was asked from (« À propos », left open under it).
 
 The notes are the `CHANGELOG.md` entry, in English whatever the app's language.
 
