@@ -782,7 +782,7 @@ drawing:
     orphan: "Orpheline"
     orphan_tip: "Ce qu'elle mesurait n'existe plus dans le modèle : supprimez-la et cotez à nouveau"
   template:
-    default: "A3 avec cartouche"
+    default: "A4 avec cartouche"
     sheet: "Feuille : {sheet}"
     date: "Date : {date}"
     scale: "Échelle : {scale}"

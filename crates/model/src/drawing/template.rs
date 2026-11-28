@@ -67,7 +67,7 @@ impl Document {
         Ok(t)
     }
 
-    /// The template Skraft comes with: A3 landscape, a border 10 mm in, and at its bottom right
+    /// The template Skraft comes with: A4 landscape, a border 10 mm in, and at its bottom right
     /// corner the composition « Cartouche » — the document's name, the sheet's, the date, the scale,
     /// the sheet's number.
     pub fn default_template() -> Document {
@@ -108,7 +108,7 @@ impl Document {
             sheets: vec![Sheet {
                 id: sheet,
                 name: t!("drawing.sheet_name", n = 1),
-                paper: Paper::A3,
+                paper: Paper::A4,
                 elements: vec![Element::new(
                     occurrence,
                     ElementKind::Occurrence(Occurrence { composition, place, props: Default::default() }),
@@ -202,7 +202,7 @@ impl Document {
         };
         match from {
             Some(from) => self.sheet_from(template, from, presentation, name, &mut HashMap::new()),
-            None => self.add_sheet(presentation, name, Paper::A3),
+            None => self.add_sheet(presentation, name, Paper::DEFAULT),
         }
     }
 
