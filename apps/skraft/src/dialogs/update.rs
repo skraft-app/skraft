@@ -162,11 +162,13 @@ pub struct Updates {
     /// The user asked: the box tells how it went.
     status: Status,
     window: bool,
+    /// Just opened: its notes from their top (egui keeps a scroll from one launch to the next).
+    top: bool,
 }
 
 impl Updates {
     pub fn new(ctx: &egui::Context) -> Updates {
-        Updates { ctx: ctx.clone(), pending: None, status: Status::Idle, window: false }
+        Updates { ctx: ctx.clone(), pending: None, status: Status::Idle, window: false, top: false }
     }
 
     /// At launch: checks if it is time. Debug builds do not, unless told where to look.
@@ -180,6 +182,7 @@ impl Updates {
     /// The user asks: the box, and a check unless a newer version is already known.
     pub fn open(&mut self, prefs: &Prefs) {
         self.window = true;
+        self.top = true;
         if prefs.newer().is_some() {
             return;
         }
@@ -244,7 +247,7 @@ impl Updates {
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let mut done = false;
         let modal = crate::app::modal(ctx, egui::Id::unique("update"), WIDTH, t!("update.title"), |ui| match prefs.newer().cloned() {
-            Some(release) => done = available(ui, &release, prefs, enter),
+            Some(release) => done = available(ui, &release, prefs, enter, std::mem::take(&mut self.top)),
             None => {
                 match &self.status {
                     Status::Failed(e) => {
@@ -278,11 +281,15 @@ impl Updates {
 /// A newer version: what it brings, and what to do — « Ignorer cette version » alone on the
 /// left, « Plus tard » and « Télécharger » (Enter) on the right, as the save prompt's. Whether
 /// the box is done.
-fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs, enter: bool) -> bool {
+fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs, enter: bool, top: bool) -> bool {
     ui.strong(t!("update.available", version = &release.version));
     ui.weak(t!("update.current", version = VERSION));
     ui.add_space(8.0);
-    egui::ScrollArea::vertical().max_height(280.0).auto_shrink([false, true]).show(ui, |ui| notes::show(ui, &release.notes));
+    let mut scroll = egui::ScrollArea::vertical().max_height(280.0).auto_shrink([false, true]);
+    if top {
+        scroll = scroll.vertical_scroll_offset(0.0);
+    }
+    scroll.show(ui, |ui| notes::show(ui, &release.notes));
     ui.add_space(10.0);
     let mut done = false;
     ui.horizontal(|ui| {
