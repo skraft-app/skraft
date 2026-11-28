@@ -333,7 +333,8 @@ fn mouse_drawing(ui: &mut egui::Ui, style: &NavStyle, picked: &mut Button, mac: 
 }
 
 /// The gestures of the button picked in the drawing: a row each (the trigger, the modifiers as
-/// key caps to toggle, the action, delete), why a row is not applied under it, then « Ajouter un geste ».
+/// key caps to toggle, the action, delete), why a row is not applied under it, then
+/// « Ajouter un geste ».
 fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button, mac: bool) {
     // The window's corners: the tabs' band follows them (`round_top`).
     let margin = egui::Margin::same(10);
@@ -384,7 +385,7 @@ fn button_gestures(ui: &mut egui::Ui, style: &mut NavStyle, picked: &mut Button,
                 ui.add_space(4.0);
                 let actions = if b.trigger.is_drag() { NavAction::DRAG } else { NavAction::CLICK };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let x = crate::kit::widgets::IconButton::new(crate::kit::icons::CLOSE, h, 12.0).look(crate::kit::widgets::Look::Framed);
+                    let x = crate::kit::widgets::IconButton::new(crate::kit::icons::CLOSE, h, 12.0).look(crate::kit::widgets::Look::Veil);
                     if x.show(ui).tip(t!("prefs.navigation.gestures.delete_tip")).clicked() {
                         delete = Some(i);
                     }
