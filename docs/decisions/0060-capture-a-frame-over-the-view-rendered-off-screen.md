@@ -1,6 +1,6 @@
 # Capture: a frame over the view, rendered off screen
 
-- Status: accepted (2026-11-28; step 1 built)
+- Status: accepted (2026-11-28; built)
 - Design: [Capture](../ui/capture.md)
 
 ## Context
@@ -64,13 +64,8 @@ asks for a capture (an editor request carrying the frame and the options); the a
 reads the texture back, encodes off the UI thread and saves. **Why**: `tools` has no GPU,
 and a test drives the tool like a click.
 
-**Steps**:
-
-1. The tool, the frame, the off-screen render, PNG and JPEG saved (natively and on the web).
-2. Copy to the clipboard (an option of the tool, or a second button).
-3. **Tiles** past the GPU's largest texture (`max_texture_dimension_2d`, 8192 most often,
-   less on some web GPUs) or the memory budget: the projection split in sub-frustums, each
-   rendered then stitched; until then the width is capped there.
+**Size limit**: the longer side stops at 3840, and at the GPU's largest texture
+(`max_texture_dimension_2d`, 8192 most often, less on some web GPUs) when that is smaller.
 
 ## Alternatives considered
 
@@ -86,6 +81,10 @@ and a test drives the tool like a click.
   picture of the model. May come as a complement (« Exporter la vue en image »).
 - **The frame and the options kept in the document** (as SketchUp's scenes): a format change
   for a habit; scenes, if they come, will be a decision of their own.
+- **Tiles** past the GPU's largest texture or the memory budget (the projection split in
+  sub-frustums, each rendered then stitched): set aside (2026-11-28).
+- **Copying to the clipboard** (an option of the tool, or a second button): set aside
+  (2026-11-28); the image goes to a file.
 - **A command with a dialog** (size, format, then the current view): no way to see the
   crop of another ratio than the view's.
 
@@ -93,7 +92,7 @@ and a test drives the tool like a click.
 
 - The view keeps its camera: the capture frame narrows the projection for the render only.
 - A width larger than the frame on screen is rendered, not upscaled: a large capture costs a
-  render at that size (a 4K image with MSAA is about 260 MB of targets until step 3's tiles).
+  render at that size (a 4K image with MSAA is about 260 MB of targets).
 - On the web the read-back is asynchronous (`map_async`): the save panel comes a few frames
   later.
 - `app.screenshot` stays the window as displayed; a control method for the capture can come

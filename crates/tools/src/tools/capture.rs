@@ -34,7 +34,7 @@ pub const RATIOS: [(&str, f64); 6] = [
     ("a4_portrait", 210.0 / 297.0),
 ];
 /// The longer sides offered (pixels), growing. Past 3840, the targets would weigh more than a
-/// GPU readily gives (step 3's tiles, decision 0060).
+/// GPU readily gives (decision 0060).
 pub const SIZES: [u32; 4] = [1280, 1920, 2560, 3840];
 /// The size before any is chosen.
 pub const DEFAULT_SIZE: u32 = 1920;
