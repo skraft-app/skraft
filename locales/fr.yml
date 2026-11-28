@@ -1146,6 +1146,8 @@ toast:
   texture_failed: "Texture non appliquée"
   texture_not_image: "une image PNG ou JPEG est attendue"
   written: "%{file} enregistré"
+  # A file exported (a PDF, a STEP file) the system did not let write.
+  write_failed: "Le fichier n'a pas pu être écrit"
   # The button of a file exported's toast: the system's application opens it.
   open: "Ouvrir"
   save_failed: "Impossible d'enregistrer %{file}"

@@ -65,7 +65,7 @@ impl SkraftApp {
             file::Outcome::Exported { path } => {
                 self.toasts.push(Note::success(t!("toast.written", file = file_name(&path))).with_action(t!("toast.open"), Act::Open(path)))
             }
-            file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.export_failed"), error)),
+            file::Outcome::WriteFailed { error } => self.toasts.push(Note::error(t!("toast.write_failed"), error)),
             file::Outcome::Saved { doc, path, revision } => {
                 self.add_recent_file(&path);
                 if let Some(d) = self.docs.by_id_mut(doc) {

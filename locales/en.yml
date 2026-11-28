@@ -1035,6 +1035,7 @@ toast:
   texture_failed: "Texture not applied"
   texture_not_image: "a PNG or JPEG image is expected"
   written: "%{file} saved"
+  write_failed: "The file could not be written"
   # The button of a file exported's toast: the system's application opens it.
   open: "Open"
   save_failed: "Could not save %{file}"
