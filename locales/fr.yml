@@ -370,6 +370,8 @@ update:
   checking: "Recherche de mises à jour"
   up_to_date: "Skraft %{version} est à jour."
   failed: "Impossible de vérifier les mises à jour."
+  ok: "OK"
+  cancel: "Annuler"
 # The compact arrangement of a phone (docs/ui/touch.md).
 compact:
   # The entity info card's tab, short.

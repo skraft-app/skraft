@@ -85,7 +85,7 @@ fn under_the_bar(ctx: &egui::Context) -> egui::Pos2 {
     egui::pos2(ctx.content_rect().center().x, top + FLOAT_GAP)
 }
 
-/// One of the app's windows (About, the preferences, the updates, the journal), under `id` (its
+/// One of the app's windows (About, the preferences, the journal), under `id` (its
 /// title changes with the language): its title bar's frame and close button, never collapsed nor
 /// resized (unless the caller says so), `width` wide or less on a narrow screen ([`window_width`]);
 /// the first time at `at` (by its pivot; none: where egui puts it) — on a narrow screen held just

@@ -11,6 +11,8 @@ use skraft_i18n::t;
 
 use crate::window::toasts::{Act, Note};
 
+mod notes;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const REPOSITORY: &str = "https://github.com/skraft-app/skraft";
 /// A static file of the latest release: no API, so no rate limit per address.
@@ -150,21 +152,23 @@ enum Status {
     Failed(String),
 }
 
-/// The window's id.
-const WINDOW_ID: &str = "update_window";
+/// The box's width: the release's notes need it.
+const WIDTH: f32 = 420.0;
 
-/// The checks of this run, and their window.
+/// The checks of this run, and their box.
 pub struct Updates {
     ctx: egui::Context,
     pending: Option<Receiver<Result<Release, String>>>,
-    /// The user asked: the window tells how it went.
+    /// The user asked: the box tells how it went.
     status: Status,
     window: bool,
+    /// Just opened: its notes from their top (egui keeps a scroll from one launch to the next).
+    top: bool,
 }
 
 impl Updates {
     pub fn new(ctx: &egui::Context) -> Updates {
-        Updates { ctx: ctx.clone(), pending: None, status: Status::Idle, window: false }
+        Updates { ctx: ctx.clone(), pending: None, status: Status::Idle, window: false, top: false }
     }
 
     /// At launch: checks if it is time. Debug builds do not, unless told where to look.
@@ -175,11 +179,10 @@ impl Updates {
         }
     }
 
-    /// The user asks: the window, and a check unless a newer version is already known.
+    /// The user asks: the box, and a check unless a newer version is already known.
     pub fn open(&mut self, prefs: &Prefs) {
         self.window = true;
-        // Over the window it was asked from (« À propos »).
-        self.ctx.move_to_top(egui::LayerId::new(egui::Order::Middle, egui::Id::unique(WINDOW_ID)));
+        self.top = true;
         if prefs.newer().is_some() {
             return;
         }
@@ -235,80 +238,81 @@ impl Updates {
         Some(Note::info(t!("update.toast", version = version)).with_action(t!("update.show"), Act::ShowUpdate))
     }
 
-    /// The window, while open.
+    /// The box, while open: a question to answer, over the windows (« À propos »), which it
+    /// veils. Esc or a click beside it: « Plus tard » (or « OK »).
     pub fn show(&mut self, ctx: &egui::Context, prefs: &mut Prefs) {
         if !self.window {
             return;
         }
-        let mut open = true;
-        let mut close = false;
-        let at = (egui::Align2::CENTER_CENTER, ctx.content_rect().center());
-        let window = crate::kit::style::app_window(ctx, t!("update.title"), egui::Id::unique(WINDOW_ID), &mut open, 420.0, Some(at));
-        // In a body that scrolls: held sideways, a phone is shorter than the release's notes.
-        window.show(ctx, |ui| {
-            crate::kit::style::window_body(ui, |ui| {
-                ui.set_width(crate::kit::style::window_width(ui.ctx(), 420.0));
-                match prefs.newer().cloned() {
-                    Some(release) => close = available(ui, &release, prefs),
-                    None => match &self.status {
-                        Status::Failed(e) => {
-                            ui.label(t!("update.failed"));
-                            ui.small(e);
-                        }
-                        Status::UpToDate => {
-                            ui.label(t!("update.up_to_date", version = VERSION));
-                        }
-                        Status::Idle | Status::Checking => {
-                            ui.horizontal(|ui| {
-                                ui.spinner();
-                                ui.label(t!("update.checking"));
-                            });
-                        }
-                    },
+        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        let mut done = false;
+        let modal = crate::app::modal(ctx, egui::Id::unique("update"), WIDTH, t!("update.title"), |ui| match prefs.newer().cloned() {
+            Some(release) => done = available(ui, &release, prefs, enter, std::mem::take(&mut self.top)),
+            None => {
+                match &self.status {
+                    Status::Failed(e) => {
+                        ui.label(t!("update.failed"));
+                        ui.small(e);
+                    }
+                    Status::UpToDate => {
+                        ui.label(t!("update.up_to_date", version = VERSION));
+                    }
+                    Status::Idle | Status::Checking => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(t!("update.checking"));
+                        });
+                    }
                 }
-            })
+                ui.add_space(10.0);
+                // Checking, the box only closes: the answer still comes, for the badge.
+                let label = if matches!(self.status, Status::Idle | Status::Checking) { t!("update.cancel") } else { t!("update.ok") };
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let r = crate::kit::widgets::TextButton::new(label).show(ui);
+                    crate::kit::handles::publish(|| "update.close".to_owned(), r.rect);
+                    done = r.clicked() || enter;
+                });
+            }
         });
-        self.window = open && !close;
+        self.window = !done && !modal.should_close();
     }
 }
 
-/// A newer version: what it brings, and what to do. Whether the window is done.
-fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs) -> bool {
+/// A newer version: what it brings, and what to do — « Ignorer cette version » alone on the
+/// left, « Plus tard » and « Télécharger » (Enter) on the right, as the save prompt's. Whether
+/// the box is done.
+fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs, enter: bool, top: bool) -> bool {
     ui.strong(t!("update.available", version = &release.version));
     ui.weak(t!("update.current", version = VERSION));
     ui.add_space(8.0);
-    egui::ScrollArea::vertical().max_height(280.0).auto_shrink([false, true]).show(ui, |ui| notes(ui, &release.notes));
+    let mut scroll = egui::ScrollArea::vertical().max_height(280.0).auto_shrink([false, true]);
+    if top {
+        scroll = scroll.vertical_scroll_offset(0.0);
+    }
+    scroll.show(ui, |ui| notes::show(ui, &release.notes));
     ui.add_space(10.0);
     let mut done = false;
     ui.horizontal(|ui| {
-        if crate::kit::widgets::TextButton::new(t!("update.download")).show(ui).clicked() {
-            crate::app::open_url(ui.ctx(), download_url(release, &platform()));
-            done = true;
-        }
-        if crate::kit::widgets::TextButton::new(t!("update.later")).show(ui).clicked() {
-            done = true;
-        }
-        if crate::kit::widgets::TextButton::new(t!("update.skip")).show(ui).clicked() {
+        let skip = crate::kit::widgets::TextButton::new(t!("update.skip")).show(ui);
+        crate::kit::handles::publish(|| "update.skip".to_owned(), skip.rect);
+        if skip.clicked() {
             prefs.skipped = Some(release.version.clone());
             done = true;
         }
+        match crate::kit::widgets::confirm_buttons(ui, "update", t!("update.download"), true, t!("update.later")) {
+            Some(crate::kit::widgets::Confirm::Ok) => {
+                crate::app::open_url(ui.ctx(), download_url(release, &platform()));
+                done = true;
+            }
+            Some(crate::kit::widgets::Confirm::Cancel) => done = true,
+            None if enter && !done => {
+                crate::app::open_url(ui.ctx(), download_url(release, &platform()));
+                done = true;
+            }
+            None => {}
+        }
     });
     done
-}
-
-/// A changelog entry, its Markdown reduced to headings and bullets.
-fn notes(ui: &mut egui::Ui, text: &str) {
-    for line in text.lines() {
-        let line = line.trim_end().replace("**", "");
-        if let Some(heading) = line.strip_prefix("### ") {
-            ui.add_space(4.0);
-            ui.strong(heading);
-        } else if let Some(item) = line.strip_prefix("- ") {
-            ui.label(format!("• {item}"));
-        } else if !line.is_empty() {
-            ui.label(line);
-        }
-    }
 }
 
 #[cfg(test)]
