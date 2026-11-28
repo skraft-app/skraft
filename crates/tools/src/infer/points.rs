@@ -4,11 +4,14 @@ use glam::{DAffine3, DVec2, DVec3};
 use skraft_kernel::{SnapCurve, SnapEdge, Snaps};
 use skraft_model::{EntityPath, GuideShape};
 
-use super::crossings::circle_meets_curve;
+use super::crossings::{circle_meets_curve, curve_meets_plane, curves_meet};
 use super::curves::{curve_ref, drawn, guide_arc, guide_arcs, guide_circle, kept_guides, on_curve};
-use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, RANKS, THIRD_APERTURE_PX, near_ray, visible};
+use super::{
+    APERTURE_PX, CROSSING_PX, Curve, EdgeRef, FaceOf, InferKind, Inference, Query, RANKS, THIRD_APERTURE_PX, near_ray, on_face,
+    placed_plane, visible,
+};
 use crate::camera::{Camera, Projector, Ray};
-use crate::scene::{DisplayScene, Owner};
+use crate::scene::{DisplayScene, Owner, Piece, transform_bounds};
 
 pub(super) struct Candidate {
     point: DVec3,
@@ -56,13 +59,23 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
         })
         .collect();
     let tol = |p: DVec3| camera.world_per_pixel(size, p) * CROSSING_PX;
+    // The edges passing near the cursor, for their crossings.
+    let mut near: Vec<NearEdge<'_>> = Vec::new();
+    // The solids near the cursor, for the faces those edges pierce.
+    let mut solids: Vec<(EntityPath, Piece, DAffine3, &Snaps, (DVec3, DVec3))> = Vec::new();
     for (place, part, piece) in scene.inferable_where(|b| near_ray(camera, size, &ray, *b)) {
         let path = place.entity_path();
         if !(q.keep)(&Owner { path: &path, piece }) {
             continue;
         }
         let t = &place.transform;
-        features(&part.snaps, t, &ray, &screen, px, &mut |p, k, e, x| offer(p, k, Some(&path), e, x));
+        features(&part.snaps, t, &ray, &screen, px, &mut |p, k, e, x| offer(p, k, Some(&path), e, x), &mut |e| {
+            let bounds = curve_bounds(&e.curve, t);
+            near.push(NearEdge { path: path.clone(), piece, edge: e, t: *t, bounds });
+        });
+        if let Some(b) = part.bounds {
+            solids.push((path.clone(), piece, *t, &part.snaps, transform_bounds(t, b)));
+        }
         // Where a guide circle crosses an edge.
         for &(c, n, r) in &circles {
             for e in &part.snaps.edges {
@@ -70,6 +83,36 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
                     let guide = curve_ref(&guide_arc(c, n, r), &DAffine3::IDENTITY, p).map(|g| (g, guide_circle(c, n, r)));
                     let edge = curve_ref(&e.curve, t, p).map(|r| (r, drawn(&e.curve, t)));
                     offer(p, InferKind::OnGuideAndEdge, Some(&path), None, [guide, edge].into_iter().flatten().collect());
+                }
+            }
+        }
+    }
+    // Where edges of two solids cross, where an edge pierces a planar face of another (one seen
+    // there, near the cursor).
+    for (i, a) in near.iter().enumerate() {
+        for b in near[i + 1..].iter().filter(|b| !a.same_solid(&b.path, b.piece) && meet(a.bounds, b.bounds)) {
+            for p in curves_meet(&a.edge.curve, &a.t, &b.edge.curve, &b.t, tol) {
+                if !a.at_an_end(p, tol(p)) && !b.at_an_end(p, tol(p)) {
+                    offer(p, InferKind::OnTwoEdges, Some(&a.path), None, [a.at(p), b.at(p)].into_iter().flatten().collect());
+                }
+            }
+        }
+    }
+    for (path, piece, t, snaps, bounds) in &solids {
+        // A point of its faces lies in its box.
+        let others: Vec<&NearEdge<'_>> = near.iter().filter(|a| !a.same_solid(path, *piece) && meet(a.bounds, *bounds)).collect();
+        if others.is_empty() {
+            continue;
+        }
+        for (face, plane) in snaps.planes.iter().enumerate() {
+            let Some((o, n)) = plane.and_then(|p| placed_plane(t, p)) else { continue };
+            for a in &others {
+                for p in curve_meets_plane(&a.edge.curve, &a.t, o, n, tol) {
+                    let seen = screen.project(p).is_some_and(|s| s.distance(px) <= APERTURE_PX);
+                    let f = FaceOf { path, piece: *piece, face: face as u32 };
+                    if seen && !a.at_an_end(p, tol(p)) && on_face(scene, camera, size, &screen, p, f, q) {
+                        offer(p, InferKind::OnEdgeAndFace, Some(&a.path), None, a.at(p).into_iter().collect());
+                    }
                 }
             }
         }
@@ -141,17 +184,68 @@ pub(super) fn infer_points(scene: &DisplayScene, camera: &Camera, size: DVec2, p
     Some(Inference::at(point, InferKind::OnPlane, None, None, None))
 }
 
+/// An edge passing near the cursor, placed in the world by `t`.
+struct NearEdge<'a> {
+    path: EntityPath,
+    piece: Piece,
+    edge: &'a SnapEdge,
+    t: DAffine3,
+    /// Its world box, a little wider ([`curve_bounds`]).
+    bounds: (DVec3, DVec3),
+}
+
+/// The world box of `curve` placed by `t`, a hair wider for the tolerance of the crossings
+/// (edges a fraction of a pixel apart meet).
+fn curve_bounds(curve: &SnapCurve, t: &DAffine3) -> (DVec3, DVec3) {
+    let pts: Vec<DVec3> = match *curve {
+        SnapCurve::Segment { a, b } => vec![t.transform_point3(a), t.transform_point3(b)],
+        SnapCurve::Arc { center, x, y, radius, .. } => {
+            let (c, r) = (t.transform_point3(center), (t.transform_vector3(x).length().max(t.transform_vector3(y).length())) * radius);
+            vec![c - DVec3::splat(r), c + DVec3::splat(r)]
+        }
+        SnapCurve::Polyline { ref points, .. } => points.iter().map(|p| t.transform_point3(*p)).collect(),
+    };
+    let lo = pts.iter().copied().fold(DVec3::splat(f64::INFINITY), DVec3::min);
+    let hi = pts.iter().copied().fold(DVec3::splat(f64::NEG_INFINITY), DVec3::max);
+    let pad = DVec3::splat(1e-3 * (hi - lo).max_element().max(1.0));
+    (lo - pad, hi + pad)
+}
+
+/// Do the boxes `a` and `b` overlap?
+fn meet(a: (DVec3, DVec3), b: (DVec3, DVec3)) -> bool {
+    a.0.cmple(b.1).all() && b.0.cmple(a.1).all()
+}
+
+impl NearEdge<'_> {
+    /// An edge of that solid: they meet only at its vertices.
+    fn same_solid(&self, path: &EntityPath, piece: Piece) -> bool {
+        self.piece == piece && self.path == *path
+    }
+
+    /// Is `p` within `tol` of one of its ends (an endpoint already)?
+    fn at_an_end(&self, p: DVec3, tol: f64) -> bool {
+        self.edge.curve.ends().iter().any(|e| (self.t.transform_point3(*e) - p).length() <= tol)
+    }
+
+    /// The edge at its point `p`, as crossed there.
+    fn at(&self, p: DVec3) -> Option<(EdgeRef, Curve)> {
+        Some((curve_ref(&self.edge.curve, &self.t, p)?, drawn(&self.edge.curve, &self.t)))
+    }
+}
+
 /// Offers the snap features of one occurrence (definition to world `t`): its vertices (with
 /// the edges ending there as the curves crossing, for a vertex near the cursor), the
 /// midpoints, thirds and centres of its edges, and the point of each edge nearest the cursor (with the
-/// edge there, straight or arc, as the next reference).
-pub(super) fn features(
-    s: &Snaps,
+/// edge there, straight or arc, as the next reference); gives `near` each edge passing within
+/// the aperture.
+pub(super) fn features<'a>(
+    s: &'a Snaps,
     t: &DAffine3,
     ray: &Ray,
     screen: &Projector,
     px: DVec2,
     offer: &mut impl FnMut(DVec3, InferKind, Option<(EdgeRef, Curve)>, Vec<(EdgeRef, Curve)>),
+    near: &mut impl FnMut(&'a SnapEdge),
 ) {
     for v in &s.vertices {
         let p = t.transform_point3(*v);
@@ -185,6 +279,9 @@ pub(super) fn features(
             offer(t.transform_point3(c), InferKind::Center, None, Vec::new());
         }
         if let Some(p) = on_curve(&e.curve, t, ray, screen, px) {
+            if screen.project(p).is_some_and(|s| s.distance(px) <= APERTURE_PX) {
+                near(e);
+            }
             offer(p, InferKind::OnEdge, edge_at(p), Vec::new());
         }
     }

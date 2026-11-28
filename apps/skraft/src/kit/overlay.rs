@@ -1,7 +1,8 @@
 //! What the 2D stages draw on screen over their content, the 3D view's and the drawing sheet's
 //! alike (docs/render/drawer.md#screen-overlays): the dashes by what they mean, the selection
-//! rectangle, the square grip, the cross, a turned text; and the leader of the interface's
-//! figures (the mouse of the Preferences, « Empreindre »'s tenon).
+//! rectangle, the square grip, the cross, a turned text, the markers of the points inferred;
+//! and the leader of the interface's figures (the mouse of the Preferences, « Empreindre »'s
+//! tenon).
 
 use skraft_theme::Theme;
 
@@ -65,6 +66,101 @@ pub fn marquee(painter: &egui::Painter, r: egui::Rect, crossing: bool, theme: &T
 /// A square grip `side` points wide, centred on `at`.
 pub fn square_grip(painter: &egui::Painter, at: egui::Pos2, side: f32, fill: egui::Color32, stroke: egui::Stroke) {
     painter.rect(egui::Rect::from_center_size(at, egui::Vec2::splat(side)), 0.0, fill, stroke, egui::StrokeKind::Middle);
+}
+
+/// The marker of a point inferred (docs/tools/inferences.md#visual-feedback): its shape tells
+/// what the point is, its colour the kind or the line; violet is kept for the temporary points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Marker {
+    /// A point of the geometry (an endpoint, a midpoint): a disc.
+    Point(egui::Color32),
+    /// A third of an edge: a triangle.
+    Third(egui::Color32),
+    /// A centre: a disc with a small cross.
+    Center(egui::Color32),
+    /// The origin: a smaller disc on a wider cross.
+    Origin(egui::Color32),
+    /// A corner of the box of what the tool takes: a square.
+    Corner(egui::Color32),
+    /// A line across an edge or a guide: the edge's square, in the line's colour.
+    Crossing(egui::Color32),
+    /// Two lines crossing: a disc in the first's colour (`.0`) ringed with the second's (`.1`).
+    TwoLines(egui::Color32, egui::Color32),
+    /// Where edges or faces of the solids cross, a line through a face: an ×.
+    Intersection(egui::Color32),
+    /// On an edge: a smaller square.
+    OnEdge(egui::Color32),
+    /// On a face: a diamond.
+    OnFace(egui::Color32),
+    /// On a line or a guide circle: a small disc, in its colour.
+    OnLine(egui::Color32),
+    /// A tracked point: a violet ring, wide enough to surround the marker of the point there.
+    Tracked,
+    /// The middle of the tracked points: a small violet dot, ringed when aimed at.
+    TrackedMiddle { aimed: bool },
+}
+
+/// The marker `m` on `at`, outlined in the theme's ink for markers.
+pub fn marker(painter: &egui::Painter, at: egui::Pos2, m: Marker, theme: &Theme) {
+    use egui::{Stroke, vec2};
+    let outline = Stroke::new(1.0, color(theme.marker_outline));
+    // Violet on a light edge: readable over edges and dark faces.
+    let ring = |radius: f32| {
+        painter.circle_stroke(at, radius, Stroke::new(3.0, color(theme.tracked_halo)));
+        painter.circle_stroke(at, radius, Stroke::new(1.5, color(theme.tracked)));
+    };
+    match m {
+        Marker::Point(c) => {
+            painter.circle(at, 5.0, c, outline);
+        }
+        Marker::Third(c) => {
+            let pts = vec![at + vec2(0.0, -6.0), at + vec2(5.5, 4.0), at + vec2(-5.5, 4.0)];
+            painter.add(egui::Shape::convex_polygon(pts, c, outline));
+        }
+        Marker::Center(c) => {
+            painter.circle(at, 5.0, c, outline);
+            cross(painter, at, 3.0, outline);
+        }
+        Marker::Origin(c) => {
+            painter.circle(at, 4.0, c, outline);
+            cross(painter, at, 8.0, outline);
+        }
+        Marker::Corner(c) | Marker::Crossing(c) => square_grip(painter, at, 9.0, c, outline),
+        Marker::TwoLines(first, second) => {
+            painter.circle(at, 6.0, second, outline);
+            painter.circle(at, 3.0, first, Stroke::NONE);
+        }
+        Marker::Intersection(c) => x_mark(painter, at, 5.0, 2.0, c, outline),
+        Marker::OnEdge(c) => square_grip(painter, at, 8.0, c, outline),
+        Marker::OnFace(c) => {
+            let d = 5.0;
+            let pts = vec![at + vec2(0.0, -d), at + vec2(d, 0.0), at + vec2(0.0, d), at + vec2(-d, 0.0)];
+            painter.add(egui::Shape::convex_polygon(pts, c, outline));
+        }
+        Marker::OnLine(c) => {
+            painter.circle(at, 4.0, c, outline);
+        }
+        Marker::Tracked => ring(7.0),
+        Marker::TrackedMiddle { aimed } => {
+            if aimed {
+                ring(7.0);
+            }
+            painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
+        }
+    }
+}
+
+/// An `×` on `at`, each arm `arm` points long: `fill` lines `width` wide over a wider
+/// `outline`, readable on any background.
+fn x_mark(painter: &egui::Painter, at: egui::Pos2, arm: f32, width: f32, fill: egui::Color32, outline: egui::Stroke) {
+    let d = arm / std::f32::consts::SQRT_2;
+    let arms = [[at + egui::vec2(-d, -d), at + egui::vec2(d, d)], [at + egui::vec2(-d, d), at + egui::vec2(d, -d)]];
+    for a in arms {
+        painter.line_segment(a, egui::Stroke::new(width + 2.0 * outline.width, outline.color));
+    }
+    for a in arms {
+        painter.line_segment(a, egui::Stroke::new(width, fill));
+    }
 }
 
 /// A `+` on `at`, each arm `arm` points long.

@@ -1,4 +1,5 @@
-//! Where a line crosses an edge or a guide circle, and where a guide circle crosses a curve.
+//! Where a line crosses an edge, a guide circle or a face, where a guide circle crosses a
+//! curve, where two edges cross, where an edge crosses a face.
 
 use std::f64::consts::TAU;
 
@@ -8,7 +9,7 @@ use skraft_model::EntityPath;
 
 use super::curves::{PlacedArc, curve_ref, drawn, guide_arc, guide_arcs, kept_guides};
 use super::lines::Line;
-use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, near_ray, visible};
+use super::{APERTURE_PX, CROSSING_PX, Curve, EdgeRef, InferKind, Inference, Query, face_plane, near_ray, on_face, visible};
 use crate::camera::{Camera, Projector};
 use crate::scene::{DisplayScene, Hit, Owner};
 
@@ -219,4 +220,104 @@ pub(super) fn line_meets_segment(from: DVec3, dir: DVec3, a: DVec3, b: DVec3, to
         return None;
     }
     ((p - (a + u * tt.clamp(0.0, 1.0))).length() <= tol(p)).then_some(p)
+}
+
+/// Where the curve `c1` placed by `t1` meets `c2` placed by `t2`, within `tol(p)` of both:
+/// points of `c1`.
+pub(super) fn curves_meet(c1: &SnapCurve, t1: &DAffine3, c2: &SnapCurve, t2: &DAffine3, tol: impl Fn(DVec3) -> f64) -> Vec<DVec3> {
+    let on_segment = |a: DVec3, b: DVec3| -> Vec<DVec3> {
+        let len = (b - a).length();
+        let Some(u) = (b - a).try_normalize() else { return vec![] };
+        line_meets_curve(a, u, c2, t2, &tol)
+            .into_iter()
+            .filter(|p| {
+                let s = (*p - a).dot(u);
+                s >= -tol(*p) && s <= len + tol(*p)
+            })
+            .collect()
+    };
+    match *c1 {
+        SnapCurve::Segment { a, b } => on_segment(t1.transform_point3(a), t1.transform_point3(b)),
+        SnapCurve::Arc { center, x, y, radius, sweep } => {
+            let arc = PlacedArc::new(t1, center, x, y, radius, sweep);
+            if !arc.is_circle() {
+                return arc.samples().windows(2).flat_map(|w| on_segment(w[0], w[1])).collect();
+            }
+            let on_arc = |p: &DVec3| {
+                let a = arc.angle_of(*p);
+                let slack = tol(*p) / arc.rx;
+                a <= sweep + slack || a >= TAU - slack
+            };
+            circle_meets_curve(arc.c, arc.n, arc.rx, c2, t2, &tol).into_iter().filter(on_arc).collect()
+        }
+        SnapCurve::Polyline { ref points, .. } => {
+            let pts: Vec<DVec3> = points.iter().map(|p| t1.transform_point3(*p)).collect();
+            pts.windows(2).flat_map(|w| on_segment(w[0], w[1])).collect()
+        }
+    }
+}
+
+/// Where `curve` placed by `t` passes through the plane through `o` of unit normal `n` (a
+/// curve lying in it gives none).
+pub(super) fn curve_meets_plane(curve: &SnapCurve, t: &DAffine3, o: DVec3, n: DVec3, tol: impl Fn(DVec3) -> f64) -> Vec<DVec3> {
+    let on_segment = |a: DVec3, b: DVec3| -> Option<DVec3> {
+        let (da, db) = ((a - o).dot(n), (b - o).dot(n));
+        if da * db > 0.0 || da == db {
+            return None;
+        }
+        Some(a + (b - a) * (da / (da - db)))
+    };
+    match *curve {
+        SnapCurve::Segment { a, b } => on_segment(t.transform_point3(a), t.transform_point3(b)).into_iter().collect(),
+        SnapCurve::Arc { center, x, y, radius, sweep } => {
+            let arc = PlacedArc::new(t, center, x, y, radius, sweep);
+            if !arc.is_circle() {
+                return arc.samples().windows(2).filter_map(|w| on_segment(w[0], w[1])).collect();
+            }
+            let axis = n.cross(arc.n);
+            if axis.length() < 1e-9 {
+                return vec![];
+            }
+            // The line where both planes meet, through the arc.
+            let (d1, d2) = (n.dot(o), arc.n.dot(arc.c));
+            let on_both = (arc.n.cross(axis) * d1 + axis.cross(n) * d2) / axis.length_squared();
+            line_meets_curve(on_both, axis.normalize(), curve, t, tol)
+        }
+        SnapCurve::Polyline { ref points, .. } => {
+            let pts: Vec<DVec3> = points.iter().map(|p| t.transform_point3(*p)).collect();
+            pts.windows(2).filter_map(|w| on_segment(w[0], w[1])).collect()
+        }
+    }
+}
+
+/// Where one of `lines` pierces the planar face `hit` near the cursor: (screen distance, the
+/// point, the line's index). A line through its origin on the face gives nothing there.
+pub(super) fn line_face(
+    scene: &DisplayScene,
+    camera: &Camera,
+    size: DVec2,
+    screen: &Projector,
+    px: DVec2,
+    q: &Query<'_>,
+    hit: &Hit,
+    lines: &[Line],
+) -> Option<(f64, DVec3, usize)> {
+    let (o, n) = face_plane(scene, hit)?;
+    let mut best: Option<(f64, DVec3, usize)> = None;
+    for (k, l) in lines.iter().enumerate() {
+        let d = l.dir.dot(n);
+        if d.abs() < 1e-9 {
+            continue;
+        }
+        let p = l.origin + l.dir * ((o - l.origin).dot(n) / d);
+        if (p - l.origin).length() <= camera.world_per_pixel(size, p) * CROSSING_PX {
+            continue;
+        }
+        let Some(s) = screen.project(p) else { continue };
+        let dist = s.distance(px);
+        if dist <= APERTURE_PX && best.as_ref().is_none_or(|b| dist < b.0) && on_face(scene, camera, size, screen, p, hit.into(), q) {
+            best = Some((dist, p, k));
+        }
+    }
+    best
 }

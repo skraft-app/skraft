@@ -1623,6 +1623,7 @@ infer:
   on_edge: "On edge"
   on_face: "On face"
   edge: "Edge"
+  face: "Face"
   guide: "Guide"
   on_guide: "On guide"
   axis:

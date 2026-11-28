@@ -6,7 +6,7 @@ code: [crates/tools/src/infer/mod.rs, crates/tools/src/infer/points.rs, crates/t
 # Inferences
 
 The point a tool takes under the cursor, as SketchUp infers it: endpoints, midpoints, thirds, centres,
-lines along the axes or an edge, their crossings, points tracked, with markers, guide lines and
+lines along the axes or an edge, their crossings, where edges and faces of the solids cross, points tracked, with markers, guide lines and
 a tooltip. One engine serves every tool. This page also holds the shape tools' drawing plane,
 which is built on it.
 
@@ -58,7 +58,9 @@ record and left out (the mesher does not fill `seams`).
    `Center`, `Origin`);
 3. third of an edge (`Third`) or constructed point: a line × an edge (`OnEdgeAndLine`), two lines of different origins
    (`OnTwoLines`), a line × a guide circle, a guide circle × an edge, two guide circles
-   (`OnGuideAndLine`, `OnGuideAndEdge`, `OnTwoGuides`, [Tape measure and guides](tape-measure.md));
+   (`OnGuideAndLine`, `OnGuideAndEdge`, `OnTwoGuides`, [Tape measure and guides](tape-measure.md)),
+   edges of two solids (`OnTwoEdges`), an edge × a face (`OnEdgeAndFace`), a line × a face
+   (`OnFaceAndLine`);
 4. on a line (`OnLine`: axes from `from` or from a tracked point, parallel / perpendicular to
    an edge, tangent / radial to an arc, a guide line, an axis as drawn) or on a guide circle
    (`OnGuide`);
@@ -66,8 +68,9 @@ record and left out (the mesher does not fill `seams`).
 6. on face (`OnFace`; projected exactly if the face is planar);
 7. fallback plane (`OnPlane`).
 
-A lock comes before everything: the point stays on its line. Points of ranks 1–2 and thirds
-can be tracked (`InferKind::is_trackable`), but for the middle of the tracked points; ranks 1–5 are features a tool takes as they are, even off its
+A lock comes before everything: the point stays on its line. Points of ranks 1–2, thirds and
+the crossings of fixed things can be tracked (`InferKind::is_trackable`), but for the middle of
+the tracked points; ranks 1–5 are features a tool takes as they are, even off its
 working plane (`is_feature`).
 
 ## Occlusion
@@ -108,15 +111,33 @@ where it was hovered), `Guide`, `ModelAxis(k)` (the axes as drawn, through their
   `InferKind::OnTwoLines(a, b)`, the point taken on the first (the start point's, if any).
   Strict 3D crossing: two lines at different heights do not cross, even when they overlap on
   screen.
-- **Line × face**: a line piercing the face under the cursor near it (above).
+- **Line × face**: `InferKind::OnFaceAndLine(l)` where a line pierces the planar face under the
+  cursor near it, the point in the face (below); under a lock too, unless a feature is hovered.
+  Marker: an × in the line's colour; tooltip "Face × red axis".
+- **Edge × edge**: `InferKind::OnTwoEdges` where the edges of two different solids cross
+  (within one solid, edges meet only at its vertices), within `CROSSING_PX`, the point taken
+  on one of them; not at an edge's end (an endpoint already). Only the edges
+  passing within the aperture are paired, and only when their boxes meet. Marker: an × in the
+  on-edge marker's colour; tooltip "Edge × edge"; both edges are `crossed`.
+- **Edge × face**: `InferKind::OnEdgeAndFace` where an edge near the cursor pierces a planar
+  face of another solid near the cursor — not only the face under it: by the edge, the cursor
+  is as often on the piercing solid's own sides —, once the edge's box meets that solid's.
+  The point is **in the face**, not only on its plane, when the ray through it meets that face
+  of that solid first at its depth (that solid alone: the edge's meets the ray there too) and
+  nothing else hides it. Marker: the same ×; tooltip "Edge × face". Curved faces are not
+  pierced (their surfaces are not in `Snaps`).
+
+Decision record: [Intersections of the scene inferred](../decisions/0061-intersections-of-the-scene-inferred.md).
 
 **Why:** two 3D lines seldom meet exactly, hence the tolerance of a fraction of a pixel brought
 to depth, and the point kept on one line so it stays exactly on it.
 
 ## Point tracking
 
-A point of the geometry (endpoint, midpoint, third, centre, origin) hovered for `TRACK_AFTER` = 0.5 s
-becomes a **temporary reference**, with no click or key, as in SketchUp. The editor gets the
+A point of the geometry (endpoint, midpoint, third, centre, origin), or where fixed things
+cross (edges, faces, guides, the axes as drawn — not a line through the start point or a
+tracked point, which moves with the tool), hovered for `TRACK_AFTER` = 0.5 s becomes a
+**temporary reference**, with no click or key, as in SketchUp. The editor gets the
 time from the app (`Editor::tick`, called every frame; it asks for a repaint while a point is
 waiting). `MAX_TRACKED` = 2 are kept, the most recent; each stays marked on screen with a
 ring. Their axes are `LineKind::TrackedAxis(k)` lines ("From point, on red axis"), whose guides
@@ -179,10 +200,15 @@ Guide lines (axis colour), drawn by the editor with the other lines
 "Midpoint", "On red axis"…: [Texts and languages](../ui/texts.md)) painted by egui over the
 viewport (`camera.project`, `paint_inference`): no renderer work.
 
-A marker's shape tells what the point is, and violet is kept for the temporary points:
+A marker's shape tells what the point is, and violet is kept for the temporary points; the
+shapes are the kit's (`overlay::marker`, one `Marker` each, shown in the kit's gallery):
 
 - of the geometry, filled: endpoint (green disc), midpoint (cyan disc), third (yellow triangle),
   centre (pink disc with a small cross), origin (orange disc on a wider cross);
+- built where things cross: a line × an edge or a guide, a guide × an edge or a guide, the
+  edge's square in the line's colour; two lines, a disc in the first's colour ringed with the
+  second's; edges and faces of the solids, an × in the on-edge marker's
+  colour, or in the line's for a line × a face;
 - temporary, violet on a light edge: a ring for a tracked point (wide enough to surround the marker
   of the point hovered there), the middle of two tracked points (a small dot; aimed at, a wide
   ring around the dot, with a dashed line between the two points).

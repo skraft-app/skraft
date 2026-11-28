@@ -362,7 +362,7 @@ Elsewhere:
   last listed; **`workspaces::common::cards::catalog`**: the cards listing definitions as
   tiles or rows ([Catalog cards](catalog.md)).
 - **`overlay.rs`**: what is drawn over the 3D view and the sheet, dashes, the selection
-  rectangle, grips ([Screen overlays](../render/drawer.md#screen-overlays)).
+  rectangle, grips, the markers of the points inferred ([Screen overlays](../render/drawer.md#screen-overlays)).
 
 *Why:* each screen had grown its own copy, and the copies drifted apart (the code cleanliness
 review of 2026-11-23 found five icon buttons, three menu rows, two selection rectangles).
