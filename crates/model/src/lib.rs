@@ -63,6 +63,7 @@ pub use imprints::{ImprintPair, ImprintPlan, ImprintProbe, ImprintRecipe};
 pub use link_overlaps::{LinkOverlap, LinkOverlaps, OverlapMemo, OverlapProbe};
 pub use links::{Followed, Link, LinkMap, LinkSource, LinkState, LinkStatus};
 pub use ops::{Applied, BodiesTo, Boolean, MAX_ARRAY, NodeRaw, Operation, Outcome, Prepared, RawAsk, Scope, Warning};
+pub use paint::{Coat, compose};
 pub use profile::BodyProfile;
 pub use props::{EntityKind, PropDef, PropTarget, Props, Value, ValueKind};
 pub use settings::{APPROX, Display, LengthUnit, Section, Settings, Units};

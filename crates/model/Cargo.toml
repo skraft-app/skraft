@@ -13,6 +13,8 @@ engine = ["skraft-kernel/engine"]
 [dependencies]
 skraft-i18n.workspace = true
 skraft-kernel.workspace = true
+# sRGB to linear and back, a finish's coats composed (src/paint.rs).
+skraft-theme.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true

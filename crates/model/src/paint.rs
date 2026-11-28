@@ -3,14 +3,72 @@
 //! through occurrences, the scope says whether the part's other copies change too; an assembly
 //! painted paints every part below it.
 
-use crate::document::{Document, EntityPath, Family, Id};
+use crate::document::{BlendMode, Document, EntityPath, Family, Id, Seen};
 use crate::ops::Scope;
 use crate::{Error, FastMap, FastSet, Refusal, Result};
+
+/// A coat as [`compose`] reads it: its blend, intensity, linear colour (a finish has no
+/// texture).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Coat {
+    pub blend: BlendMode,
+    pub intensity: f32,
+    pub color: [f32; 3],
+}
+
+/// The coats `coats`, from the bottom up, composed per channel into one map of what is under,
+/// `x -> A·x + B` (docs/decisions/0057-materials-on-the-definition-typed-sources.md): covering,
+/// `(1 − t)·x + t·c`; tinting, `x·((1 − t) + t·c)`.
+pub fn compose(coats: &[Coat]) -> ([f32; 3], [f32; 3]) {
+    let (mut a, mut b) = ([1.0f32; 3], [0.0f32; 3]);
+    for coat in coats {
+        let t = coat.intensity.clamp(0.0, 1.0);
+        let c = coat.color;
+        match coat.blend {
+            BlendMode::Cover => {
+                for ch in 0..3 {
+                    a[ch] *= 1.0 - t;
+                    b[ch] = b[ch] * (1.0 - t) + t * c[ch];
+                }
+            }
+            BlendMode::Tint => {
+                for ch in 0..3 {
+                    let m = 1.0 - t + t * c[ch];
+                    a[ch] *= m;
+                    b[ch] *= m;
+                }
+            }
+        }
+    }
+    (a, b)
+}
 
 /// A part's placements, gathered by the material they are to take.
 type Groups = Vec<(Option<Id>, Vec<EntityPath>)>;
 
 impl Document {
+    /// What `seen` looks like as one sRGB colour (docs/io/step-export.md): what is under's
+    /// colour (a texture's own colour), its finish's coats composed over it as the viewport
+    /// lays them; under nothing, over the light theme's face. Nothing at all: none.
+    pub fn seen_srgb(&self, seen: Seen) -> Option<[u8; 3]> {
+        use skraft_theme::{linear, srgb_byte};
+        let under = seen.under.and_then(|m| self.material(m).ok()).map(|m| m.color.map(linear));
+        let coats: Vec<Coat> = seen
+            .over
+            .map(|o| self.coats_of(o))
+            .unwrap_or_default()
+            .iter()
+            .map(|(_, m)| Coat { blend: m.blend, intensity: m.intensity, color: m.color.map(linear) })
+            .collect();
+        if under.is_none() && coats.is_empty() {
+            return None;
+        }
+        let face = skraft_theme::Theme::light().face_front;
+        let x = under.unwrap_or([face[0], face[1], face[2]]);
+        let (a, b) = compose(&coats);
+        Some([0, 1, 2].map(|c| srgb_byte(x[c] * a[c] + b[c])))
+    }
+
     /// Refuses `material` (if any) where it does not go: anywhere but `layer`, and never on
     /// `not` (the layer the operation does not reach).
     pub(crate) fn check_layer(&self, material: Option<Id>, layer: Family, not: Family) -> Result<()> {
@@ -173,5 +231,26 @@ impl Document {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Coat, compose};
+    use crate::BlendMode;
+
+    #[test]
+    fn coats_compose_into_one_map_of_what_is_under() {
+        let coat = |blend, intensity, c: f32| Coat { blend, intensity, color: [c, c, c] };
+        let apply = |(a, b): ([f32; 3], [f32; 3]), x: f32| x * a[0] + b[0];
+        // A paint covering fully hides what is under; half covering, half of each.
+        assert!((apply(compose(&[coat(BlendMode::Cover, 1.0, 0.2)]), 0.9) - 0.2).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Cover, 0.5, 0.2)]), 0.8) - 0.5).abs() < 1e-6);
+        // A stain multiplies: the wood darker, its grain (x) still there.
+        assert!((apply(compose(&[coat(BlendMode::Tint, 1.0, 0.5)]), 0.8) - 0.4).abs() < 1e-6);
+        assert!((apply(compose(&[coat(BlendMode::Tint, 0.5, 0.5)]), 0.8) - 0.6).abs() < 1e-6);
+        // A sequence: a stain then a covering varnish at 20 %, one map, as laid one after the other.
+        let two = compose(&[coat(BlendMode::Tint, 1.0, 0.5), coat(BlendMode::Cover, 0.2, 1.0)]);
+        assert!((apply(two, 0.8) - (0.8 * 0.5 * 0.8 + 0.2)).abs() < 1e-6);
     }
 }
