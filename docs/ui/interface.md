@@ -321,6 +321,8 @@ In `apps/skraft/src/kit/widgets.rs`:
   pick a material and of their fields, a sequence's coat rows, the navigator's part rows.
 - **`keycaps`**, a shortcut drawn as the keys to press, each a key cap, lit while one is being
   typed (the Preferences' *Shortcuts* tab).
+- **`key_toggle`**, a modifier key as a toggle: one key cap, lit while on (a gesture's
+  modifiers, in the Preferences' *Navigation* tab).
 - **`keypad`**, the numeric keypad the measurements box opens under a finger
   ([Touch screens](touch.md#the-keypad)).
 - **`linked_mark`**, the chain at both ends of a link: a part shaping others, a body shaped by
