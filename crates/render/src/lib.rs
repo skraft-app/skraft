@@ -2171,6 +2171,12 @@ impl Renderer {
     /// are the viewport's too, so a picture is never encoded with the viewport's frame). The
     /// viewport's target, the fingerprint of its picture and its statistics are left as they
     /// were: a still view stays still.
+    /// Frees the multisampled colour and depth kept for pictures: after a large one (a capture),
+    /// not to hold them until a picture of another size.
+    pub fn release_picture_targets(&mut self) {
+        self.picture_scratch = None;
+    }
+
     pub fn render_picture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &Frame<'_>, picture: &Picture) {
         let size = picture.size;
         if self.picture_scratch.as_ref().is_none_or(|s| s.size != size) {
