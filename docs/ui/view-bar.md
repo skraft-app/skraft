@@ -14,7 +14,8 @@ and leave the title bar to the file tabs.
 
 A column of icon buttons floating over the **left edge of the view** (or the right one, see
 [Left or right](#left-or-right)), **centered on the view's height** (never over the ribbon nor
-past the view's bottom margin) — right of the left column of docked cards when there is one —,
+past the view's bottom margin) — right of the left column of docked cards when there is one,
+or at the view's edge when that column's cards (folded, or shorter) end above the bar —,
 a window frame translucent at rest and nearly opaque under the
 pointer, as the quick tools' card
 ([Quick tools after a creation, naming a part just made](../tools/quick-tools.md)).
@@ -41,7 +42,9 @@ defaults, unknown ids and repeats ignored; back to the defaults, absent again).
 As the side panels' two columns: a grip (two rows of dots) at the bar's head; dragged, the bar
 follows the pointer, the slot on the pointer's side lit as a docked card's empty column, and let
 go it is docked there. A slot: between that side's column of cards and the view, centered on
-the view's height. Its menus open towards the view. Preference
+the view's height; at the view's edge when the column's cards end above it (all folded, or
+short enough), the bar then under them. **Why:** the column's width is free there, the bar
+need not stand away from the edge beside an empty space. Its menus open towards the view. Preference
 `view_bar_side` (`dock::Dock`, left by default); zoom extents stops at the bar on either side
 (`view_bar::Place`, `Action::ViewBarSide`): it frames what is left free beside the bar.
 
@@ -61,7 +64,9 @@ other display settings. `Editor::set_xray` applies a `SetSettings`; the scene ta
 
 ## As built
 
-`apps/skraft/src/workspaces/common/viewport/view_bar.rs`: an `egui::Area` at (`free_left` or the view's left margin, its
+`apps/skraft/src/workspaces/common/viewport/view_bar.rs`: an `egui::Area` at (`free_left` or the view's left margin — the
+margin too when the bar's top is below the column's last card, `Place::clear` from
+`side_panels` —, its
 top from the height last drawn so that it is centered: `view_bar::Place`, a frame whose height
 changed discarded), a window frame at 35 % / 92 % (`style::translucent`: the hover of the last
 frame, or one of its menus open), buttons 26 pt (icon 18), as the option bar's and the quick tools' card's (`style::BAR_BUTTON`), the selection's fill behind a lit one; the

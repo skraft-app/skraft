@@ -65,11 +65,14 @@ pub fn frame(style: &egui::Style) -> egui::Frame {
 }
 
 /// Where the bar goes: the side it is docked to, the left edge of each slot (left, right), as
-/// the side panels' two columns, and its height's place: centered on `center`, within
-/// `heights`.
+/// the side panels' two columns: beside the column (`xs`), or at the view's edge (`edges`) when
+/// the bar's top is below the column's cards (`clear`); and its height's place: centered on
+/// `center`, within `heights`.
 pub struct Place {
     pub side: Dock,
     pub xs: [f32; 2],
+    pub edges: [f32; 2],
+    pub clear: [f32; 2],
     pub heights: egui::Rangef,
     pub center: f32,
 }
@@ -78,7 +81,8 @@ impl Place {
     /// The top left corner of the slot of `side` for a bar `height` tall.
     fn slot(&self, side: Dock, height: f32) -> egui::Pos2 {
         let top = (self.center - height / 2.0).min(self.heights.max - height).max(self.heights.min);
-        egui::pos2(self.xs[slot(side)], top)
+        let k = slot(side);
+        egui::pos2(if top >= self.clear[k] { self.edges[k] } else { self.xs[k] }, top)
     }
 }
 
@@ -90,8 +94,16 @@ fn slot(side: Dock) -> usize {
 }
 
 /// The bar in its slot, kept inside `view`; its grip dragged, it follows the pointer, the slot
-/// it would go to lit, and is put in the one on the pointer's side when let go.
-pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<String>>, views: &[CommandView], actions: &mut Vec<Action>) {
+/// it would go to lit, and is put in the one on the pointer's side when let go. Gives its slot
+/// (where it is drawn but while dragged).
+pub fn bar(
+    ctx: &egui::Context,
+    view: Rect,
+    place: &Place,
+    pins: &Option<Vec<String>>,
+    views: &[CommandView],
+    actions: &mut Vec<Action>,
+) -> Rect {
     let pinned = pinned(pins);
     // While its grip is dragged: the pointer from the bar's corner.
     let grab_id = egui::Id::unique("view_bar_grab");
@@ -170,6 +182,7 @@ pub fn bar(ctx: &egui::Context, view: Rect, place: &Place, pins: &Option<Vec<Str
         ctx.data_mut(|d| d.insert_temp(hovered_id, now));
         ctx.request_repaint();
     }
+    Rect::from_min_size(home, drawn)
 }
 
 /// A button's rect and response, its background when hovered or `lit`, its icon.
