@@ -27,7 +27,9 @@ the next one has them again.
 **Why a modal box:** it asks a question and waits for its answer, as the save prompt; its veil
 tells it from the window it was asked from (« À propos », left open under it).
 
-The notes are the `CHANGELOG.md` entry, in English whatever the app's language.
+The notes are the `CHANGELOG.md` entry, in English whatever the app's language, its Markdown drawn
+as such (`dialogs/update/notes.rs`): headings, paragraphs, lists nested by their indentation with
+a hanging indent, **bold**, `code`, and links as their text.
 
 ## The manifest
 

@@ -11,6 +11,8 @@ use skraft_i18n::t;
 
 use crate::window::toasts::{Act, Note};
 
+mod notes;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const REPOSITORY: &str = "https://github.com/skraft-app/skraft";
 /// A static file of the latest release: no API, so no rate limit per address.
@@ -280,7 +282,7 @@ fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs, enter: boo
     ui.strong(t!("update.available", version = &release.version));
     ui.weak(t!("update.current", version = VERSION));
     ui.add_space(8.0);
-    egui::ScrollArea::vertical().max_height(280.0).auto_shrink([false, true]).show(ui, |ui| notes(ui, &release.notes));
+    egui::ScrollArea::vertical().max_height(280.0).auto_shrink([false, true]).show(ui, |ui| notes::show(ui, &release.notes));
     ui.add_space(10.0);
     let mut done = false;
     ui.horizontal(|ui| {
@@ -304,21 +306,6 @@ fn available(ui: &mut egui::Ui, release: &Release, prefs: &mut Prefs, enter: boo
         }
     });
     done
-}
-
-/// A changelog entry, its Markdown reduced to headings and bullets.
-fn notes(ui: &mut egui::Ui, text: &str) {
-    for line in text.lines() {
-        let line = line.trim_end().replace("**", "");
-        if let Some(heading) = line.strip_prefix("### ") {
-            ui.add_space(4.0);
-            ui.strong(heading);
-        } else if let Some(item) = line.strip_prefix("- ") {
-            ui.label(format!("• {item}"));
-        } else if !line.is_empty() {
-            ui.label(line);
-        }
-    }
 }
 
 #[cfg(test)]
