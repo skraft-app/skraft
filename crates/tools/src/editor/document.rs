@@ -290,6 +290,8 @@ impl Editor {
         for (id, result) in results {
             if let Some(name) = self.importing.remove(&id) {
                 self.imported(&name, result);
+            } else if let Some(name) = self.exporting.remove(&id) {
+                self.exported(name, result);
             } else if self.imprint_ask.as_ref().is_some_and(|a| a.job == id) {
                 self.imprint_answered(result);
             } else if self.overlap_ask.as_ref().is_some_and(|a| a.job == id) {
@@ -469,6 +471,68 @@ impl Editor {
         self.poll();
     }
 
+    /// What an export of the selection writes (docs/io/step-export.md): the parts and
+    /// assemblies selected at any depth (« Pièces »), else the occurrences selected in the
+    /// context, else — bodies selected in a part open — that part, whole.
+    pub fn export_selection(&self) -> Vec<EntityPath> {
+        if !self.deep.is_empty() {
+            return self.deep.clone();
+        }
+        if let Some(part) = self.open_part {
+            return if self.selection.is_empty() { Vec::new() } else { vec![EntityPath::new(self.context.clone(), part)] };
+        }
+        let doc = self.document();
+        let Ok(context) = doc.assembly(self.context_definition()) else { return Vec::new() };
+        self.selection.iter().filter(|id| context.occurrence(**id).is_some()).map(|id| EntityPath::new(self.context.clone(), *id)).collect()
+    }
+
+    /// The STEP export of the selection (`selection`), else of the whole model named `model`
+    /// (docs/io/step-export.md); none when it holds no solid.
+    pub fn step_export_plan(&self, selection: bool, model: &str) -> Option<skraft_model::StepExportPlan> {
+        let paths = if selection { self.export_selection() } else { Vec::new() };
+        if selection && paths.is_empty() {
+            return None;
+        }
+        self.document().step_export(&paths, model)
+    }
+
+    /// Writes the selection (`selection`), else the whole model named `model`, as a STEP file
+    /// (docs/io/step-export.md), by the kernel; the app takes the bytes
+    /// ([`Editor::take_exported`]).
+    pub fn export_step(&mut self, selection: bool, model: &str) {
+        let Some(plan) = self.step_export_plan(selection, model) else {
+            self.notify(NoticeKind::Error, t!("notice.export_empty"), None);
+            return;
+        };
+        let name = format!("{}.step", plan.name.replace(['/', '\\', ':'], "-"));
+        let id = self.job_id();
+        self.message = Some(skraft_i18n::ellipsis(t!("status.exporting", file = name)));
+        self.exporting.insert(id, name);
+        self.kernel.submit(id, plan.job);
+        // A kernel run inline has answered already.
+        self.poll();
+    }
+
+    /// The kernel wrote the file `name`, or why not.
+    fn exported(&mut self, name: String, result: skraft_model::kernel::JobResult) {
+        self.message = None;
+        match result.map(|mut o| o.pop()) {
+            Ok(Some(Output::StepFile(text))) => self.exported = Some((name, text.into_bytes())),
+            Ok(_) => self.notify(NoticeKind::Error, t!("notice.export_failed", file = name), Some(t!("status.unexpected_reply"))),
+            Err(e) => self.notify(NoticeKind::Error, t!("notice.export_failed", file = name), Some(e.to_string())),
+        }
+    }
+
+    /// A file the kernel wrote, to save where the user says: its name and bytes.
+    pub fn take_exported(&mut self) -> Option<(String, Vec<u8>)> {
+        self.exported.take()
+    }
+
+    /// Is a file being written?
+    pub fn is_exporting(&self) -> bool {
+        !self.exporting.is_empty()
+    }
+
     /// Is a file being read?
     pub fn is_importing(&self) -> bool {
         !self.importing.is_empty()
@@ -641,6 +705,7 @@ impl Editor {
         // What the kernel was doing for the previous document is dropped when it comes.
         self.pending = None;
         self.importing.clear();
+        self.exporting.clear();
         self.queue.clear();
         self.collected.clear();
         self.made_unique.clear();

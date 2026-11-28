@@ -88,6 +88,8 @@ menu:
     open: "Ouvrir"
     # Places a STEP or SketchUp file's content in the model.
     import: "Importer"
+    # Opens the export box (docs/io/step-export.md).
+    export: "Exporter"
     save: "Enregistrer"
     save_as: "Enregistrer sous"
     # One of the last files opened or saved (%{n}: 1 to 4), as the command palette and the
@@ -320,6 +322,26 @@ loading:
   cancel: "Annuler"
 
 # Deleting a coat that sequences lay (docs/decisions/0057).
+# The export box (docs/io/step-export.md): a format, what goes out, how many parts.
+export:
+  title: "Exporter"
+  format: "Format"
+  step: "STEP"
+  step_tip: "Les solides exacts, que lisent les logiciels de CAO"
+  skp: "SKP"
+  skp_tip: "Pas encore disponible"
+  content: "Contenu"
+  model: "Modèle entier"
+  model_tip: "Tout ce qui est visible, depuis l'origine du modèle"
+  selection: "Sélection"
+  selection_tip: "Ce qui est sélectionné, depuis l'origine de son composant ou de leur parent commun"
+  selection_none: "Rien de sélectionné"
+  parts: "%{count} pièce"
+  parts_plural: "%{count} pièces"
+  nothing: "Aucun solide visible à exporter"
+  export: "Exporter"
+  cancel: "Annuler"
+
 delete_coat:
   title: "Supprimer la couche ?"
   question: "« %{name} » est utilisée dans %{count} séquence : elle en sera retirée."
@@ -1178,6 +1200,9 @@ notice:
   import_empty: "%{file} : aucun solide à importer"
   import_failed: "Import de %{file} impossible"
   import_cancelled: "Import de %{file} annulé"
+  # The STEP export (docs/io/step-export.md): a model without a visible solid, or what the kernel refused.
+  export_empty: "Rien à exporter : aucun solide visible"
+  export_failed: "Export de %{file} impossible"
   # A creation tool made a part, « Créer un assemblage » an assembly or a group of bodies,
   # « Rendre unique » a definition of its own (docs/tools/quick-tools.md); the toast's button names it.
   part_created: "Nouvelle pièce créée : %{name}"
@@ -1243,6 +1268,8 @@ status:
   tree_key: "%{key} maintenu : élément parent"
   # Importing a file (STEP, SketchUp): read by the kernel, then inserted in the model.
   importing: "Lecture de %{file}"
+  # Exporting a file (STEP): written by the kernel.
+  exporting: "Écriture de %{file}"
   # « calcul en cours… (Échap pour abandonner) »: the code joins them with the ellipsis.
   computing: "%{op} : calcul en cours"
   computing_cancel: "(Échap pour abandonner)"

@@ -69,6 +69,7 @@ decision replaced. What is not built yet is not described here.
 
 **Files and driving** — [File format](io/file-format.md) ·
 [SketchUp import](io/sketchup-import.md) · [STEP import](io/step-import.md) ·
+[STEP export](io/step-export.md) ·
 [Control protocol](control-protocol.md)
 
 **Why** — [Decision records](decisions/README.md)

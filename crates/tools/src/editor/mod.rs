@@ -123,6 +123,10 @@ pub struct Editor {
     load_end: Option<LoadEnd>,
     /// Files being read by the kernel (STEP), by job: their names (docs/io/step-import.md).
     importing: HashMap<JobId, String>,
+    /// Files being written by the kernel (STEP), by job: their names (docs/io/step-export.md).
+    exporting: HashMap<JobId, String>,
+    /// A file written, until the app takes it to save it: its name and bytes.
+    exported: Option<(String, Vec<u8>)>,
     /// The jobs of [`Editor::crash_kernel`] still out, and what came back of them.
     probes: HashMap<JobId, Probe>,
     probe_report: Vec<String>,
@@ -309,6 +313,8 @@ impl Editor {
             load: Some(loading::Load::new(LoadKind::Open)),
             load_end: None,
             importing: HashMap::new(),
+            exporting: HashMap::new(),
+            exported: None,
             probes: HashMap::new(),
             probe_report: Vec::new(),
             last: None,

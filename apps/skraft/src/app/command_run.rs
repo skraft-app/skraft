@@ -78,6 +78,7 @@ impl SkraftApp {
             "edit.group_bodies" => e.can_group_bodies(),
             "edit.move_out" => e.can_move_out(),
             "edit.imprint" => e.can_imprint(),
+            "file.export" => !e.is_exporting(),
             // On a sheet, what is picked there: the 3D selection is not what is seen.
             "edit.cut" | "edit.copy" if d.workspace.stage == Stage::Sheet => {
                 !crate::workspaces::drawing::sheet::selection(e, &d.sheet).is_empty()
@@ -237,6 +238,10 @@ impl SkraftApp {
             }
             "file.import" => {
                 file::import(&self.inbox, &self.ctx);
+                true
+            }
+            "file.export" => {
+                self.open_export();
                 true
             }
             "file.save" | "file.save_as" => {
