@@ -12,7 +12,7 @@ use skraft_tools::draw;
 use skraft_tools::navigation::{Button, Mods, NavAction, Trigger};
 use skraft_tools::{Editor, InferKind, Look, Mark, Modifiers, PointShape, ToolInput};
 
-use crate::kit::overlay;
+use crate::kit::overlay::{self, Marker};
 use crate::prefs::Navigation;
 
 /// A token as an egui colour (sRGB, unmultiplied alpha).
@@ -1883,13 +1883,6 @@ fn paint_inference(
     let mut drawn = Vec::new();
     let mut mark = |at: egui::Pos2| drawn.push(egui::Rect::from_center_size(at, vec2(MARK_CLEAR, MARK_CLEAR)));
     let to_screen = |p| editor.camera.project(p, editor.viewport_size()).map(|s| rect.min + vec2(s.x as f32, s.y as f32));
-    // Violet rings are the temporary points, each on a light edge.
-    let ring = |at: egui::Pos2, radius: f32| {
-        painter.circle_stroke(at, radius, Stroke::new(3.0, color(theme.tracked_halo)));
-        painter.circle_stroke(at, radius, Stroke::new(1.5, color(theme.tracked)));
-    };
-    // A violet dot on a light edge: the middle of the tracked points.
-    let dot = |at: egui::Pos2| painter.circle(at, 2.5, color(theme.tracked), Stroke::new(1.0, color(theme.tracked_halo)));
     let inference = editor.inference();
     // The middle of the tracked points: a small dot; aimed at, the line it stands on.
     if let [a, b] = editor.tracked() {
@@ -1905,13 +1898,13 @@ fn paint_inference(
                 }
             }
         } else if let Some(at) = to_screen((*a + *b) * 0.5) {
-            dot(at);
+            overlay::marker(painter, at, Marker::TrackedMiddle { aimed: false }, theme);
         }
     }
     // Tracked points: a ring wide enough to surround the marker of the point hovered there.
     for p in editor.tracked() {
         if let Some(at) = to_screen(*p) {
-            ring(at, 7.0);
+            overlay::marker(painter, at, Marker::Tracked, theme);
             mark(at);
         }
     }
@@ -1927,68 +1920,31 @@ fn paint_inference(
     if kind != InferKind::OnPlane {
         mark(at);
     }
-    let outline = Stroke::new(1.0, color(theme.marker_outline));
-    match kind {
-        InferKind::Endpoint => {
-            painter.circle(at, 5.0, color(theme.endpoint), outline);
-        }
-        InferKind::Midpoint => {
-            painter.circle(at, 5.0, color(theme.midpoint), outline);
-        }
-        InferKind::Third => {
-            let pts = vec![at + vec2(0.0, -6.0), at + vec2(5.5, 4.0), at + vec2(-5.5, 4.0)];
-            painter.add(egui::Shape::convex_polygon(pts, color(theme.third), outline));
-        }
-        InferKind::TrackedMiddle => {
-            ring(at, 7.0);
-            dot(at);
-        }
-        InferKind::BoxCorner => {
-            overlay::square_grip(painter, at, 9.0, color(theme.endpoint), outline);
-        }
-        InferKind::Center => {
-            painter.circle(at, 5.0, color(theme.center), outline);
-            overlay::cross(painter, at, 3.0, outline);
-        }
-        InferKind::Origin => {
-            painter.circle(at, 4.0, color(theme.origin), outline);
-            overlay::cross(painter, at, 8.0, outline);
-        }
-        InferKind::OnTwoLines(_, second) => {
-            // The first line's colour, ringed with the second's.
-            let rgb = |k: InferKind| {
-                let [r, g, b, _] = skraft_tools::tools::guide_color(k).map(|c| (c * 255.0) as u8);
-                Color32::from_rgb(r, g, b)
-            };
-            painter.circle(at, 6.0, rgb(InferKind::OnLine(second)), outline);
-            painter.circle(at, 3.0, rgb(kind), Stroke::NONE);
-        }
+    let line_color = |k: InferKind| {
+        let [r, g, b, _] = skraft_tools::tools::guide_color(k).map(|c| (c * 255.0) as u8);
+        Color32::from_rgb(r, g, b)
+    };
+    let marker = match kind {
+        InferKind::Endpoint => Some(Marker::Point(color(theme.endpoint))),
+        InferKind::Midpoint => Some(Marker::Point(color(theme.midpoint))),
+        InferKind::Third => Some(Marker::Third(color(theme.third))),
+        InferKind::TrackedMiddle => Some(Marker::TrackedMiddle { aimed: true }),
+        InferKind::BoxCorner => Some(Marker::Corner(color(theme.endpoint))),
+        InferKind::Center => Some(Marker::Center(color(theme.center))),
+        InferKind::Origin => Some(Marker::Origin(color(theme.origin))),
+        InferKind::OnTwoLines(_, second) => Some(Marker::TwoLines(line_color(kind), line_color(InferKind::OnLine(second)))),
         InferKind::OnEdgeAndLine(_) | InferKind::OnGuideAndLine(_) | InferKind::OnGuideAndEdge | InferKind::OnTwoGuides => {
-            // The edge's square, in the line's colour.
-            let [r, g, b, _] = skraft_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
-            overlay::square_grip(painter, at, 9.0, Color32::from_rgb(r, g, b), outline);
+            Some(Marker::Crossing(line_color(kind)))
         }
-        InferKind::OnTwoEdges | InferKind::OnEdgeAndFace => {
-            overlay::x_mark(painter, at, 7.0, 2.5, color(theme.on_edge), outline);
-        }
-        InferKind::OnFaceAndLine(_) => {
-            // In the line's colour.
-            let [r, g, b, _] = skraft_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
-            overlay::x_mark(painter, at, 7.0, 2.5, Color32::from_rgb(r, g, b), outline);
-        }
-        InferKind::OnEdge => {
-            overlay::square_grip(painter, at, 8.0, color(theme.on_edge), outline);
-        }
-        InferKind::OnFace => {
-            let d = 5.0;
-            let pts = vec![at + vec2(0.0, -d), at + vec2(d, 0.0), at + vec2(0.0, d), at + vec2(-d, 0.0)];
-            painter.add(egui::Shape::convex_polygon(pts, color(theme.on_face), outline));
-        }
-        InferKind::OnLine(_) | InferKind::OnGuide => {
-            let [r, g, b, _] = skraft_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
-            painter.circle(at, 4.0, Color32::from_rgb(r, g, b), outline);
-        }
-        InferKind::OnPlane => {}
+        InferKind::OnTwoEdges | InferKind::OnEdgeAndFace => Some(Marker::Intersection(color(theme.on_edge))),
+        InferKind::OnFaceAndLine(_) => Some(Marker::Intersection(line_color(kind))),
+        InferKind::OnEdge => Some(Marker::OnEdge(color(theme.on_edge))),
+        InferKind::OnFace => Some(Marker::OnFace(color(theme.on_face))),
+        InferKind::OnLine(_) | InferKind::OnGuide => Some(Marker::OnLine(line_color(kind))),
+        InferKind::OnPlane => None,
+    };
+    if let Some(m) = marker {
+        overlay::marker(painter, at, m, theme);
     }
     let label = match (kind.label(), editor.inference_tip()) {
         (label, None) => label,

@@ -200,13 +200,14 @@ Guide lines (axis colour), drawn by the editor with the other lines
 "Midpoint", "On red axis"…: [Texts and languages](../ui/texts.md)) painted by egui over the
 viewport (`camera.project`, `paint_inference`): no renderer work.
 
-A marker's shape tells what the point is, and violet is kept for the temporary points:
+A marker's shape tells what the point is, and violet is kept for the temporary points; the
+shapes are the kit's (`overlay::marker`, one `Marker` each, shown in the kit's gallery):
 
 - of the geometry, filled: endpoint (green disc), midpoint (cyan disc), third (yellow triangle),
   centre (pink disc with a small cross), origin (orange disc on a wider cross);
 - built where things cross: a line × an edge or a guide, a guide × an edge or a guide, the
   edge's square in the line's colour; two lines, a disc in the first's colour ringed with the
-  second's; edges and faces of the solids (`overlay::x_mark`), an × in the on-edge marker's
+  second's; edges and faces of the solids, an × in the on-edge marker's
   colour, or in the line's for a line × a face;
 - temporary, violet on a light edge: a ring for a tracked point (wide enough to surround the marker
   of the point hovered there), the middle of two tracked points (a small dot; aimed at, a wide

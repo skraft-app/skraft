@@ -27,7 +27,7 @@ nothing but the scene (two guides crossing).
   in the face (not only on its plane) when the ray through it meets that face of that solid
   first, at its depth — that solid alone, the edge's solid meeting the ray there too —, and
   nothing else hides it.
-- **Drawn as an ×** (`overlay::x_mark`): the on-edge marker's colour for edge × edge and edge × face, the
+- **Drawn as an ×** (`overlay::Marker::Intersection`): the on-edge marker's colour for edge × edge and edge × face, the
   line's colour for line × face.
 - **A crossing of fixed things can be tracked**: edges, faces, guides, the axes as drawn —
   not a line through the start point or a tracked point, which moves with the tool.

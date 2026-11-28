@@ -948,7 +948,7 @@ fn overlays(ui: &mut egui::Ui, theme: &Theme) {
             caption(ui, egui::pos2(cell(k as f32).left(), rect.bottom() - 8.0), name);
         }
     });
-    entry(ui, "overlay::leader · square_grip · cross · x_mark · turned_text", |ui| {
+    entry(ui, "overlay::leader · square_grip · cross · turned_text", |ui| {
         let rect = space(ui, egui::vec2(480.0, 90.0));
         let accent = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color);
         let anchor = rect.min + egui::vec2(10.0, 50.0);
@@ -957,11 +957,48 @@ fn overlays(ui: &mut egui::Ui, theme: &Theme) {
         overlay::leader(ui.painter(), anchor + egui::vec2(0.0, 20.0), end + egui::vec2(0.0, 50.0), 16.0, accent);
         overlay::square_grip(ui.painter(), rect.min + egui::vec2(170.0, 40.0), 8.0, ui.visuals().window_fill, accent);
         overlay::cross(ui.painter(), rect.min + egui::vec2(250.0, 40.0), 6.0, stroke);
-        overlay::x_mark(ui.painter(), rect.min + egui::vec2(310.0, 40.0), 7.0, 2.5, accent.color, stroke);
         let font = egui::TextStyle::Body.resolve(ui.style());
-        overlay::turned_text(ui.painter(), rect.min + egui::vec2(370.0, 70.0), -0.5, t!("gallery.sample.turned"), font, ink);
-        for (x, name) in [(10.0, "leader"), (150.0, "square_grip"), (235.0, "cross"), (290.0, "x_mark"), (390.0, "turned_text")] {
+        overlay::turned_text(ui.painter(), rect.min + egui::vec2(310.0, 70.0), -0.5, t!("gallery.sample.turned"), font, ink);
+        for (x, name) in [(10.0, "leader"), (150.0, "square_grip"), (235.0, "cross"), (330.0, "turned_text")] {
             caption(ui, egui::pos2(rect.left() + x, rect.bottom() - 6.0), name);
+        }
+    });
+    entry(ui, "overlay::marker", |ui| {
+        use overlay::Marker;
+        use skraft_theme::{AXIS_X, AXIS_Y, AXIS_Z};
+        let c = crate::workspaces::common::viewport::color;
+        // Each marker at its size, over the window and over a face, as in the 3D view.
+        let markers = [
+            (Marker::Point(c(theme.endpoint)), "Point endpoint"),
+            (Marker::Point(c(theme.midpoint)), "Point midpoint"),
+            (Marker::Third(c(theme.third)), "Third"),
+            (Marker::Center(c(theme.center)), "Center"),
+            (Marker::Origin(c(theme.origin)), "Origin"),
+            (Marker::Corner(c(theme.endpoint)), "Corner"),
+            (Marker::Crossing(c(AXIS_X)), "Crossing"),
+            (Marker::TwoLines(c(AXIS_X), c(AXIS_Y)), "TwoLines"),
+            (Marker::Intersection(c(theme.on_edge)), "Intersection"),
+            (Marker::Intersection(c(AXIS_Z)), "Intersection line"),
+            (Marker::OnEdge(c(theme.on_edge)), "OnEdge"),
+            (Marker::OnFace(c(theme.on_face)), "OnFace"),
+            (Marker::OnLine(c(AXIS_Y)), "OnLine"),
+            (Marker::Tracked, "Tracked"),
+            (Marker::TrackedMiddle { aimed: false }, "TrackedMiddle"),
+            (Marker::TrackedMiddle { aimed: true }, "TrackedMiddle aimed"),
+        ];
+        const PER_ROW: usize = 4;
+        let (w, h) = (130.0, 64.0);
+        let rows = markers.len().div_ceil(PER_ROW);
+        let rect = space(ui, egui::vec2(w * PER_ROW as f32, h * rows as f32));
+        let face = egui::Color32::from_gray(200);
+        for (k, (m, name)) in markers.iter().enumerate() {
+            let cell =
+                egui::Rect::from_min_size(rect.min + egui::vec2(w * (k % PER_ROW) as f32, h * (k / PER_ROW) as f32), egui::vec2(w, h));
+            let swatch = egui::Rect::from_min_size(cell.min + egui::vec2(60.0, 4.0), egui::vec2(40.0, 40.0));
+            ui.painter().rect_filled(swatch, 0.0, face);
+            overlay::marker(ui.painter(), cell.min + egui::vec2(30.0, 24.0), *m, theme);
+            overlay::marker(ui.painter(), swatch.center(), *m, theme);
+            caption(ui, egui::pos2(cell.left(), cell.bottom() - 10.0), name);
         }
     });
 }
