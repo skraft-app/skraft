@@ -432,6 +432,7 @@ impl SkraftApp {
         }
         let mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
         self.theme = Theme::of(self.prefs.palette, mode);
+        self.viewport.thumbnails.set_theme(&self.theme);
         // The page around the app takes the title bar's colour above, the panels' below.
         #[cfg(target_arch = "wasm32")]
         {

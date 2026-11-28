@@ -105,14 +105,26 @@ pub struct Thumbnails {
     /// The documents closed: their thumbnails freed at the next draw.
     dropped: Vec<u64>,
     tick: u64,
+    /// A hash of the theme's colours a thumbnail is drawn in ([`Thumbnails::set_theme`]).
+    theme: u64,
 }
 
 impl Thumbnails {
+    /// The theme the thumbnails are drawn in: any colour of it changed (a palette, not only
+    /// light / dark), each is drawn again.
+    pub fn set_theme(&mut self, theme: &skraft_theme::Theme) {
+        let mut h = std::hash::DefaultHasher::new();
+        for c in [theme.ui.view, theme.face_front, theme.face_back, theme.edge, theme.grid] {
+            c.map(f32::to_bits).hash(&mut h);
+        }
+        self.theme = h.finish();
+    }
+
     /// The thumbnail of `component` (document `doc`, shown by `editor`) at `px` pixels, if
     /// drawn: the one drawn before while a new one is due. Asks for it when it is missing or
     /// out of date and its meshes are all there (a component placed nowhere has none in the
     /// scene: its icon stays).
-    pub fn get(&mut self, doc: u64, editor: &Editor, component: Id, dark: bool, px: u32) -> Option<egui::TextureId> {
+    pub fn get(&mut self, doc: u64, editor: &Editor, component: Id, px: u32) -> Option<egui::TextureId> {
         let revision = editor.history().revision();
         let content = match self.contents.get(&(doc, component)) {
             Some((r, c)) if *r == revision => c.clone(),
@@ -122,7 +134,7 @@ impl Thumbnails {
                 c
             }
         };
-        let key = key(editor, &content, dark, px);
+        let key = key(editor, &content, self.theme, px);
         let shown = self.shown.get_mut(&(doc, component));
         let current = shown.as_ref().is_some_and(|t| Some(t.key) == key);
         let texture = shown.map(|t| {
@@ -207,7 +219,7 @@ impl Thumbnails {
 
 /// The key of a thumbnail: what it draws, its meshes' revisions, the theme, its size; none
 /// while a mesh it needs is missing.
-fn key(editor: &Editor, content: &Content, dark: bool, px: u32) -> Option<u64> {
+fn key(editor: &Editor, content: &Content, theme: u64, px: u32) -> Option<u64> {
     if content.parts.is_empty() {
         return None;
     }
@@ -217,7 +229,7 @@ fn key(editor: &Editor, content: &Content, dark: bool, px: u32) -> Option<u64> {
     for (p, _) in &content.parts {
         scene.definition_mesh(*p)?.revision.hash(&mut h);
     }
-    (dark, px).hash(&mut h);
+    (theme, px).hash(&mut h);
     Some(h.finish())
 }
 

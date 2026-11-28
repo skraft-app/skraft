@@ -189,12 +189,8 @@ pub fn components(
         return;
     }
     let ppp = ui.ctx().pixels_per_point();
-    let thumbs = Thumbs {
-        doc: look.doc,
-        thumbnails: look.thumbnails,
-        dark: ui.visuals().dark_mode,
-        px: ((crate::system::thumbnails::TILE * ppp).round() as u32).clamp(16, 512),
-    };
+    let thumbs =
+        Thumbs { doc: look.doc, thumbnails: look.thumbnails, px: ((crate::system::thumbnails::TILE * ppp).round() as u32).clamp(16, 512) };
     let mut shelf = Components { editor, chosen: editor.chosen_component(), disabled, thumbs };
     let area = catalog::fit(ui, area, look.height, top);
     catalog::show(ui, &mut shelf, rows, look.list, actions, area);
@@ -260,13 +256,12 @@ impl Shelf for Components<'_> {
 struct Thumbs<'a> {
     doc: u64,
     thumbnails: &'a mut Thumbnails,
-    dark: bool,
     px: u32,
 }
 
 impl Thumbs<'_> {
     fn get(&mut self, editor: &Editor, id: Id) -> Option<egui::TextureId> {
-        self.thumbnails.get(self.doc, editor, id, self.dark, self.px)
+        self.thumbnails.get(self.doc, editor, id, self.px)
     }
 }
 
