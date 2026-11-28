@@ -47,7 +47,20 @@ pub fn compose(coats: &[Coat]) -> ([f32; 3], [f32; 3]) {
 type Groups = Vec<(Option<Id>, Vec<EntityPath>)>;
 
 impl Document {
-    /// What `seen` looks like as one sRGB colour (docs/io/step-export.md): what is under's
+    /// What `seen` looks like as it goes out of an export: its colour ([`Document::seen_srgb`]),
+    /// named after what is under and the finish over it (« Chêne + Vernis »).
+    pub fn seen_paint(&self, seen: Seen) -> Option<skraft_kernel::Paint> {
+        let rgb = self.seen_srgb(seen)?;
+        let name = |id: Option<Id>| id.and_then(|m| self.material(m).ok()).map(|m| m.name.as_str());
+        let name = match (name(seen.under), name(seen.over)) {
+            (Some(u), Some(o)) => format!("{u} + {o}"),
+            (Some(n), None) | (None, Some(n)) => n.to_owned(),
+            (None, None) => String::new(),
+        };
+        Some(skraft_kernel::Paint { name, rgb })
+    }
+
+    /// What `seen` looks like as one sRGB colour (docs/io/export.md): what is under's
     /// colour (a texture's own colour), its finish's coats composed over it as the viewport
     /// lays them; under nothing, over the light theme's face. Nothing at all: none.
     pub fn seen_srgb(&self, seen: Seen) -> Option<[u8; 3]> {

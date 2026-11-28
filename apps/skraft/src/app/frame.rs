@@ -9,9 +9,11 @@ impl SkraftApp {
         // every document: one in the background goes on computing.
         for d in self.docs.iter_mut() {
             d.editor.poll();
-            // A file the kernel wrote (STEP, docs/io/step-export.md), saved where the user says.
+            // A file the kernel wrote (docs/io/export.md), saved where the user says.
             if let Some((name, bytes)) = d.editor.take_exported() {
-                file::export_file(bytes, &name, "STEP", "step", &self.inbox, &self.ctx);
+                let ext = std::path::Path::new(&name).extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+                let kind = if ext == "skp" { "SketchUp" } else { "STEP" };
+                file::export_file(bytes, &name, kind, &ext, &self.inbox, &self.ctx);
             }
         }
         // Their undo histories kept within the memory allowed, the meshes just come weighed.

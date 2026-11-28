@@ -48,13 +48,13 @@ impl SkraftApp {
         }
     }
 
-    /// Opens the export box on the shown document (docs/io/step-export.md), the parts of the
-    /// whole model and of the selection counted.
+    /// Opens the export box on the shown document (docs/io/export.md), on the last choice, the
+    /// parts of the whole model and of the selection counted (the same in every format).
     pub(super) fn open_export(&mut self) {
         let Some(d) = self.docs.active() else { return };
         let model = model_stem(&d.name());
-        let count = |selection| d.editor.step_export_plan(selection, &model).map(|p| p.parts);
-        self.export = Some(crate::workspaces::common::dialogs::export::Dialog::new(d.id, count(false), count(true)));
+        let count = |selection| d.editor.export_plan(selection, &model, skraft_model::ExportFormat::Step).map(|p| p.parts);
+        self.export = Some(crate::workspaces::common::dialogs::export::Dialog::new(d.id, self.export_choice, count(false), count(true)));
     }
 
     /// The export box: « Exporter » has the kernel write the file, then asks where to save it.
@@ -67,9 +67,10 @@ impl SkraftApp {
         match dialog.show(ctx) {
             crate::workspaces::common::dialogs::export::Answer::Open => {}
             crate::workspaces::common::dialogs::export::Answer::Cancel => self.export = None,
-            crate::workspaces::common::dialogs::export::Answer::Export { selection } => {
+            crate::workspaces::common::dialogs::export::Answer::Export { selection, choice } => {
                 let model = model_stem(&d.name());
-                d.editor.export_step(selection, &model);
+                d.editor.export(selection, &model, choice.format());
+                self.export_choice = choice;
                 self.export = None;
             }
         }

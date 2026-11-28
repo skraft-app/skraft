@@ -9,6 +9,7 @@ mod clipboard;
 mod dimensions;
 mod document;
 pub mod drawing;
+mod export;
 pub mod expr;
 mod fast_hash;
 mod file;
@@ -25,7 +26,6 @@ mod profile;
 pub mod props;
 mod settings;
 mod step;
-mod step_export;
 mod stretch;
 mod weld;
 
@@ -56,6 +56,7 @@ pub use drawing::{
     Border, Composition, Container, Corner, Crop, Direction, Drawing, Element, ElementKind, FieldOn, Frame, Look, Paper, Perspective,
     Place, Placed, Presentation, Projection, Resolved, Sheet, Side, Subject, View, ViewKind, ViewStyle, field_key, text_fields,
 };
+pub use export::{ExportFormat, ExportPlan};
 pub use fast_hash::{FastBuild, FastHasher, FastMap, FastSet};
 pub use file::{Content, EXTENSION, FORMAT, FileView, SeenBoard, SeenCamera, SeenProjection, VERSION};
 pub use history::History;
@@ -72,7 +73,6 @@ use skraft_i18n::t;
 pub use skraft_kernel as kernel;
 pub use skraft_kernel::Primitive;
 pub use step::StepReport;
-pub use step_export::StepExportPlan;
 pub use stretch::StretchedPart;
 pub use stretch::{BodyStretch, DefChange};
 pub use weld::{WELD, Weld};

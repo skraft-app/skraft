@@ -100,8 +100,11 @@ pub enum Task {
         bytes: Vec<u8>,
     },
     /// Writes a STEP file of products whose bodies are the job's inputs
-    /// (docs/io/step-export.md). Produces no solid of the job's: an [`Output::StepFile`].
+    /// (docs/io/export.md). Produces no solid of the job's: an [`Output::StepFile`].
     ExportStep { export: Box<crate::StepExport> },
+    /// Writes a SketchUp file of products whose bodies are the job's inputs
+    /// (docs/io/export.md). Produces no solid of the job's: an [`Output::SkpFile`].
+    ExportSkp { export: Box<crate::SkpExport> },
     /// Panics with `message`, on purpose: tests how a kernel crash is recovered from (the
     /// app's Débogage menu). Natively the panic is caught: an error. In the web
     /// worker it aborts the wasm: the worker is replaced.
@@ -185,6 +188,11 @@ pub enum Output {
     SketchUp(Box<crate::SketchUpImport>),
     /// A STEP file written: its text ([`Task::ExportStep`]).
     StepFile(String),
+    /// A SketchUp file written, and what its release could not hold ([`Task::ExportSkp`]).
+    SkpFile {
+        bytes: Vec<u8>,
+        notes: Vec<String>,
+    },
 }
 
 /// A file's bytes crossing to the web worker as one MessagePack binary, not one number per

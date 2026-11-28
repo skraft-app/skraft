@@ -7,7 +7,7 @@ use skraft_model::kernel::{Error as KernelError, Job, JobId, Output, Quality, Ta
 use web_time::Instant;
 
 use super::journal::{Event, JobKind, Step};
-use skraft_model::{Applied, Document, EntityPath, History, Operation, Outcome, Prepared, Primitive};
+use skraft_model::{Applied, Document, EntityPath, ExportFormat, History, Operation, Outcome, Prepared, Primitive};
 
 use super::{Editor, NoticeKind};
 
@@ -471,7 +471,7 @@ impl Editor {
         self.poll();
     }
 
-    /// What an export of the selection writes (docs/io/step-export.md): the parts and
+    /// What an export of the selection writes (docs/io/export.md): the parts and
     /// assemblies selected at any depth (« Pièces »), else the occurrences selected in the
     /// context, else — bodies selected in a part open — that part, whole.
     pub fn export_selection(&self) -> Vec<EntityPath> {
@@ -486,25 +486,25 @@ impl Editor {
         self.selection.iter().filter(|id| context.occurrence(**id).is_some()).map(|id| EntityPath::new(self.context.clone(), *id)).collect()
     }
 
-    /// The STEP export of the selection (`selection`), else of the whole model named `model`
-    /// (docs/io/step-export.md); none when it holds no solid.
-    pub fn step_export_plan(&self, selection: bool, model: &str) -> Option<skraft_model::StepExportPlan> {
+    /// The export of the selection (`selection`), else of the whole model named `model`, as
+    /// `format` (docs/io/export.md); none when it holds no solid.
+    pub fn export_plan(&self, selection: bool, model: &str, format: ExportFormat) -> Option<skraft_model::ExportPlan> {
         let paths = if selection { self.export_selection() } else { Vec::new() };
         if selection && paths.is_empty() {
             return None;
         }
-        self.document().step_export(&paths, model)
+        self.document().export(&paths, model, format)
     }
 
-    /// Writes the selection (`selection`), else the whole model named `model`, as a STEP file
-    /// (docs/io/step-export.md), by the kernel; the app takes the bytes
+    /// Writes the selection (`selection`), else the whole model named `model`, as a `format`
+    /// file (docs/io/export.md), by the kernel; the app takes the bytes
     /// ([`Editor::take_exported`]).
-    pub fn export_step(&mut self, selection: bool, model: &str) {
-        let Some(plan) = self.step_export_plan(selection, model) else {
+    pub fn export(&mut self, selection: bool, model: &str, format: ExportFormat) {
+        let Some(plan) = self.export_plan(selection, model, format) else {
             self.notify(NoticeKind::Error, t!("notice.export_empty"), None);
             return;
         };
-        let name = format!("{}.step", plan.name.replace(['/', '\\', ':'], "-"));
+        let name = format!("{}.{}", plan.name.replace(['/', '\\', ':'], "-"), format.extension());
         let id = self.job_id();
         self.message = Some(skraft_i18n::ellipsis(t!("status.exporting", file = name)));
         self.exporting.insert(id, name);
@@ -518,6 +518,13 @@ impl Editor {
         self.message = None;
         match result.map(|mut o| o.pop()) {
             Ok(Some(Output::StepFile(text))) => self.exported = Some((name, text.into_bytes())),
+            Ok(Some(Output::SkpFile { bytes, notes })) => {
+                // What the release chosen could not hold, said (skpwright's notes, in English).
+                if !notes.is_empty() {
+                    self.notify(NoticeKind::Warning, t!("notice.export_notes", file = name), Some(notes.join("\n")));
+                }
+                self.exported = Some((name, bytes));
+            }
             Ok(_) => self.notify(NoticeKind::Error, t!("notice.export_failed", file = name), Some(t!("status.unexpected_reply"))),
             Err(e) => self.notify(NoticeKind::Error, t!("notice.export_failed", file = name), Some(e.to_string())),
         }

@@ -329,7 +329,17 @@ export:
   step: "STEP"
   step_tip: "Les solides exacts, que lisent les logiciels de CAO"
   skp: "SKP"
-  skp_tip: "Pas encore disponible"
+  skp_tip: "Des faces, que lit SketchUp : les surfaces courbes en facettes"
+  release: "Version"
+  r2017: "2017"
+  r2017_tip: "S'ouvre dans SketchUp Make 2017 et toutes les versions suivantes"
+  r2026: "2026"
+  r2026_tip: "Le format actuel, lu par SketchUp 2021 et les suivantes"
+  facets: "Facettes"
+  facets_tip: "La finesse des facettes des surfaces courbes"
+  coarse: "Grossières"
+  normal: "Normales"
+  fine: "Fines"
   content: "Contenu"
   model: "Modèle entier"
   model_tip: "Tout ce qui est visible, depuis l'origine du modèle"
@@ -1205,6 +1215,8 @@ notice:
   # The STEP export (docs/io/step-export.md): a model without a visible solid, or what the kernel refused.
   export_empty: "Rien à exporter : aucun solide visible"
   export_failed: "Export de %{file} impossible"
+  # What the SketchUp release chosen could not hold, left out of the file (the writer's notes under it).
+  export_notes: "%{file} : certains éléments ne tiennent pas dans cette version de SketchUp"
   # A creation tool made a part, « Créer un assemblage » an assembly or a group of bodies,
   # « Rendre unique » a definition of its own (docs/tools/quick-tools.md); the toast's button names it.
   part_created: "Nouvelle pièce créée : %{name}"

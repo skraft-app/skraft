@@ -123,7 +123,7 @@ pub struct Editor {
     load_end: Option<LoadEnd>,
     /// Files being read by the kernel (STEP), by job: their names (docs/io/step-import.md).
     importing: HashMap<JobId, String>,
-    /// Files being written by the kernel (STEP), by job: their names (docs/io/step-export.md).
+    /// Files being written by the kernel (STEP), by job: their names (docs/io/export.md).
     exporting: HashMap<JobId, String>,
     /// A file written, until the app takes it to save it: its name and bytes.
     exported: Option<(String, Vec<u8>)>,

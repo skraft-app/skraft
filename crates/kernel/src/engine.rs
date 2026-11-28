@@ -399,6 +399,10 @@ fn run_tasks(job: &Job, cx: &Context) -> JobResult {
             Task::Display { solid: i, quality } => Output::Display(input(*i)?.display_at(*quality).map_err(|e| e.to_string())),
             Task::ImportStep { bytes } => Output::Step(Box::new(crate::step::read::import(bytes, cx.report)?)),
             Task::ImportSketchUp { bytes } => Output::SketchUp(Box::new(crate::sketchup::read::import(bytes, cx.report)?)),
+            Task::ExportSkp { export } => {
+                let (bytes, notes) = crate::skp_export::write::export(export, &input)?;
+                Output::SkpFile { bytes, notes }
+            }
             Task::ExportStep { export } => Output::StepFile(crate::step_export::write::export(export, &input)?),
             Task::Panic { message } => guarded("panic", || -> Result<Output> { panic!("{message}") })?,
         };
