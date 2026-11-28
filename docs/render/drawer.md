@@ -127,7 +127,7 @@ cost.
 What is drawn in points on the screen rather than in the model goes through egui's painter, the
 3D view's as the drawing sheet's, with the shapes of `apps/skraft/src/kit/overlay.rs`: the dash
 patterns named by what they mean (`SELECTION`, `FRAME`, `GHOST`, `ALIGNMENT`, `TRACKED`, `LEVEL`),
-the selection rectangle (`marquee`), the square grip, the cross, a text turned about its corner
+the selection rectangle (`marquee`), the square grip, the cross, the `×` of an intersection (`x_mark`), a text turned about its corner
 (`turned_text`).
 
 *Why:* the two stages had their own copies, and their selection rectangles had drifted apart.

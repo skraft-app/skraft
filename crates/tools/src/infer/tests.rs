@@ -321,8 +321,55 @@ fn a_line_pierces_the_face_under_the_cursor() {
     let x = if fwd.x > 0.0 { 300.0 } else { 320.0 };
     let p = DVec3::new(x, 50.0, 50.0);
     let i = at_px_from(&e, px(&e, p) + DVec2::new(1.5, 1.0), from, None, None);
-    assert_eq!(i.kind, InferKind::OnLine(LineKind::Axis(0)), "{i:?}");
+    assert_eq!(i.kind, InferKind::OnFaceAndLine(LineKind::Axis(0)), "{i:?}");
     assert!(near(i.point, p), "{} {p}", i.point);
+    assert_eq!(i.kind.label(), "Face × axe rouge");
+    assert!(i.kind.is_intersection());
+    // It hangs on the start point: not a point to track.
+    assert!(!i.kind.is_trackable());
+}
+
+#[test]
+fn edges_of_two_solids_cross() {
+    let mut e = top_editor(DVec3::ZERO);
+    add_box(&mut e, DVec3::ZERO, DVec3::new(300.0, 200.0, 100.0));
+    add_box(&mut e, DVec3::new(110.0, -100.0, 0.0), DVec3::new(100.0, 400.0, 100.0));
+    // The top edges y = 0 of the first and x = 110 of the second, at z = 100.
+    let i = at(&e, DVec3::new(113.0, -3.0, 100.0));
+    assert_eq!((i.kind, i.point), (InferKind::OnTwoEdges, DVec3::new(110.0, 0.0, 100.0)), "{i:?}");
+    assert_eq!(i.crossed.len(), 2);
+    assert_eq!(i.kind.label(), "Arête × arête");
+    assert!(i.kind.is_trackable() && i.kind.is_intersection());
+    // Along an edge away from any crossing: on the edge.
+    assert_eq!(at(&e, DVec3::new(250.0, -3.0, 100.0)).kind, InferKind::OnEdge);
+}
+
+#[test]
+fn an_edge_pierces_the_face_of_another_solid() {
+    let mut e = view_editor(StandardView::Iso, DVec3::ZERO);
+    // A slab, a post through it.
+    add_box(&mut e, DVec3::new(-800.0, -800.0, 0.0), DVec3::new(1600.0, 1600.0, 50.0));
+    add_box(&mut e, DVec3::new(-400.0, -400.0, -700.0), DVec3::new(400.0, 400.0, 1200.0));
+    // The post's vertical edge facing the camera, where it leaves the slab's top.
+    let fwd = e.camera.forward();
+    let p = DVec3::new(if fwd.x > 0.0 { -400.0 } else { 0.0 }, if fwd.y > 0.0 { -400.0 } else { 0.0 }, 50.0);
+    // From either side of the edge on screen: below it the slab, above it the post's sides.
+    for d in [DVec2::new(2.0, 3.0), DVec2::new(-2.0, -3.0), DVec2::new(3.0, -2.0)] {
+        let i = at_px_from(&e, px(&e, p) + d, DVec3::new(-900.0, -900.0, 900.0), None, None);
+        assert_eq!(i.kind, InferKind::OnEdgeAndFace, "{d} {i:?}");
+        assert!(near(i.point, p), "{} {p}", i.point);
+        assert_eq!(i.kind.label(), "Arête × face");
+        assert!(i.kind.is_trackable());
+    }
+}
+
+#[test]
+fn crossings_of_fixed_curves_are_trackable() {
+    assert!(InferKind::OnTwoLines(LineKind::Guide, LineKind::Guide).is_trackable());
+    assert!(InferKind::OnEdgeAndLine(LineKind::Guide).is_trackable());
+    assert!(InferKind::OnGuideAndEdge.is_trackable());
+    assert!(!InferKind::OnTwoLines(LineKind::Axis(0), LineKind::Guide).is_trackable());
+    assert!(!InferKind::OnEdgeAndLine(LineKind::Parallel).is_trackable());
 }
 
 fn click_at(e: &mut Editor, p: DVec3) {

@@ -948,7 +948,7 @@ fn overlays(ui: &mut egui::Ui, theme: &Theme) {
             caption(ui, egui::pos2(cell(k as f32).left(), rect.bottom() - 8.0), name);
         }
     });
-    entry(ui, "overlay::leader · square_grip · cross · turned_text", |ui| {
+    entry(ui, "overlay::leader · square_grip · cross · x_mark · turned_text", |ui| {
         let rect = space(ui, egui::vec2(480.0, 90.0));
         let accent = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color);
         let anchor = rect.min + egui::vec2(10.0, 50.0);
@@ -957,9 +957,10 @@ fn overlays(ui: &mut egui::Ui, theme: &Theme) {
         overlay::leader(ui.painter(), anchor + egui::vec2(0.0, 20.0), end + egui::vec2(0.0, 50.0), 16.0, accent);
         overlay::square_grip(ui.painter(), rect.min + egui::vec2(170.0, 40.0), 8.0, ui.visuals().window_fill, accent);
         overlay::cross(ui.painter(), rect.min + egui::vec2(250.0, 40.0), 6.0, stroke);
+        overlay::x_mark(ui.painter(), rect.min + egui::vec2(310.0, 40.0), 7.0, 2.5, accent.color, stroke);
         let font = egui::TextStyle::Body.resolve(ui.style());
-        overlay::turned_text(ui.painter(), rect.min + egui::vec2(310.0, 70.0), -0.5, t!("gallery.sample.turned"), font, ink);
-        for (x, name) in [(10.0, "leader"), (150.0, "square_grip"), (235.0, "cross"), (330.0, "turned_text")] {
+        overlay::turned_text(ui.painter(), rect.min + egui::vec2(370.0, 70.0), -0.5, t!("gallery.sample.turned"), font, ink);
+        for (x, name) in [(10.0, "leader"), (150.0, "square_grip"), (235.0, "cross"), (290.0, "x_mark"), (390.0, "turned_text")] {
             caption(ui, egui::pos2(rect.left() + x, rect.bottom() - 6.0), name);
         }
     });

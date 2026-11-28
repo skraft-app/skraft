@@ -1968,6 +1968,14 @@ fn paint_inference(
             let [r, g, b, _] = skraft_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
             overlay::square_grip(painter, at, 9.0, Color32::from_rgb(r, g, b), outline);
         }
+        InferKind::OnTwoEdges | InferKind::OnEdgeAndFace => {
+            overlay::x_mark(painter, at, 7.0, 2.5, color(theme.on_edge), outline);
+        }
+        InferKind::OnFaceAndLine(_) => {
+            // In the line's colour.
+            let [r, g, b, _] = skraft_tools::tools::guide_color(kind).map(|c| (c * 255.0) as u8);
+            overlay::x_mark(painter, at, 7.0, 2.5, Color32::from_rgb(r, g, b), outline);
+        }
         InferKind::OnEdge => {
             overlay::square_grip(painter, at, 8.0, color(theme.on_edge), outline);
         }

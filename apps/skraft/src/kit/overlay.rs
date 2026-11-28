@@ -67,6 +67,19 @@ pub fn square_grip(painter: &egui::Painter, at: egui::Pos2, side: f32, fill: egu
     painter.rect(egui::Rect::from_center_size(at, egui::Vec2::splat(side)), 0.0, fill, stroke, egui::StrokeKind::Middle);
 }
 
+/// An `×` on `at` (where things cross), each arm `arm` points long: `fill` lines `width` wide
+/// over a wider `outline`, readable on any background.
+pub fn x_mark(painter: &egui::Painter, at: egui::Pos2, arm: f32, width: f32, fill: egui::Color32, outline: egui::Stroke) {
+    let d = arm / std::f32::consts::SQRT_2;
+    let arms = [[at + egui::vec2(-d, -d), at + egui::vec2(d, d)], [at + egui::vec2(-d, d), at + egui::vec2(d, -d)]];
+    for a in arms {
+        painter.line_segment(a, egui::Stroke::new(width + 2.0 * outline.width, outline.color));
+    }
+    for a in arms {
+        painter.line_segment(a, egui::Stroke::new(width, fill));
+    }
+}
+
 /// A `+` on `at`, each arm `arm` points long.
 pub fn cross(painter: &egui::Painter, at: egui::Pos2, arm: f32, stroke: egui::Stroke) {
     painter.line_segment([at - egui::vec2(arm, 0.0), at + egui::vec2(arm, 0.0)], stroke);

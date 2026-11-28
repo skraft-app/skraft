@@ -1787,6 +1787,8 @@ infer:
   on_edge: "Sur l'arête"
   on_face: "Sur la face"
   edge: "Arête"
+  # A face inside a crossing: « Arête × face », « Face × axe rouge ».
+  face: "Face"
   # A guide circle inside a crossing: « Guide × axe rouge ».
   guide: "Guide"
   on_guide: "Sur le guide"

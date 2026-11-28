@@ -23,13 +23,14 @@ mod points;
 #[cfg(test)]
 mod tests;
 
-use glam::{DVec2, DVec3};
+use glam::{DAffine3, DVec2, DVec3};
 use skraft_i18n::t;
+use skraft_kernel::Plane;
 use skraft_model::{EntityPath, GuideShape};
 
 use crate::camera::{Camera, Projector, Ray};
-use crate::scene::{DisplayScene, Hit, Owner, ray_box};
-use crossings::crossing;
+use crate::scene::{DisplayScene, Hit, Owner, Piece, ray_box};
+use crossings::{crossing, line_face};
 use curves::kept_guides;
 use lines::{Line, lines, on_line, two_lines};
 use points::infer_points;
@@ -152,6 +153,12 @@ pub enum InferKind {
     OnGuideAndEdge,
     /// Where two guide circles cross.
     OnTwoGuides,
+    /// Where edges of two solids cross.
+    OnTwoEdges,
+    /// Where an edge pierces the (planar) face of another solid under the cursor.
+    OnEdgeAndFace,
+    /// Where a line pierces the (planar) face under the cursor.
+    OnFaceAndLine(LineKind),
     /// On a line.
     OnLine(LineKind),
     /// On a guide circle (a guide line gives `OnLine(LineKind::Guide)`).
@@ -178,7 +185,10 @@ impl InferKind {
             | InferKind::OnTwoLines(..)
             | InferKind::OnGuideAndLine(_)
             | InferKind::OnGuideAndEdge
-            | InferKind::OnTwoGuides => 2,
+            | InferKind::OnTwoGuides
+            | InferKind::OnTwoEdges
+            | InferKind::OnEdgeAndFace
+            | InferKind::OnFaceAndLine(_) => 2,
             InferKind::OnLine(_) | InferKind::OnGuide => 3,
             InferKind::OnEdge => 4,
             InferKind::OnFace => 5,
@@ -192,10 +202,23 @@ impl InferKind {
         self.rank() <= 1 || self == InferKind::Third
     }
 
-    /// A point that can be tracked: the middle of the tracked points is not, it would replace
-    /// one of the two it stands on.
+    /// A point that can be tracked: a point of the geometry, or where curves of the scene
+    /// cross (edges, faces, guides, the axes as drawn: a point that does not hang on the tool's
+    /// start point). The middle of the tracked points is not, it would replace one of the two it
+    /// stands on.
     pub fn is_trackable(self) -> bool {
-        self.is_point() && self != InferKind::TrackedMiddle
+        match self {
+            InferKind::TrackedMiddle => false,
+            InferKind::OnTwoEdges | InferKind::OnEdgeAndFace | InferKind::OnGuideAndEdge | InferKind::OnTwoGuides => true,
+            InferKind::OnEdgeAndLine(l) | InferKind::OnGuideAndLine(l) | InferKind::OnFaceAndLine(l) => l.is_fixed(),
+            InferKind::OnTwoLines(a, b) => a.is_fixed() && b.is_fixed(),
+            k => k.is_point(),
+        }
+    }
+
+    /// Where curves or faces of the scene cross: drawn as a cross.
+    pub fn is_intersection(self) -> bool {
+        matches!(self, InferKind::OnTwoEdges | InferKind::OnEdgeAndFace | InferKind::OnFaceAndLine(_))
     }
 
     /// A point the geometry or a line gives, not just somewhere on a face or a plane: what a
@@ -207,7 +230,11 @@ impl InferKind {
     /// The (first) line the point is on, if any.
     pub fn line(self) -> Option<LineKind> {
         match self {
-            InferKind::OnLine(l) | InferKind::OnEdgeAndLine(l) | InferKind::OnTwoLines(l, _) | InferKind::OnGuideAndLine(l) => Some(l),
+            InferKind::OnLine(l)
+            | InferKind::OnEdgeAndLine(l)
+            | InferKind::OnTwoLines(l, _)
+            | InferKind::OnGuideAndLine(l)
+            | InferKind::OnFaceAndLine(l) => Some(l),
             _ => None,
         }
     }
@@ -231,6 +258,9 @@ impl InferKind {
             InferKind::OnGuideAndLine(l) => format!("{} × {}", t!("infer.guide"), l.name()),
             InferKind::OnGuideAndEdge => format!("{} × {}", t!("infer.guide"), t!("infer.edge").to_lowercase()),
             InferKind::OnTwoGuides => format!("{} × {}", t!("infer.guide"), t!("infer.line.guide")),
+            InferKind::OnTwoEdges => format!("{} × {}", t!("infer.edge"), t!("infer.edge").to_lowercase()),
+            InferKind::OnEdgeAndFace => format!("{} × {}", t!("infer.edge"), t!("infer.face").to_lowercase()),
+            InferKind::OnFaceAndLine(l) => format!("{} × {}", t!("infer.face"), l.name()),
             InferKind::OnLine(l) => l.on_label(),
             InferKind::OnGuide => t!("infer.on_guide"),
             InferKind::OnEdge => t!("infer.on_edge"),
@@ -368,6 +398,12 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         let point = match &base {
             // A feature hovered: the point of the line nearest to it.
             Some(b) if b.kind.is_feature() => origin + l.dir * (b.point - origin).dot(l.dir),
+            // Where the locked line pierces the face under the cursor.
+            _ if let Some(h) = &hit
+                && let Some((_, p, _)) = line_face(scene, camera, size, &screen, px, q, h, &[l]) =>
+            {
+                return Some(on_face_and_line(p, &l, hit.clone()));
+            }
             _ => on_line(&ray, &screen, px, &l, hit.as_ref()),
         };
         return Some(Inference::on_lines(point, InferKind::OnLine(l.kind), None, hit, &l, None));
@@ -386,24 +422,26 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
         return base;
     }
 
-    // Points built from two things: a line and an edge, or two lines.
-    let edge = crossing(scene, camera, size, &screen, px, q, &lines);
-    let two = two_lines(camera, size, &screen, px, &lines);
-    let edge_dist = edge.as_ref().and_then(|c| screen.project(c.point)).map(|s| s.distance(px));
-    let meet = |p, a: &Line, b: &Line, hit| Inference::on_lines(p, InferKind::OnTwoLines(a.kind, b.kind), None, hit, a, Some(b));
-    match (edge, two) {
-        (Some(_), Some((d2, p, i, j))) if d2 < edge_dist.unwrap_or(f64::INFINITY) && d2 < built_dist => {
-            return Some(meet(p, &lines[i], &lines[j], hit));
-        }
-        (Some(c), _) if edge_dist.unwrap_or(f64::INFINITY) < built_dist => {
-            let l = lines[c.line];
-            return Some(c.inference(&l, hit));
-        }
-        (None, Some((d2, p, i, j))) if d2 < built_dist => return Some(meet(p, &lines[i], &lines[j], hit)),
-        _ => {}
+    // Points built from two things: a line and an edge, two lines, a line and the face under
+    // the cursor. The nearest on screen wins; at equal distance, the geometry's, then in that
+    // order.
+    let mut builds: Vec<(f64, Inference)> = built.map(|b| (built_dist, b.clone())).into_iter().collect();
+    if let Some(c) = crossing(scene, camera, size, &screen, px, q, &lines) {
+        let d = screen.project(c.point).map_or(f64::INFINITY, |s| s.distance(px));
+        let l = lines[c.line];
+        builds.push((d, c.inference(&l, hit.clone())));
     }
-    if built.is_some() {
-        return base;
+    if let Some((d, p, i, j)) = two_lines(camera, size, &screen, px, &lines) {
+        let (a, b) = (&lines[i], &lines[j]);
+        builds.push((d, Inference::on_lines(p, InferKind::OnTwoLines(a.kind, b.kind), None, hit.clone(), a, Some(b))));
+    }
+    if let Some(h) = &hit
+        && let Some((d, p, k)) = line_face(scene, camera, size, &screen, px, q, h, &lines)
+    {
+        builds.push((d, on_face_and_line(p, &lines[k], hit.clone())));
+    }
+    if let Some((_, i)) = builds.into_iter().reduce(|a, b| if b.0 < a.0 { b } else { a }) {
+        return Some(i);
     }
 
     let mut best: Option<(f64, DVec3, usize)> = None;
@@ -439,6 +477,14 @@ pub fn infer(scene: &DisplayScene, camera: &Camera, size: DVec2, px: DVec2, q: &
     }
 }
 
+/// The point where the line `l` pierces the face `hit` hits.
+fn on_face_and_line(p: DVec3, l: &Line, hit: Option<Hit>) -> Inference {
+    let path = hit.as_ref().map(|h| h.path.clone());
+    let mut i = Inference::on_lines(p, InferKind::OnFaceAndLine(l.kind), path, hit, l, None);
+    i.crossed = l.as_ref().into_iter().collect();
+    i
+}
+
 /// Can the bounds `b` (world) hold a feature within the aperture of the ray?
 fn near_ray(camera: &Camera, size: DVec2, ray: &Ray, (lo, hi): (DVec3, DVec3)) -> bool {
     // A pixel's size grows with depth: take it at the farthest corner.
@@ -471,4 +517,45 @@ fn visible(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projecto
         // curved faces) and a hair for rounding.
         Some(h) => h.t >= depth - camera.world_per_pixel(size, p) * 3.0 - 1e-9 * p.length().max(1.0),
     }
+}
+
+/// The plane of the face `hit` if it is planar (world point, unit normal).
+fn face_plane(scene: &DisplayScene, hit: &Hit) -> Option<(DVec3, DVec3)> {
+    let (t, part) = scene.inferable_at(hit)?;
+    placed_plane(&t, part.snaps.planes.get(hit.face as usize).copied().flatten()?)
+}
+
+/// A plane placed by `t` (world point, unit normal).
+fn placed_plane(t: &DAffine3, plane: Plane) -> Option<(DVec3, DVec3)> {
+    // A normal goes by the inverse transpose: a placement may scale unevenly.
+    let n = (t.matrix3.inverse().transpose() * plane.normal).try_normalize()?;
+    Some((t.transform_point3(plane.point), n))
+}
+
+/// The face `face` of the solid `path`'s `piece`.
+#[derive(Clone, Copy)]
+struct FaceOf<'a> {
+    path: &'a EntityPath,
+    piece: Piece,
+    face: u32,
+}
+
+impl<'a> From<&'a Hit> for FaceOf<'a> {
+    fn from(h: &'a Hit) -> Self {
+        FaceOf { path: &h.path, piece: h.piece, face: h.face }
+    }
+}
+
+/// Is `p` on the face `f` (not only on its plane) and seen? Its own ray meets that face of that
+/// solid first, at its depth — another solid may meet the ray there too (the edge piercing the
+/// face) —, and nothing hides it.
+fn on_face(scene: &DisplayScene, camera: &Camera, size: DVec2, screen: &Projector, p: DVec3, f: FaceOf<'_>, q: &Query<'_>) -> bool {
+    let Some(s) = screen.project(p) else { return false };
+    let ray = camera.ray(s, size);
+    let depth = (p - ray.origin).dot(ray.dir);
+    let of_f = |o: &Owner<'_>| o.piece == f.piece && o.path == f.path;
+    scene
+        .pick_inferable(&ray, of_f)
+        .is_some_and(|h| h.face == f.face && (h.t - depth).abs() <= camera.world_per_pixel(size, p) * 3.0 + 1e-9 * p.length().max(1.0))
+        && visible(scene, camera, size, screen, p, q)
 }
