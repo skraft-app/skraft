@@ -801,3 +801,22 @@ fn a_dimension_anchor_follows_its_vertex_by_name_through_a_stretch() {
     h.apply(Operation::Delete { context: root, entities: vec![b] }).unwrap();
     assert_eq!(h.document().find(&Subject::Model, &anchor), None);
 }
+
+/// A blank sheet takes the paper of its presentation's sheet made last, as it is now; an empty
+/// presentation, A4 landscape.
+#[test]
+fn next_paper_is_the_last_made_sheets() {
+    let mut h = History::new(Document::new());
+    let p = h.apply(Operation::AddPresentation { name: None, paper: None }).unwrap().presentation.unwrap();
+    let paper = |h: &History| h.document().drawing().presentations.iter().find(|x| x.id == p).unwrap().next_paper();
+    assert_eq!(paper(&h), Paper::A4);
+    let first = sheet_of(&mut h, Some(p), Paper::A2);
+    let last = sheet_of(&mut h, Some(p), Paper::A3);
+    assert_eq!(paper(&h), Paper::A3);
+    h.apply(Operation::MoveSheet { sheet: last, presentation: Some(p), index: 0 }).unwrap();
+    assert_eq!(paper(&h), Paper::A3, "made last, not listed last");
+    h.apply(Operation::SetSheet { sheet: last, name: "Plan".into(), paper: Paper::A1, grid: 0.0, border: None }).unwrap();
+    assert_eq!(paper(&h), Paper::A1, "its paper as it is now");
+    h.apply(Operation::DeleteSheet { sheet: last }).unwrap();
+    assert_eq!(paper(&h), h.document().drawing().sheet(first).unwrap().paper);
+}

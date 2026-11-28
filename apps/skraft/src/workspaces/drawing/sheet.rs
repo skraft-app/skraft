@@ -721,10 +721,12 @@ fn subject_of_selection(e: &Editor) -> Subject {
     subject_of_paths(e.document(), &paths)
 }
 
-/// A new sheet, A4 landscape, in the presentation shown, shown.
+/// A new sheet in the presentation shown, on the paper of its sheet made last (none: A4
+/// landscape), shown.
 pub fn new_sheet(e: &mut Editor, st: &mut SheetState) {
-    let presentation = st.presentation(e.document().drawing()).map(|p| p.id);
-    if let Ok(Some(o)) = e.apply(Operation::AddSheet { presentation, name: None, paper: Paper::DEFAULT })
+    let shown = st.presentation(e.document().drawing());
+    let (presentation, paper) = (shown.map(|p| p.id), shown.map_or(Paper::DEFAULT, |p| p.next_paper()));
+    if let Ok(Some(o)) = e.apply(Operation::AddSheet { presentation, name: None, paper })
         && let Some(s) = o.sheet
     {
         st.show_sheet(s);

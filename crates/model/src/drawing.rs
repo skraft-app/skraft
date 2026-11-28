@@ -56,6 +56,14 @@ pub struct Presentation {
     pub sheets: Vec<Sheet>,
 }
 
+impl Presentation {
+    /// The paper of a blank sheet added to it: that of its sheet made last (the highest id, its
+    /// paper as it is now), else the default (docs/ui/drawing.md#presentations).
+    pub fn next_paper(&self) -> Paper {
+        self.sheets.iter().max_by_key(|s| s.id).map_or(Paper::DEFAULT, |s| s.paper)
+    }
+}
+
 /// A sheet of paper: its size and its elements, in the order they are drawn.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Sheet {

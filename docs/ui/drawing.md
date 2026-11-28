@@ -293,7 +293,9 @@ A presentation is a document of sheets for someone (« Atelier », « Client »)
 numbered on their own (`Drawing::sheet_number`), it says where its projected views go
 (`projection`) and holds values for its fields ([Fields](#fields)). A sheet belongs to one; the
 compositions are common to all. « Nouvelle présentation » (`drawing.new_presentation`) makes one with
-an A4 landscape sheet, in one step, and shows it. Its PDF is a file of its own ([PDF](#pdf)).
+an A4 landscape sheet, in one step, and shows it; « Nouvelle feuille » adds a blank sheet on the
+paper of the presentation's sheet made last (the highest id, as it is now), so a presentation
+switched to A3 goes on in A3. Its PDF is a file of its own ([PDF](#pdf)).
 
 ## Navigator
 
@@ -670,8 +672,8 @@ Each change is one operation (`SetElement`, `SetSheet`, `SetPresentation`, `SetF
 
 The fixed group: Select and Erase (`edit.erase`). One tab, « Feuille ». Its group « Présentation »:
 « Nouvelle présentation » (`drawing.new_presentation`, blank; from a template, in the
-[navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`, A4, shown) and « Exporter en
-PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: [the dialog](#choosing-what-a-view-shows), then
+[navigator](#navigator)), « Nouvelle feuille » (`drawing.new_sheet`, on the paper of the sheet
+made last, shown) and « Exporter en PDF ». Its group « Vue »: « Nouvelle vue » (`drawing.add_view`: [the dialog](#choosing-what-a-view-shows), then
 a click places its front view, at the largest standard scale (10:1 to 1:5000) fitting half the
 paper), « Vue projetée » (`drawing.project_view`, checked while its tool runs); the groups « Dessiner »,
 « Organiser » (« Créer une composition », « Éclater », « Rendre unique »), « Coter » and
