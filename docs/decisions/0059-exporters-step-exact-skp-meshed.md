@@ -1,7 +1,7 @@
 # Exporters: STEP exact, by the kernel; SketchUp later, as meshes
 
-- Status: accepted (2026-11-28; STEP built, SketchUp not started)
-- Design: [STEP export](../io/step-export.md)
+- Status: accepted (2026-11-28; STEP and SketchUp built)
+- Design: [Export](../io/export.md)
 
 ## Context
 
@@ -23,8 +23,8 @@ CNC workflow or SketchUp reads. Both libraries the imports use also write:
 geometry (curved faces as facets, smoothed edges) and needs a check that SketchUp opens what
 skpwright writes.
 
-**An export box** (**Fichier › Exporter…**, `file.export`): the format (STEP; SKP to
-come, with its options), the content — the whole model or the selection —, the parts that go
+**An export box** (**Fichier › Exporter…**, `file.export`): the format (STEP; SKP with its
+release and facets), the content — the whole model or the selection —, the parts that go
 out; then the system's save panel. **Why** a box rather than a command per format and content:
 the SketchUp export will have options, and a selection exported by surprise (a part left
 selected) would make a file missing most of the model.
@@ -53,6 +53,13 @@ in it. Bodies selected in an open part export the part, whole.
 - **Refused as a whole**: a body the writer refuses fails the export, naming the part; no
   faceted fallback.
 
+**SketchUp, as faces** (skpwright): a definition per component, placed by instances (mirrors
+kept: SketchUp places them); each part's final shape meshed, a planar face one SketchUp face
+with its holes, a curved face its facets, softened and smoothed between them. The box chooses
+the **release** — 2017 by default, opened by SketchUp Make 2017 and every later release, or
+2026 — and **how fine the facets** are (coarse, as displayed, fine). A part's colour goes on
+its instances, as OpenCutList reads it; a face painted on its own on the face.
+
 ## Alternatives considered
 
 - **Writing in the model crate, on the UI thread**: the web UI would link `solidcore-step`
@@ -68,12 +75,16 @@ in it. Bodies selected in an open part export the part, whole.
   a file as large as its copies, the tree lost.
 - **A faceted body (`FACETED_BREP`) when the exact record is refused**: a file that looks
   right and is not; better to say which part did not go out.
+- **All triangles in SketchUp**: a box as twelve triangles is no box to push and pull.
+- **Only the 2026 release**: SketchUp Make 2017, free and still common in workshops, would not
+  open the files.
 - **SketchUp first**: more asked by woodworkers, but lossy and unverified; STEP is exact and
   only needs the model's structure mapped.
 
 ## Consequences
 
 - Not written yet: material designations and a bought component's source (the import reads
-  them, the writer has no entity for them), properties, guides, the drawing; a file per part.
+  them, the writer has no entity for them), properties, guides, the drawing; a file per part;
+  OpenCutList's attributes in a SketchUp file.
 - A model with a mirrored part holds both hands in the file: two products of the same name.
 - The time stamp of the header is left empty (no clock in the kernel's worker).
