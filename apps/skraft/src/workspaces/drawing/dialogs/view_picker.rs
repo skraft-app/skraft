@@ -204,7 +204,6 @@ impl ViewPicker {
             let (mut toggled, mut folded) = (None, None);
             // The library's size: one thumbnail each, drawn once.
             let px = ((crate::system::thumbnails::TILE * ctx.pixels_per_point()).round() as u32).clamp(16, 512);
-            let dark = ui.visuals().dark_mode;
             egui::ScrollArea::vertical()
                 .id_salt("view_picker_rows")
                 .max_height(LIST_HEIGHT)
@@ -225,7 +224,7 @@ impl ViewPicker {
                             }
                             let ticked = tick(ui, ticks).clicked();
                             let (thumb, _) = ui.allocate_exact_size(egui::Vec2::splat(LIST_THUMB), egui::Sense::hover());
-                            if let Some(texture) = thumbnails.get(doc_id, e, row.component, dark, px) {
+                            if let Some(texture) = thumbnails.get(doc_id, e, row.component, px) {
                                 let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
                                 ui.painter().image(texture, thumb, uv, egui::Color32::WHITE);
                             }

@@ -83,7 +83,8 @@ Decision [0038](../decisions/0038-components-library-card.md).
   and its statistics then put back: a still view stays still.
 - **Cached** (`thumbnails::Thumbnails`, in the viewport, all documents together), each under
   a **key**: what it draws (its placements and their materials' colours, made again with the
-  document's history revision), its meshes' revisions, the theme, its size in pixels. The card
+  document's history revision), its meshes' revisions, the theme's colours it is drawn in (a palette
+  changed, not only light / dark, draws them again), its size in pixels. The card
   asks for those it shows (`Thumbnails::get`): one missing or out of date is drawn at the
   viewport's next frame, **within 6 ms per frame** (the others the frames after), and
   registered as an egui texture (`register_native_texture`); the one drawn before shows
