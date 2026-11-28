@@ -139,7 +139,14 @@ impl SkraftApp {
     /// following the pointer. Gives the view's span left free between the columns (x).
     /// The docked cards, in columns from `top` (the view's top, or under the ribbon when it is
     /// above them) to the bottom of the view.
-    fn side_panels(&mut self, ctx: &egui::Context, view: egui::Rect, top: f32, margin: f32, actions: &mut Vec<Action>) -> egui::Rangef {
+    fn side_panels(
+        &mut self,
+        ctx: &egui::Context,
+        view: egui::Rect,
+        top: f32,
+        margin: f32,
+        actions: &mut Vec<Action>,
+    ) -> (egui::Rangef, [f32; 2]) {
         let style = ctx.global_style();
         let frame = card_frame(&style).total_margin().sum();
         let header = style.spacing.interact_size.y;
@@ -163,6 +170,11 @@ impl SkraftApp {
             }
             columns.push((side, x, width, placed));
         }
+        // Under each column's cards (the folded ones, the shorter ones), the view's edge is free.
+        let clear = [Dock::Left, Dock::Right].map(|side| {
+            let placed = &columns.iter().find(|c| c.0 == side).expect("both columns").3;
+            placed.last().map_or(f32::NEG_INFINITY, |p| p.top + p.height + margin)
+        });
         if let (Some(d), Some(p)) = (self.panel_drag, pointer) {
             let rect = egui::Rect::from_min_size(p - d.offset, d.size);
             let edges = Edges { side: None, bottom: false, sheet: None, max_width, min_height: metrics.min_height };
@@ -213,7 +225,7 @@ impl SkraftApp {
                 }
             }
         }
-        free
+        (free, clear)
     }
 
     /// One side panel in `rect`: its header (click: fold, drag: move it) and its content, and
@@ -588,7 +600,13 @@ impl SkraftApp {
             if stage == Stage::Sheet {
                 return;
             }
-            let room = Room { view: area, margin, below_ribbon: area.top() + margin, free: (area.left(), area.right()) };
+            let room = Room {
+                view: area,
+                margin,
+                below_ribbon: area.top() + margin,
+                free: (area.left(), area.right()),
+                clear: [f32::NEG_INFINITY; 2],
+            };
             let free_top = self.option_cards(ctx, room, actions);
             self.view_overlays(ctx, room, free_top, views, actions);
             return;
@@ -597,7 +615,7 @@ impl SkraftApp {
         self.stage_ui(ui, frame, i, area, view, margin);
         let (above, below_ribbon) = self.ribbon_ui(ctx, area, split, margin, views, actions);
         let columns_top = if above { below_ribbon } else { area.top() + margin };
-        let free = self.side_panels(ctx, area, columns_top, margin, actions);
+        let (free, clear) = self.side_panels(ctx, area, columns_top, margin, actions);
         // A split stage's table, from the left column to the view: the area's whole height, as
         // the columns, when the ribbon fits beside it, else under the ribbon.
         if let Some(s) = split {
@@ -610,7 +628,9 @@ impl SkraftApp {
         if stage == Stage::Sheet {
             return;
         }
-        let room = Room { view, margin, below_ribbon, free: (free_left, free_right) };
+        // A split stage's left column is over its table, not over the view.
+        let clear = if split.is_some() { [f32::NEG_INFINITY, clear[1]] } else { clear };
+        let room = Room { view, margin, below_ribbon, free: (free_left, free_right), clear };
         let free_top = self.option_cards(ctx, room, actions);
         self.view_overlays(ctx, room, free_top, views, actions);
     }
@@ -622,7 +642,7 @@ impl SkraftApp {
     /// a pass whose widths changed is discarded, so the cards are never shown misplaced while
     /// they settle). Gives where what is under them starts.
     fn option_cards(&mut self, ctx: &egui::Context, room: Room, actions: &mut Vec<Action>) -> f32 {
-        let Room { view, margin, below_ribbon, free: (free_left, free_right) } = room;
+        let Room { view, margin, below_ribbon, free: (free_left, free_right), .. } = room;
         let options_id = egui::Id::unique("tool_options");
         let widths_id = options_id.with("widths");
         let mut free_top = below_ribbon;
@@ -700,21 +720,29 @@ impl SkraftApp {
     /// What floats over the 3D view: the view bar, the tree drop-up, the steps bar, the quick
     /// tools' card; then what zoom extents frames, from `free_top` down.
     fn view_overlays(&mut self, ctx: &egui::Context, room: Room, free_top: f32, views: &[CommandView], actions: &mut Vec<Action>) {
-        let Room { view, margin, below_ribbon, free: (free_left, free_right) } = room;
+        let Room { view, margin, below_ribbon, free: (free_left, free_right), clear } = room;
         let Some(doc) = self.docs.active_mut() else { return };
         // The view bar (docs/ui/view-bar.md): over the left or right edge, beside that side's
-        // column, centered on the view's height but never over the ribbon; what zoom extents
-        // frames stops at it.
+        // column, at the view's edge when it is under the column's cards, centered on the view's
+        // height but never over the ribbon; what zoom extents frames stops at it.
         let bar_width = crate::workspaces::common::viewport::view_bar::width(&ctx.global_style());
-        let left_x = if free_left > view.left() { free_left } else { view.left() + margin };
+        let edges = [view.left() + margin, view.right() - margin - bar_width];
+        let left_x = if free_left > view.left() { free_left } else { edges[0] };
         let right_x = if free_right < view.right() { free_right } else { view.right() - margin } - bar_width;
         let side = self.prefs.view_bar_side;
         let heights = egui::Rangef::new(below_ribbon, view.bottom() - margin);
-        let place = crate::workspaces::common::viewport::view_bar::Place { side, xs: [left_x, right_x], heights, center: view.center().y };
-        crate::workspaces::common::viewport::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
+        let place = crate::workspaces::common::viewport::view_bar::Place {
+            side,
+            xs: [left_x, right_x],
+            edges,
+            clear,
+            heights,
+            center: view.center().y,
+        };
+        let bar = crate::workspaces::common::viewport::view_bar::bar(ctx, view, &place, &self.prefs.view_bar, views, actions);
         let (free_left, free_right) = match side {
-            crate::window::dock::Dock::Left => (left_x + bar_width + margin, free_right),
-            crate::window::dock::Dock::Right => (free_left, right_x - margin),
+            crate::window::dock::Dock::Left => (free_left.max(bar.right() + margin), free_right),
+            crate::window::dock::Dock::Right => (free_left, free_right.min(bar.left() - margin)),
         };
         // OCL's tree drop-up, at the cursor where it was opened (docs/tools/selection.md).
         if let Some(tree) = doc.editor.tree() {
@@ -865,6 +893,8 @@ struct Room {
     below_ribbon: f32,
     /// The xs the side columns leave free over the view.
     free: (f32, f32),
+    /// Below which each column (left, right) leaves the view's edge free.
+    clear: [f32; 2],
 }
 
 /// The edges of a side panel that can be dragged.
