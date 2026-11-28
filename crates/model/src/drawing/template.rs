@@ -202,7 +202,7 @@ impl Document {
         };
         match from {
             Some(from) => self.sheet_from(template, from, presentation, name, &mut HashMap::new()),
-            None => self.add_sheet(presentation, name, Paper::A3),
+            None => self.add_sheet(presentation, name, Paper::DEFAULT),
         }
     }
 

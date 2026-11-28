@@ -108,6 +108,8 @@ impl Paper {
     pub const A2: Paper = Paper { width: 594.0, height: 420.0 };
     pub const A1: Paper = Paper { width: 841.0, height: 594.0 };
     pub const A0: Paper = Paper { width: 1189.0, height: 841.0 };
+    /// A blank sheet's paper when nothing gives another (docs/ui/drawing.md#presentations).
+    pub const DEFAULT: Paper = Paper::A4;
 
     pub fn size(self) -> DVec2 {
         DVec2::new(self.width, self.height)

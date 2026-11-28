@@ -721,10 +721,10 @@ fn subject_of_selection(e: &Editor) -> Subject {
     subject_of_paths(e.document(), &paths)
 }
 
-/// A new sheet, A3 landscape, in the presentation shown, shown.
+/// A new sheet, A4 landscape, in the presentation shown, shown.
 pub fn new_sheet(e: &mut Editor, st: &mut SheetState) {
     let presentation = st.presentation(e.document().drawing()).map(|p| p.id);
-    if let Ok(Some(o)) = e.apply(Operation::AddSheet { presentation, name: None, paper: Paper::A3 })
+    if let Ok(Some(o)) = e.apply(Operation::AddSheet { presentation, name: None, paper: Paper::DEFAULT })
         && let Some(s) = o.sheet
     {
         st.show_sheet(s);
@@ -768,9 +768,9 @@ pub fn presentation_from(e: &mut Editor, st: &mut SheetState, template: Arc<skra
     }
 }
 
-/// A new presentation with a first sheet, A3 landscape, shown.
+/// A new presentation with a first sheet, A4 landscape, shown.
 pub fn new_presentation(e: &mut Editor, st: &mut SheetState) {
-    if let Ok(Some(o)) = e.apply(Operation::AddPresentation { name: None, paper: Some(Paper::A3) }) {
+    if let Ok(Some(o)) = e.apply(Operation::AddPresentation { name: None, paper: Some(Paper::DEFAULT) }) {
         st.presentation = o.presentation;
         if let Some(s) = o.sheet {
             st.show_sheet(s);
