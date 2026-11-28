@@ -8,7 +8,7 @@ use skraft_model::ExportFormat;
 use skraft_model::kernel::{Facets, SkpRelease};
 
 use crate::docs::DocId;
-use crate::kit::widgets::{Confirm, Segment, confirm_buttons, form_choice};
+use crate::kit::widgets::{Confirm, FormValue, confirm_buttons, form_list};
 
 /// The format and its options last chosen: the next box opens on them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -63,46 +63,36 @@ impl Dialog {
         let parts = self.parts();
         let export = |d: &Dialog| Answer::Export { selection: d.selection, choice: d.choice };
         let modal = crate::app::modal(ctx, egui::Id::unique("export"), 380.0, t!("export.title"), |ui| {
+            let v = |label: String, help: String, enabled: bool| FormValue { label, help, enabled };
             let c = &mut self.choice;
-            let formats = [
-                Segment::new(&t!("export.step"), &t!("export.step_tip"), None, !c.skp),
-                Segment::new(&t!("export.skp"), &t!("export.skp_tip"), None, c.skp),
-            ];
-            if let Some(i) =
-                form_choice(ui, egui::Id::unique("export.format"), &t!("export.format"), &formats, |i| format!("export.format:{i}"))
-            {
+            let formats = [v(t!("export.step"), t!("export.step_tip"), true), v(t!("export.skp"), t!("export.skp_tip"), true)];
+            if let Some(i) = form_list(ui, egui::Id::unique("export.format"), &t!("export.format"), &formats, usize::from(c.skp)) {
                 c.skp = i == 1;
             }
             if c.skp {
                 ui.add_space(4.0);
-                let releases = [
-                    Segment::new(&t!("export.r2017"), &t!("export.r2017_tip"), None, c.release == SkpRelease::R2017),
-                    Segment::new(&t!("export.r2026"), &t!("export.r2026_tip"), None, c.release == SkpRelease::R2026),
-                ];
-                if let Some(i) =
-                    form_choice(ui, egui::Id::unique("export.release"), &t!("export.release"), &releases, |i| format!("export.release:{i}"))
-                {
-                    c.release = [SkpRelease::R2017, SkpRelease::R2026][i];
+                const RELEASES: [SkpRelease; 2] = [SkpRelease::R2017, SkpRelease::R2026];
+                let releases = [v(t!("export.r2017"), t!("export.r2017_tip"), true), v(t!("export.r2026"), t!("export.r2026_tip"), true)];
+                let at = RELEASES.iter().position(|r| *r == c.release).unwrap_or(0);
+                if let Some(i) = form_list(ui, egui::Id::unique("export.release"), &t!("export.release"), &releases, at) {
+                    c.release = RELEASES[i];
                 }
                 ui.add_space(4.0);
                 const FACETS: [Facets; 3] = [Facets::Coarse, Facets::Normal, Facets::Fine];
-                let labels = [t!("export.coarse"), t!("export.normal"), t!("export.fine")];
-                let facets: Vec<Segment> =
-                    FACETS.iter().zip(&labels).map(|(f, l)| Segment::new(l, &t!("export.facets_tip"), None, c.facets == *f)).collect();
-                if let Some(i) =
-                    form_choice(ui, egui::Id::unique("export.facets"), &t!("export.facets"), &facets, |i| format!("export.facets:{i}"))
-                {
+                let facets = [t!("export.coarse"), t!("export.normal"), t!("export.fine")].map(|l| v(l, t!("export.facets_tip"), true));
+                let at = FACETS.iter().position(|f| *f == c.facets).unwrap_or(1);
+                if let Some(i) = form_list(ui, egui::Id::unique("export.facets"), &t!("export.facets"), &facets, at) {
                     c.facets = FACETS[i];
                 }
             }
             ui.add_space(4.0);
             let selection_tip = if self.selected.is_some() { t!("export.selection_tip") } else { t!("export.selection_none") };
             let contents = [
-                Segment::new(&t!("export.model"), &t!("export.model_tip"), None, !self.selection).enabled(self.model.is_some()),
-                Segment::new(&t!("export.selection"), &selection_tip, None, self.selection).enabled(self.selected.is_some()),
+                v(t!("export.model"), t!("export.model_tip"), self.model.is_some()),
+                v(t!("export.selection"), selection_tip, self.selected.is_some()),
             ];
             if let Some(i) =
-                form_choice(ui, egui::Id::unique("export.content"), &t!("export.content"), &contents, |i| format!("export.content:{i}"))
+                form_list(ui, egui::Id::unique("export.content"), &t!("export.content"), &contents, usize::from(self.selection))
             {
                 self.selection = i == 1;
             }
