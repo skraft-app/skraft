@@ -3,6 +3,7 @@
 //! is wrong; a warning in a tinted box.
 
 use super::button::OPTION_HEIGHT;
+use super::choice::ChoiceList;
 use super::field::{FieldLook, live_field};
 use super::segmented::{Segment, segmented};
 
@@ -72,6 +73,41 @@ pub(crate) fn form_choice(
     ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| segmented(ui, id, segments, handle)).inner
+    })
+    .inner
+}
+
+/// A list's width in a form row (points): its lists line up, whatever their values.
+pub(crate) const FORM_LIST_WIDTH: f32 = 170.0;
+
+/// A value of a [`form_list`]: its label, what it does (the open list's note), whether it can be
+/// chosen.
+pub(crate) struct FormValue {
+    pub(crate) label: String,
+    pub(crate) help: String,
+    pub(crate) enabled: bool,
+}
+
+/// A row choosing among values listed: the label on the left, a [`ChoiceList`] of the values
+/// (`chosen` shown) against the right edge, [`FORM_LIST_WIDTH`] wide (the export box). The index
+/// of a value picked other than the chosen one.
+pub(crate) fn form_list(ui: &mut egui::Ui, id: egui::Id, label: &str, values: &[FormValue], chosen: usize) -> Option<usize> {
+    let row = egui::vec2(ui.available_width(), OPTION_HEIGHT);
+    ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut picked = None;
+            let shown = values.get(chosen).map(|v| v.label.clone()).unwrap_or_default();
+            ChoiceList::new(id, shown).width(FORM_LIST_WIDTH).show(ui, |list| {
+                for (i, v) in values.iter().enumerate() {
+                    if list.option(i == chosen, v.enabled, &v.label, &v.help) && i != chosen {
+                        picked = Some(i);
+                    }
+                }
+            });
+            picked
+        })
+        .inner
     })
     .inner
 }

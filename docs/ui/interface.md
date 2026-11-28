@@ -283,7 +283,9 @@ In `apps/skraft/src/kit/widgets.rs`:
   semibold and the accent's ink, while a figure beside the form shows what its value sets), the
   field (`FORM_FIELD_WIDTH`) and its unit against the right edge, so that the fields line up
   with each other and with the buttons; **`form_choice`**, a row choosing among a few values,
-  the label on the left, a `segmented` control against the right edge (the export box);
+  the label on the left, a `segmented` control against the right edge; **`form_list`**, the
+  same with a `ChoiceList` of one width (`FORM_LIST_WIDTH`), its values (`FormValue`) with
+  their help in the list's note and greyed when they cannot be chosen (the export box);
   **`form_message`**, the line saying what is wrong, kept empty so the box does not jump;
   **`warning_box`**, a warning in a box tinted with the error colour (« Empreindre »'s
   confirmation, the naming box's message).
@@ -298,7 +300,7 @@ In `apps/skraft/src/kit/widgets.rs`:
   the value shown in it (« — » for none), the kit's chevron at its right end; its values in a
   menu of the app's style, at least as wide (`keep_open` for a list of check boxes, the
   journal's « Quoi »; `lead`, a mark before the value, a material's swatch), added by `item`,
-  `item_lead`, `value`, `check` and `separator`; `choice_field`, a
+  `item_lead`, `value`, `option` (greyed or not; what it does in a note under the values, the value pointed at's, else the chosen one's, wrapped within the list's width as the ribbon's menus' note: no tip over the next values), `check` and `separator`; `choice_field`, a
   `ChoiceList` among texts. **`choice_item`**, a value's row, lit when chosen, in those lists
   and in a menu (the tabs' ⋯).
   **Why:** in a card or a box a list is read as a value, like the fields beside it; egui's

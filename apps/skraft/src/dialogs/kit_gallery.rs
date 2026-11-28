@@ -16,9 +16,9 @@ use crate::kit::widgets::color::{Rgb, color_box, paint_swatch};
 use crate::kit::widgets::{
     ChoiceList, Field, FieldLook, Fold, FormField, IconButton, Keycaps, LabelButton, Look, MenuEntry, MenuFace, PinEvent, PinItem, PinMenu,
     PinTexts, RENAMING, Segment, TextButton, Tick, TreeLine, badge, badge_button, bar_menu, choice_field, choice_item, command_item,
-    confirm_buttons, cut_label, form_choice, form_message, form_row, framed_field, keycaps, keypad, linked_badge, linked_mark, live_field,
-    option_button, picture_badge, pin_list, pin_menu, rename_field, segmented, segmented_sized, start_rename, tick, tree_line, tree_row,
-    unpin_menu, warning, warning_box,
+    confirm_buttons, cut_label, form_choice, form_list, form_message, form_row, framed_field, keycaps, keypad, linked_badge, linked_mark,
+    live_field, option_button, picture_badge, pin_list, pin_menu, rename_field, segmented, segmented_sized, start_rename, tick, tree_line,
+    tree_row, unpin_menu, warning, warning_box,
 };
 use crate::kit::{icons, overlay, search};
 use crate::window::ribbon::{Corners, tab_strip};
@@ -85,6 +85,7 @@ pub struct KitGallery {
     live: String,
     form: [String; 2],
     form_choice: usize,
+    form_list: usize,
     search: String,
     keypad: String,
     color: Rgb,
@@ -112,6 +113,7 @@ impl Default for KitGallery {
             live: t!("gallery.sample.name"),
             form: ["600".to_owned(), "18".to_owned()],
             form_choice: 0,
+            form_list: 0,
             search: String::new(),
             keypad: String::new(),
             color: [196, 152, 98],
@@ -520,6 +522,20 @@ fn fields(ui: &mut egui::Ui, g: &mut KitGallery) {
                 g.form_choice = i;
             }
             ui.label(egui::RichText::new("third segment .enabled(false)").monospace().small().weak());
+        });
+    });
+    entry(ui, "form_list · FormValue", |ui| {
+        block(ui, 4, |ui| {
+            let labels = [t!("gallery.sample.one"), t!("gallery.sample.two"), t!("gallery.sample.three")];
+            let values: Vec<crate::kit::widgets::FormValue> = labels
+                .iter()
+                .enumerate()
+                .map(|(i, l)| crate::kit::widgets::FormValue { label: l.clone(), help: t!("gallery.sample.tip"), enabled: i != 2 })
+                .collect();
+            if let Some(i) = form_list(ui, window_id().with("form_list"), &t!("gallery.sample.length"), &values, g.form_list) {
+                g.form_list = i;
+            }
+            ui.label(egui::RichText::new("third value enabled: false").monospace().small().weak());
         });
     });
     entry(ui, "form_row · form_message · warning_box", |ui| {

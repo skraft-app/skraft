@@ -82,7 +82,16 @@ impl<'a, S: Hash + std::fmt::Debug> ChoiceList<'a, S> {
         let close = if self.keep_open { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
         egui::Popup::menu(&response).id(id).close_behavior(close).style(crate::kit::style::menu).show(|ui| {
             ui.set_min_width(width);
-            items(&mut Choices { ui });
+            let mut list = Choices { ui, hovered: None, chosen: None };
+            items(&mut list);
+            // The note under the values, as the ribbon's menus have (`pin_list`): it wraps
+            // within their width, never widening the list.
+            if let Some(help) = list.hovered.or(list.chosen) {
+                let width = ui.min_rect().width();
+                ui.separator();
+                ui.set_max_width(width);
+                ui.add(egui::Label::new(crate::kit::style::caption(help)).wrap());
+            }
         });
         response
     }
@@ -91,12 +100,31 @@ impl<'a, S: Hash + std::fmt::Debug> ChoiceList<'a, S> {
 /// The values of an open [`ChoiceList`].
 pub(crate) struct Choices<'u> {
     ui: &'u mut egui::Ui,
+    /// The help of the value under the pointer, and of the value chosen ([`Choices::option`]).
+    hovered: Option<String>,
+    chosen: Option<String>,
 }
 
 impl Choices<'_> {
     /// A value, `on` when it is the one chosen: clicked?
     pub(crate) fn item(&mut self, on: bool, label: impl Into<egui::WidgetText>) -> bool {
         choice_item(self.ui, on, label).clicked()
+    }
+
+    /// A value, `on` when it is the one chosen, greyed unless `enabled`; what it does (or why it
+    /// is greyed), `help`, in the note under the values while the pointer is on it — the chosen
+    /// one's else —, as the ribbon's menus have theirs: no tip over the next values. Clicked?
+    pub(crate) fn option(&mut self, on: bool, enabled: bool, label: &str, help: &str) -> bool {
+        let r = self.ui.add_enabled(enabled, egui::Button::selectable(on, label));
+        if !help.is_empty() {
+            if r.contains_pointer() {
+                self.hovered = Some(help.to_owned());
+            }
+            if on {
+                self.chosen = Some(help.to_owned());
+            }
+        }
+        r.clicked()
     }
 
     /// A value with a mark before its label (`style::menu_mark`: a material's swatch), where the
