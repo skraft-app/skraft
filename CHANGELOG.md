@@ -7,6 +7,29 @@ What changes in Skraft from one release to the next, for its users. The format f
 An entry is written when a version is tagged (`/changelog` in Claude Code, from
 `scripts/changelog.sh`); the release workflow publishes it as the GitHub Release's text.
 
+## [0.0.8] - 2026-11-28
+
+### Added
+- **Export** (File menu, ⌘E): write the whole model or the selection as a STEP file, exact, or as a SketchUp file (release 2017 or 2026), with its materials, textures and units, curved faces smoothed.
+- **Capture**: frame the view and save it as a PNG or JPEG image, at the ratio, size and background you choose; the image is drawn again at its size, not copied from the screen.
+- Inferences find where the edges and faces of the solids cross each other, marked with an ×, and these crossings can be tracked like a vertex.
+- The navigator lists assemblies before parts and groups before bodies; a button next to its search sorts each kind by name, in natural order (2 before 10). The parts list sorts names the same way.
+- On a touch screen, a finger scrolls the lists of the panels; a long press then a move picks a row up to drag it.
+
+### Changed
+- Parts, free bodies, profiles, assemblies and groups have icons of their own, easier to tell apart in the navigator.
+- The update prompt is a modal box like the save prompt, with its release notes formatted.
+- Blank sheets are A4 landscape, as is the bundled template, and a new sheet takes the paper of the last one made.
+- The gesture modifiers in the preferences are shown as key caps; the preferences icon is a gear.
+- The view bar goes to the view's edge when the cards of its column end above it.
+
+### Fixed
+- **Measure** draws a guide parallel to a chamfer's edges.
+- Library thumbnails are redrawn when the colour palette changes.
+- A file that could not be written, such as a drawing's PDF, no longer says the materials could not be exported.
+- In the web version on iPhone and iPad, **Import** no longer greys out STEP files.
+- The web version tells Chrome users how to turn WebGPU back on when Chrome turned it off for their graphics card.
+
 ## [0.0.7] - 2026-11-27
 
 ### Added
