@@ -40,8 +40,11 @@ Candidates come from the **B-rep record** (`f64` vertices, typed curves: exact m
 line, exact centre of a circle), not from the mesh. A `kernel::Snaps` per solid (its vertices,
 its visible edges with their `SnapCurve` — segment, arc, or polyline —, each planar face's
 plane) is built with the mesh by `Solid::display()` and cached per `Arc<Solid>` in the scene
-like the meshes; it is transformed by each placement. Fallback on the mesher's polyline for
-splines and intersection curves (`Mesh::edges` keeps the record's edge index). **Seams** (an
+like the meshes; it is transformed by each placement. A polyline or a spline whose points
+(control points, a NURBS's once divided by their weights) all lie on the line through its ends
+is a segment: a chamfer's edges are degree-1 splines, and as polylines they gave no direction
+to infer along nor to offset a guide from (issue #10). Fallback on the mesher's polyline for
+the other splines and intersection curves (`Mesh::edges` keeps the record's edge index). **Seams** (an
 edge between a face and itself, or between two faces of one surface) are recognised on the
 record and left out (the mesher does not fill `seams`).
 

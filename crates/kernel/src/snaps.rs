@@ -139,6 +139,18 @@ impl Snaps {
             let curve = match &e.curve {
                 Curve::Line { .. } if !closed => Some(SnapCurve::Segment { a, b }),
                 Curve::Polyline { points } if points.len() == 2 && !closed => Some(SnapCurve::Segment { a, b }),
+                // A curve held as points all on the line through its ends is straight: a
+                // chamfer's edges are degree-1 splines of two points (issue #10).
+                Curve::Polyline { points } | Curve::Spline { points, .. } if !closed && straight(points.iter().copied(), a, b) => {
+                    Some(SnapCurve::Segment { a, b })
+                }
+                Curve::RationalSpline { homogeneous, .. }
+                    if !closed
+                        && homogeneous.iter().all(|h| h[3] > 0.0)
+                        && straight(homogeneous.iter().map(|h| [h[0] / h[3], h[1] / h[3], h[2] / h[3]]), a, b) =>
+                {
+                    Some(SnapCurve::Segment { a, b })
+                }
                 Curve::Circle { frame, radius } => {
                     let o = v3(frame.origin);
                     let n = v3(frame.x_axis).cross(v3(frame.y_axis)).normalize_or_zero();
@@ -165,6 +177,19 @@ impl Snaps {
         let planes = record.faces.iter().map(|f| plane_of(&f.surface)).collect();
         Snaps { vertices, edges, planes }
     }
+}
+
+/// Do the points `points` all lie on the line through `a` and `b` (to a relative 10⁻⁹)? A
+/// spline whose control points do is that line: the curve stays in their convex hull.
+fn straight(points: impl Iterator<Item = [f64; 3]>, a: DVec3, b: DVec3) -> bool {
+    let ab = b - a;
+    let len = ab.length();
+    if len <= 0.0 {
+        return false;
+    }
+    let dir = ab / len;
+    let tol = 1e-9 * len.max(1.0);
+    points.map(v3).all(|p| (p - a).cross(dir).length() <= tol)
 }
 
 /// The arc of the circle (`center`, unit normal `n`, `radius`) that starts at `start` and runs

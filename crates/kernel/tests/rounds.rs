@@ -421,3 +421,14 @@ fn a_ball_on_a_corner_ball() {
     sound(&u, None, "ball on the ball");
     cut_and_rest(&a, &ball, at, "ball out of the ball");
 }
+
+/// A chamfer's straight edges (degree-1 splines in its record) snap as segments, the tape's
+/// parallel guides taking their direction (issue #10).
+#[test]
+fn a_chamfers_edges_snap_as_segments() {
+    let snaps = chamfered().display().unwrap().snaps;
+    assert_eq!(snaps.edges.len(), 20);
+    for e in &snaps.edges {
+        assert!(matches!(e.curve, skraft_kernel::SnapCurve::Segment { .. }), "{:?}", e.curve);
+    }
+}
