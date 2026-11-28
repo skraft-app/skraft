@@ -25,6 +25,7 @@ mod profile;
 pub mod props;
 mod settings;
 mod step;
+mod step_export;
 mod stretch;
 mod weld;
 
@@ -71,6 +72,7 @@ use skraft_i18n::t;
 pub use skraft_kernel as kernel;
 pub use skraft_kernel::Primitive;
 pub use step::StepReport;
+pub use step_export::StepExportPlan;
 pub use stretch::StretchedPart;
 pub use stretch::{BodyStretch, DefChange};
 pub use weld::{WELD, Weld};
