@@ -259,6 +259,34 @@ pub fn export_file(bytes: Vec<u8>, name: &str, kind: &str, ext: &str, inbox: &In
     }
 }
 
+/// Writes what `encode` makes — an image (« Capturer », docs/ui/capture.md) — as
+/// [`export_file`] does; desktop: encoded off the interface's thread first.
+pub fn export_encoded(
+    encode: impl FnOnce() -> Result<Vec<u8>, String> + Send + 'static,
+    name: &str,
+    kind: &'static str,
+    ext: &'static str,
+    inbox: &Inbox,
+    ctx: &egui::Context,
+) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (inbox, ctx, name) = (inbox.clone(), ctx.clone(), name.to_owned());
+        std::thread::spawn(move || match encode() {
+            Ok(bytes) => export_file(bytes, &name, kind, ext, &inbox, &ctx),
+            Err(error) => {
+                inbox.put(Outcome::WriteFailed { error });
+                ctx.request_repaint();
+            }
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    match encode() {
+        Ok(bytes) => export_file(bytes, name, kind, ext, inbox, ctx),
+        Err(error) => inbox.put(Outcome::WriteFailed { error }),
+    }
+}
+
 /// What a save writes: the document, how it was seen, the picture of its model.
 pub struct Saved<'a> {
     pub document: &'a Document,

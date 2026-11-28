@@ -1,6 +1,6 @@
 //! What the 2D stages draw on screen over their content, the 3D view's and the drawing sheet's
 //! alike (docs/render/drawer.md#screen-overlays): the dashes by what they mean, the selection
-//! rectangle, the square grip, the cross, a turned text; and the leader of the interface's
+//! rectangle, the capture frame, the square grip, the cross, a turned text; and the leader of the interface's
 //! figures (the mouse of the Preferences, « Empreindre »'s tenon).
 
 use skraft_theme::Theme;
@@ -60,6 +60,47 @@ pub fn marquee(painter: &egui::Painter, r: egui::Rect, crossing: bool, theme: &T
     } else {
         painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Inside);
     }
+}
+
+/// A capture frame's handle's side (points).
+pub const CAPTURE_HANDLE: f32 = 9.0;
+
+/// « Capturer »'s frame `frame` over the view `view` (docs/ui/capture.md): what lies outside it
+/// dimmed, its outline, its corners' handles when it is free (`handles`, the one at `hovered`
+/// — right, below — lit in the accent), and `label` (the image's size) under its right corner.
+pub fn capture_frame(
+    painter: &egui::Painter,
+    view: egui::Rect,
+    frame: egui::Rect,
+    handles: Option<Option<(bool, bool)>>,
+    label: &str,
+    theme: &Theme,
+) {
+    let veil = egui::Color32::from_black_alpha(110);
+    let (v, f) = (view, frame.intersect(view));
+    for r in [
+        egui::Rect::from_min_max(v.min, egui::pos2(v.max.x, f.min.y)),
+        egui::Rect::from_min_max(egui::pos2(v.min.x, f.max.y), v.max),
+        egui::Rect::from_min_max(egui::pos2(v.min.x, f.min.y), egui::pos2(f.min.x, f.max.y)),
+        egui::Rect::from_min_max(egui::pos2(f.max.x, f.min.y), egui::pos2(v.max.x, f.max.y)),
+    ] {
+        painter.rect_filled(r, 0.0, veil);
+    }
+    painter.rect_stroke(frame, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE), egui::StrokeKind::Outside);
+    if let Some(hovered) = handles {
+        let ink = egui::Stroke::new(1.0, egui::Color32::from_black_alpha(200));
+        for right in [false, true] {
+            for below in [false, true] {
+                let at = egui::pos2(if right { frame.max.x } else { frame.min.x }, if below { frame.max.y } else { frame.min.y });
+                let fill = if hovered == Some((right, below)) { color(theme.ui.accent) } else { egui::Color32::WHITE };
+                square_grip(painter, at, CAPTURE_HANDLE, fill, ink);
+            }
+        }
+    }
+    let font = egui::FontId::proportional(12.0);
+    let at = egui::pos2(frame.max.x, frame.max.y + CAPTURE_HANDLE);
+    painter.text(at + egui::vec2(1.0, 1.0), egui::Align2::RIGHT_TOP, label, font.clone(), egui::Color32::from_black_alpha(160));
+    painter.text(at, egui::Align2::RIGHT_TOP, label, font, egui::Color32::WHITE);
 }
 
 /// A square grip `side` points wide, centred on `at`.

@@ -412,6 +412,13 @@ impl Viewport {
         } else {
             egui::CursorIcon::Crosshair
         };
+        // « Capturer »'s handle under the pointer, or dragged: resizing (docs/ui/capture.md).
+        let capture = editor.capture_frame();
+        let cursor = match capture.as_ref().and_then(|c| c.hovered) {
+            Some(c) if c.right == c.below => egui::CursorIcon::ResizeNwSe,
+            Some(_) => egui::CursorIcon::ResizeNeSw,
+            None => cursor,
+        };
         // The cursor shown over the view: the tool's own, else the system's.
         let mut shown = None;
         if response.hovered() {
@@ -450,6 +457,12 @@ impl Viewport {
         if let Some((id, _)) = self.texture {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
+        }
+        // « Capturer »'s frame, under what the tool draws (docs/ui/capture.md).
+        if let Some(c) = &capture {
+            let at = |p: DVec2| rect.min + egui::vec2(p.x as f32, p.y as f32);
+            let handles = c.handles.then_some(c.hovered.map(|h| (h.right, h.below)));
+            overlay::capture_frame(ui.painter(), rect, egui::Rect::from_min_max(at(c.min), at(c.max)), handles, &c.label, theme);
         }
         paint_overlay_points(ui.painter(), rect, editor, theme);
         paint_marks(ui.painter(), rect, editor, theme);
@@ -1028,6 +1041,50 @@ impl Viewport {
 
     fn render(&mut self, state: &egui_wgpu::RenderState, size: [u32; 2], pixels_per_point: f32, editor: &Editor, theme: &Theme) {
         let device = &state.device;
+        let drawn = self.with_frame(state, size, pixels_per_point, editor, theme, |renderer, frame| {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
+            // A still view draws nothing: the target keeps its picture (docs/render/look.md).
+            let redrawn = renderer.render(device, &state.queue, &mut encoder, size, frame);
+            if redrawn {
+                state.queue.submit([encoder.finish()]);
+            }
+            redrawn
+        });
+        let (Some(redrawn), Some(renderer)) = (drawn, self.renderer.as_ref()) else { return };
+        self.timing.redrawn = redrawn;
+        self.size = size;
+
+        // Show the target through egui: (re-)register it when it was recreated.
+        if let Some((target, generation)) = renderer.target() {
+            let mut egui_renderer = state.renderer.write();
+            match self.texture {
+                Some((id, g)) if g == generation => {
+                    let _ = id;
+                }
+                Some((id, _)) => {
+                    egui_renderer.update_egui_texture_from_wgpu_texture(device, target, wgpu::FilterMode::Linear, id);
+                    self.texture = Some((id, generation));
+                }
+                None => {
+                    let id = egui_renderer.register_native_texture(device, target, wgpu::FilterMode::Linear);
+                    self.texture = Some((id, generation));
+                }
+            }
+        }
+    }
+
+    /// The view's frame at `size` pixels (`pixels_per_point` of them a point) handed to `draw`
+    /// with the renderer: what the viewport shows, and « Capturer » renders again
+    /// (docs/ui/capture.md). None without a renderer.
+    fn with_frame<R>(
+        &mut self,
+        state: &egui_wgpu::RenderState,
+        size: [u32; 2],
+        pixels_per_point: f32,
+        editor: &Editor,
+        theme: &Theme,
+        draw: impl FnOnce(&mut render::Renderer, &render::Frame<'_>) -> R,
+    ) -> Option<R> {
         let doc = editor.document();
         let mut colours = self.sync(state, editor, theme);
         let scene = editor.scene();
@@ -1054,7 +1111,7 @@ impl Viewport {
             colours = self.colours(doc, theme);
         }
         let Colours { palette, textures, overlays, tool_slot, .. } = colours;
-        let Some(renderer) = self.renderer.as_mut() else { return };
+        let renderer = self.renderer.as_mut()?;
         let fade: render::Tint = [background[0], background[1], background[2], theme.fade];
         let slots = &self.slots;
         let slot = |m: Seen| slot_of(slots, m);
@@ -1116,8 +1173,9 @@ impl Viewport {
             })
             .collect();
         // An open part always shows its axes (docs/model/opening-a-part.md): the grid leaves out its
-        // lines along them.
-        let axes = display.axes || editor.open_part().is_some();
+        // lines along them. « Capturer » may leave both out (docs/ui/capture.md).
+        let axes = (display.axes || editor.open_part().is_some()) && !view.left_out.axes;
+        let grid = display.grid && !view.left_out.axes;
         let (mut lines, mut axis_lines, mut faint_lines, mut overlay, mut hidden_lines, mut boxes, mut fills) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         // Everything drawn over the model, through the drawer (docs/render/drawer.md).
@@ -1183,7 +1241,7 @@ impl Viewport {
             overlay: &overlay,
             hidden_lines: &hidden_lines,
             fills: &fills,
-            grid: display.grid.then(|| grid_for(cam.focus)),
+            grid: grid.then(|| grid_for(cam.focus)),
             axes,
             axes_frame: DMat4::from(editor.axes_transform()),
             pixels_per_point,
@@ -1192,31 +1250,7 @@ impl Viewport {
                 cam.world_per_pixel(points, cam.eye + cam.forward() * cam.focus)
             },
         };
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
-        // A still view draws nothing: the target keeps its picture (docs/render/look.md).
-        self.timing.redrawn = renderer.render(device, &state.queue, &mut encoder, size, &frame);
-        if self.timing.redrawn {
-            state.queue.submit([encoder.finish()]);
-        }
-        self.size = size;
-
-        // Show the target through egui: (re-)register it when it was recreated.
-        if let Some((target, generation)) = renderer.target() {
-            let mut egui_renderer = state.renderer.write();
-            match self.texture {
-                Some((id, g)) if g == generation => {
-                    let _ = id;
-                }
-                Some((id, _)) => {
-                    egui_renderer.update_egui_texture_from_wgpu_texture(device, target, wgpu::FilterMode::Linear, id);
-                    self.texture = Some((id, generation));
-                }
-                None => {
-                    let id = egui_renderer.register_native_texture(device, target, wgpu::FilterMode::Linear);
-                    self.texture = Some((id, generation));
-                }
-            }
-        }
+        Some(draw(renderer, &frame))
     }
 }
 
@@ -1364,7 +1398,6 @@ const FILE_PICTURE_EDGES: f32 = 1.0;
 /// rows): where they differ, the ground showed through. Each pixel's coverage is one less
 /// that difference (linear light, its channels' mean), its colour the black one's divided
 /// by it.
-#[cfg(not(target_arch = "wasm32"))]
 fn unblend(black: &[u8], white: &[u8]) -> Vec<u8> {
     use skraft_theme::{linear, srgb_byte};
     let mut out = Vec::with_capacity(black.len());
@@ -2167,6 +2200,7 @@ mod tests {
     }
 }
 
+pub(crate) mod capture;
 pub(crate) mod drop_up;
 pub(crate) mod options;
 pub(crate) mod pins;

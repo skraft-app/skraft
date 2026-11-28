@@ -1063,6 +1063,7 @@ toast:
   pdf_missing_fields: "Fields without a value, printed as they are in the PDF"
   template_saved: "Template saved: %{file}"
   template_failed: "The template could not be saved"
+  capture_failed: "The image could not be captured"
   pdf_failed: "The PDF could not be written"
   texture_failed: "Texture not applied"
   texture_not_image: "a PNG or JPEG image is expected"
@@ -1432,6 +1433,34 @@ tool:
       depth: "Move to push the plane in, or type the depth; click to place it"
     vcb:
       depth: "Depth"
+  capture:
+    name: "Capture"
+    hint: "Frame the view by navigating behind the frame, then ✓ or Enter to save the image"
+    # The image's size in pixels, by the frame and in the size list.
+    size: "%{width} × %{height}"
+    ratio:
+      free: "Free"
+      a4_landscape: "A4 landscape"
+      a4_portrait: "A4 portrait"
+    background:
+      theme: "Theme"
+      white: "White"
+      transparent: "Transparent"
+    option:
+      ratio: "Format"
+      ratio_tip: "The frame's proportions; Free: drag its corners"
+      size: "Size"
+      size_tip: "The image's size in pixels, whatever the screen's"
+      background: "Background"
+      background_tip: "The image's background: the view's, white, or transparent (PNG only)"
+      format: "Type"
+      format_tip: "PNG keeps every pixel; JPEG is lighter"
+      selection: "Selection"
+      selection_tip: "Keep the selection in the image"
+      guides: "Guides"
+      guides_tip: "Keep the guides in the image"
+      axes: "Axes"
+      axes_tip: "Keep the axes and the grid in the image"
   measure:
     name: "Measure"
     hint:

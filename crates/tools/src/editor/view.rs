@@ -111,6 +111,9 @@ pub struct View {
     /// Its cut lines (docs/render/look.md): those of the placements drawn opaque, then those of the
     /// highlights drawn over them, marked.
     pub section_cuts: Vec<SectionCut>,
+    /// What it leaves out of the editing state (« Capturer », docs/ui/capture.md): the app
+    /// leaves out the grid with the axes.
+    pub left_out: tools::LeftOut,
 }
 
 /// A segment of a section's cut line, in the world.
@@ -402,6 +405,7 @@ impl Editor {
         let mut v = View::default();
         let doc = self.document();
         let preview = self.preview();
+        let left_out = preview.left_out;
         // Moved or turned without copying, the selection is only drawn where it goes: the
         // original stays in place only when a copy is left behind.
         let hide_original = (preview.ghost.is_some() || preview.away) && !self.tool_copying();
@@ -701,6 +705,7 @@ impl Editor {
             self.tool_kind(),
             tools::ToolKind::Stretch | tools::ToolKind::CopyLine | tools::ToolKind::CopyGrid | tools::ToolKind::Distribute
         ) || preview.away
+            || left_out.selection
         {
             None
         } else if hide_original {
@@ -724,7 +729,7 @@ impl Editor {
             }
         }
         // The part open, else the assembly being edited: its content's box, a little larger.
-        if let Some(b) = self.context_bounds() {
+        if let Some(b) = self.context_bounds().filter(|_| !left_out.selection) {
             d.pen(Pen::new(Color::Theme(ThemeColor::ContextBox)).dashed()).oriented_box(&b, in_scene);
         }
         // The guides: the active context's (the open part's occurrence, else the context) —
@@ -738,7 +743,7 @@ impl Editor {
         let in_marquee = |g: &crate::scene::SceneGuide| preview.marquee.as_ref().is_some_and(|m| m.guides.contains(&at(g)));
         let guide = |c: ThemeColor| Pen::guide(Color::Theme(c));
         let faded = guide(ThemeColor::FadedGuide).blended();
-        for g in self.scene.guides() {
+        for g in self.scene.guides().iter().filter(|_| !left_out.guides) {
             let here = g.path == active;
             let reached = parts && g.path.starts_with(&self.context);
             if !here && !reached {
@@ -844,7 +849,7 @@ impl Editor {
         }
         // The other occurrences a change reaches, the one aimed at excepted: those of the open
         // part (docs/model/opening-a-part.md), else of the part a tool aims at.
-        let open_reaches_all = open.as_ref().filter(|_| self.part_scope == skraft_model::Scope::All);
+        let open_reaches_all = open.as_ref().filter(|_| self.part_scope == skraft_model::Scope::All && !left_out.selection);
         if let Some(aimed) = open_reaches_all.or(preview.propagate.as_ref())
             && let Ok((part, _, _)) = doc.resolve_part(aimed)
             && let Some((_, places)) = self.scene.placements().find(|(p, _)| *p == part)
@@ -896,7 +901,7 @@ impl Editor {
         v.drawing.append(preview.drawing);
         // The axes, across the view, when shown (an open part always shows its axes, docs/model/opening-a-part.md):
         // their negative halves fainter.
-        if doc.settings().display.axes || self.open_part.is_some() {
+        if (doc.settings().display.axes || self.open_part.is_some()) && !left_out.axes {
             let frame = self.axes_transform();
             let d = &mut Drawer::new(&self.camera, self.size, &doc.settings().units, &mut v.drawing);
             for (k, [r, g, b, _]) in [tools::RED, tools::GREEN, tools::BLUE].into_iter().enumerate() {
@@ -934,6 +939,7 @@ impl Editor {
         }
         v.inference = preview.inference.map(|i| (i.point, i.kind));
         v.marquee = preview.marquee;
+        v.left_out = left_out;
         v.section = preview.section.or_else(|| doc.settings().display.active_section());
         if let Some(s) = v.section {
             v.section_cuts = self.section_cuts_of(&v, &s);

@@ -41,6 +41,7 @@ icon!(PAINT, "paint");
 icon!(SAMPLE, "sample");
 icon!(SECTION, "section");
 icon!(MEASURE, "measure");
+icon!(CAPTURE, "capture");
 icon!(STRETCH, "stretch");
 icon!(REORIENT, "reorient");
 icon!(ROUND, "round");
@@ -141,6 +142,7 @@ pub fn command(id: &str) -> Option<ImageSource<'static>> {
         "tool.paint" => PAINT,
         "tool.sample" => SAMPLE,
         "tool.section" => SECTION,
+        "tool.capture" => CAPTURE,
         "tool.measure" => MEASURE,
         "tool.union" => UNION,
         "tool.difference" => SUBTRACT,
@@ -203,6 +205,10 @@ pub fn option(name: &str) -> Option<ImageSource<'static>> {
         "union" => return Some(UNION),
         "subtract" => return Some(SUBTRACT),
         "intersect" => return Some(INTERSECT),
+        // « Capturer »'s toggles keeping the selection, the guides, the axes (docs/ui/capture.md).
+        "select" => return Some(SELECT),
+        "guides" => return Some(GUIDES),
+        "axes" => return Some(AXES),
         _ => {}
     }
     macro_rules! options {

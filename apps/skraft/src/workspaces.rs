@@ -73,6 +73,9 @@ pub const COMMON: &[&str] = &[
 ];
 
 const STANDARD_VIEWS: &[&str] = &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso"];
+/// …and « Capturer » after them, in Modelling (docs/ui/capture.md).
+const VIEWS_AND_CAPTURE: &[&str] =
+    &["view.zoom_extents", "view.top", "view.front", "view.right", "view.back", "view.left", "view.iso", "tool.capture"];
 
 /// Every workspace, the first the one a document opens in. Drawing and a cut list are planned
 /// (decision 0047).
@@ -146,7 +149,7 @@ pub const WORKSPACES: &[Workspace] = &[
                 groups: &[
                     group("measure", || t!("ribbon.group.measure"), &["tool.measure", "edit.delete_guides"], &["tool.measure"]),
                     group("section", || t!("ribbon.group.section"), &["tool.section", "view.section_clear"], &["tool.section"]),
-                    group("view", || t!("ribbon.group.view"), STANDARD_VIEWS, &["view.zoom_extents"]),
+                    group("view", || t!("ribbon.group.view"), VIEWS_AND_CAPTURE, &["view.zoom_extents", "tool.capture"]),
                 ],
             },
         ],

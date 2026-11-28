@@ -249,6 +249,38 @@ impl SkraftApp {
         self.docs.iter().map(|d| Tab { id: d.id, name: d.name(), path: d.path.clone(), modified: d.modified() }).collect()
     }
 
+    /// « Capturer »'s image (docs/ui/capture.md): rendered when the tool asks for it, then saved
+    /// once read back from the GPU, named after the document.
+    pub(super) fn take_capture(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let Some(state) = frame.wgpu_render_state() else { return };
+        if let Some(d) = self.docs.active_mut()
+            && let Some(request) = d.editor.take_capture()
+            && self.shot.is_none()
+        {
+            let title = d.name();
+            let stem = std::path::Path::new(&title).file_stem().map_or_else(|| title.clone(), |s| s.to_string_lossy().into_owned());
+            match self.viewport.start_shot(state, ctx, &d.editor, &self.theme, &request) {
+                Some(shot) => self.shot = Some((shot, stem)),
+                None => self.toasts.push(Note::error(t!("toast.capture_failed"), String::new())),
+            }
+        }
+        let Some((shot, stem)) = &self.shot else { return };
+        let Some(result) = shot.poll(state) else {
+            ctx.request_repaint();
+            return;
+        };
+        let format = shot.format;
+        let name = format!("{stem}.{}", format.extension());
+        self.shot = None;
+        match result {
+            Ok(image) => {
+                let encode = move || crate::workspaces::common::viewport::capture::encode(&image, format);
+                file::export_encoded(encode, &name, format.name(), format.extension(), &self.inbox, &self.ctx);
+            }
+            Err(e) => self.toasts.push(Note::error(t!("toast.capture_failed"), e)),
+        }
+    }
+
     /// The PDF asked for, written once its document's textures are ready, or they would print
     /// as their materials' colours: meanwhile a window shows how far they are, « Annuler » (or
     /// Esc) giving up, as does leaving the document.
