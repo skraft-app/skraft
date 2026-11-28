@@ -553,7 +553,7 @@ nor dimensions (a composition that held only those goes, with its occurrences), 
 (`Document::template_of`) — in a file of its own: the `.skraft` container, `content: "template"`
 ([File format](../io/file-format.md)), `.skrafttpl`, refused as a model (`FileError::TemplateOnly`).
 The library's are in `<config>/Skraft/templates` (native). Skraft comes with one
-(`Document::default_template`, « A3 avec cartouche »): a sheet with a border 10 mm in and the composition
+(`Document::default_template`, « A4 avec cartouche »): a sheet with a border 10 mm in and the composition
 « Cartouche » anchored at the bottom right — the document's name, the sheet's, the date, the scale,
 « Feuille n / N ».
 

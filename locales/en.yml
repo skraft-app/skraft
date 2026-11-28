@@ -700,7 +700,7 @@ drawing:
     orphan: "Orphan"
     orphan_tip: "What it measured is no longer in the model: delete it and dimension again"
   template:
-    default: "A3 with title block"
+    default: "A4 with title block"
     sheet: "Sheet: {sheet}"
     date: "Date: {date}"
     scale: "Scale: {scale}"

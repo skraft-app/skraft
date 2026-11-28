@@ -727,10 +727,10 @@ fn templates_hold_a_presentation_their_compositions_brought_once() {
     };
     let s1 = h.apply(from(None)).unwrap().sheet.unwrap();
     let d = h.document().drawing();
-    assert_eq!(d.sheet(s1).unwrap().paper, Paper::A3);
+    assert_eq!(d.sheet(s1).unwrap().paper, Paper::A4);
     assert_eq!(d.sheet(s1).unwrap().border, Some(Border { margin: 10.0, width: 0.25 }));
     assert_eq!(d.placed(s1).len(), held);
-    assert!(near(d.placed(s1)[0].transform.translation, DVec2::new(410.0, 10.0)), "at the paper's corner");
+    assert!(near(d.placed(s1)[0].transform.translation, DVec2::new(287.0, 10.0)), "at the paper's corner");
     // A second sheet from it: the composition is there already, not doubled.
     let s2 = h.apply(from(Some("Détails"))).unwrap().sheet.unwrap();
     let d = h.document().drawing();
