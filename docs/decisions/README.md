@@ -66,4 +66,5 @@ state and link the records behind it.
 | 0057 | [Materials, coverings, finishes: three families, on the part's definition](0057-materials-on-the-definition-typed-sources.md) | accepted (2026-11-26; step 1 built) |
 | 0058 | [Stretch: what crosses a cutter curved is scaled along the axis](0058-stretch-scales-curves-across-a-cutter.md) | accepted (2026-11-27; prototype) |
 | 0059 | [Exporters: STEP exact, by the kernel; SketchUp later, as meshes](0059-exporters-step-exact-skp-meshed.md) | accepted (2026-11-28; STEP built) |
+| 0060 | [Capture: a frame over the view, rendered off screen](0060-capture-a-frame-over-the-view-rendered-off-screen.md) | accepted (2026-11-28; step 1 built) |
 | 0061 | [Intersections of the scene inferred: edge × edge, edge × face, line × face](0061-intersections-of-the-scene-inferred.md) | accepted (2026-11-28; built) |

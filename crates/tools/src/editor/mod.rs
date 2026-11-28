@@ -93,6 +93,8 @@ pub struct Editor {
     link_offer: Option<links::LinkOffer>,
     /// « Empreindre » waiting for the kernel's answer, and its plan once answered.
     imprint_ask: Option<links::ImprintAsk>,
+    /// The image « Capturer » asked for, until the app takes it (docs/ui/capture.md).
+    capture: Option<tools::CaptureRequest>,
     /// « Empreindre »'s marks while the kernel is asked and its confirmation open
     /// ([`Editor::end_imprint`]).
     imprint_shown: Option<Preview>,
@@ -226,6 +228,8 @@ pub struct Editor {
     last_height: Option<f64>,
     /// The radius of the last fillet set in a profile: the next can take it again.
     last_fillet: Option<f64>,
+    /// « Capturer »'s free frame as last pulled (half size, points).
+    capture_free: Option<DVec2>,
     /// Points tracked (docs/tools/inferences.md, step 3): hovered [`TRACK_AFTER`] seconds; the latest
     /// [`MAX_TRACKED`].
     tracked: Vec<DVec3>,
@@ -295,6 +299,7 @@ impl Editor {
             link_map: doc.link_map(),
             link_offer: None,
             imprint_ask: None,
+            capture: None,
             imprint_shown: None,
             imprint_ready: None,
             link_overlaps: Default::default(),
@@ -366,6 +371,7 @@ impl Editor {
             shift_lock: None,
             last_height: None,
             last_fillet: None,
+            capture_free: None,
             tracked: Vec::new(),
             dwell: None,
             now: 0.0,
@@ -644,6 +650,11 @@ impl Editor {
         !self.busy() && self.tool.awaits_validation()
     }
 
+    /// Does the option bar show the active tool's choices as drop-down lists?
+    pub fn tool_lists_choices(&self) -> bool {
+        self.tool.lists_choices()
+    }
+
     /// Is the active tool at its pick step (the cursor is then the arrow)?
     pub fn tool_picking(&self) -> bool {
         self.tool.picking()
@@ -827,6 +838,10 @@ impl Editor {
             scene: &self.scene,
             camera: &self.camera,
             size: self.size,
+            free_area: {
+                let a = self.view_area();
+                (a.free_min, a.free_max)
+            },
             context: &self.context,
             context_def: doc.context_of(&self.context).unwrap_or(doc.root()),
             context_transform: doc.transform_of(&self.context).unwrap_or(DAffine3::IDENTITY),
@@ -849,6 +864,7 @@ impl Editor {
             held: self.tool_held(),
             last_height: self.last_height,
             last_fillet: self.last_fillet,
+            capture_free: self.capture_free,
             shift_lock: self.shift_lock,
             tracked: &self.tracked,
             reference: self.reference,
@@ -1339,6 +1355,10 @@ impl Editor {
                     // What the tool would act on let go: it picks again (docs/tools/selection.md).
                     self.clear_selection();
                     self.rehover();
+                } else if self.tool.kind() == ToolKind::Capture {
+                    // « Capturer » given up (its ✗, docs/ui/capture.md): back to Select.
+                    self.switch_tool(ToolKind::Select);
+                    self.rehover();
                 } else if self.tool.kind() == ToolKind::Profile {
                     // The body open left for its part (docs/model/bodies.md#edit-levels).
                     self.exit();
@@ -1694,6 +1714,7 @@ impl Editor {
             Command::SetOption { key, value } => self.set_tool_option(key, value),
             Command::RememberHeight(h) => self.last_height = Some(h),
             Command::RememberFillet(r) => self.last_fillet = Some(r),
+            Command::RememberCaptureFrame(half) => self.capture_free = Some(half),
             Command::Enter(id) => self.enter(id),
             Command::SelectPath(path) => self.select_path(&path),
             Command::EditProfile(body) => {
@@ -1712,6 +1733,7 @@ impl Editor {
                 self.ask_imprint(sources, receivers);
             }
             Command::PaintWith(m) => self.paint = m,
+            Command::Capture(request) => self.capture = Some(request),
             Command::Hold(kind) => {
                 self.push_tool(kind, stack::Over::Held);
                 self.rehover();
@@ -1781,6 +1803,16 @@ impl Editor {
     /// The selection rectangle being dragged, if any (the app draws it).
     pub fn marquee(&self) -> Option<tools::Marquee> {
         self.preview().marquee
+    }
+
+    /// The capture frame over the view (docs/ui/capture.md), the app draws it.
+    pub fn capture_frame(&self) -> Option<tools::CaptureFrame> {
+        self.preview().capture
+    }
+
+    /// The image « Capturer » asked for, once (docs/ui/capture.md).
+    pub fn take_capture(&mut self) -> Option<tools::CaptureRequest> {
+        self.capture.take()
     }
 
     /// The lengths the tool writes over the scene (the app draws them), those measuring a value

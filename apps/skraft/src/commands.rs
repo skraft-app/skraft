@@ -187,6 +187,7 @@ pub const COMMANDS: &[Command] = &[
     c("tool.sample", || t!("tool.sample.name"), M::Tools, None),
     c("tool.section", || t!("tool.section.name"), M::Tools, None),
     c("tool.measure", || t!("tool.measure.name"), M::Tools, Some("T")),
+    c("tool.capture", || t!("tool.capture.name"), M::Tools, None),
     c("tool.union", || t!("tool.boolean.union.name"), M::Solids, None),
     c("tool.difference", || t!("tool.boolean.difference.name"), M::Solids, None),
     c("tool.intersection", || t!("tool.boolean.intersection.name"), M::Solids, None),

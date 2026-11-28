@@ -1176,6 +1176,7 @@ toast:
   pdf_missing_fields: "Champs sans valeur, imprimés tels quels dans le PDF"
   template_saved: "Modèle enregistré : %{file}"
   template_failed: "Le modèle n'a pas pu être enregistré"
+  capture_failed: "L'image n'a pas pu être capturée"
   pdf_failed: "Le PDF n'a pas pu être écrit"
   texture_failed: "Texture non appliquée"
   texture_not_image: "une image PNG ou JPEG est attendue"
@@ -1581,6 +1582,34 @@ tool:
       depth: "Déplacer pour enfoncer le plan, ou taper la profondeur ; cliquer pour le poser"
     vcb:
       depth: "Profondeur"
+  capture:
+    name: "Capturer"
+    hint: "Cadrer la vue en naviguant derrière le cadre, puis ✓ ou Entrée pour enregistrer l'image"
+    # The image's size in pixels, by the frame and in the size list.
+    size: "%{width} × %{height}"
+    ratio:
+      free: "Libre"
+      a4_landscape: "A4 paysage"
+      a4_portrait: "A4 portrait"
+    background:
+      theme: "Thème"
+      white: "Blanc"
+      transparent: "Transparent"
+    option:
+      ratio: "Format"
+      ratio_tip: "Les proportions du cadre ; Libre : ses coins se tirent"
+      size: "Taille"
+      size_tip: "La taille de l'image en pixels, quelle que soit celle de l'écran"
+      background: "Fond"
+      background_tip: "Le fond de l'image : celui de la vue, blanc, ou transparent (PNG seulement)"
+      format: "Type"
+      format_tip: "PNG garde chaque pixel ; JPEG est plus léger"
+      selection: "Sélection"
+      selection_tip: "Garder la sélection dans l'image"
+      guides: "Guides"
+      guides_tip: "Garder les guides dans l'image"
+      axes: "Axes"
+      axes_tip: "Garder les axes et la grille dans l'image"
   measure:
     name: "Mesurer"
     hint:

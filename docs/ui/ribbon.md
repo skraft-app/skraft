@@ -61,8 +61,8 @@ Each tab a list of groups, each group a list of commands of the registry
 - **Assemble** « Assembler »: Components (Make assembly, Explode, Make unique, Group bodies,
   Ungroup bodies) — the manipulating tools stay in Build only;
 - **Inspect** « Inspecter »: Measure (Tape measure, Delete guides; Tape measure pinned), Section
-  (Section plane, Clear section; Section plane pinned), View (Zoom extents, the standard views;
-  Zoom extents pinned).
+  (Section plane, Clear section; Section plane pinned), View (Zoom extents, the standard views,
+  Capture — [Capture](capture.md); Zoom extents and Capture pinned).
 - A fixed **Selection** group (Select, Eraser) stays at the left of every tab, before the tabs'
   own groups.
 - The tab shown is remembered per workspace (preference). A shortcut runs its command whatever

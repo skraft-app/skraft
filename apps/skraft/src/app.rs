@@ -109,6 +109,9 @@ pub struct SkraftApp {
     /// « Exporter en PDF » asked for, by which document and when: done at a next frame, where
     /// the GPU is at hand, once its textures are ready (docs/ui/drawing.md#pdf).
     pdf_asked: Option<(DocId, f64)>,
+    /// « Capturer »'s image being read back from the GPU, and the name its file is offered
+    /// under (docs/ui/capture.md).
+    shot: Option<(crate::workspaces::common::viewport::capture::Shot, String)>,
     /// The top of the steps bar and the validation this frame, if shown: the toasts stand above.
     steps_top: Option<f32>,
     theme: Theme,
@@ -233,6 +236,7 @@ pub(crate) fn tool_of(id: &str) -> Option<ToolKind> {
         "tool.sample" => ToolKind::Sample,
         "tool.section" => ToolKind::Section,
         "tool.measure" => ToolKind::Measure,
+        "tool.capture" => ToolKind::Capture,
         "tool.stretch" => ToolKind::Stretch,
         "tool.reorient" => ToolKind::Reorient,
         "tool.round" => ToolKind::Round,
@@ -376,6 +380,7 @@ impl SkraftApp {
             ribbon_bottom: None,
             ribbon_last_bottom: None,
             pdf_asked: None,
+            shot: None,
             steps_top: None,
             theme: Theme::light(),
             styled: None,
@@ -591,6 +596,7 @@ impl eframe::App for SkraftApp {
         self.export_pdf_when_ready(&ctx, frame);
         if self.docs.active().is_some() {
             self.document_ui(ui, &ctx, frame, &views, &mut actions);
+            self.take_capture(&ctx, frame);
         } else {
             egui::CentralPanel::default()
                 .show(ui, |ui| crate::window::start::show(ui, &self.theme, &self.prefs.recent_files, &mut self.start, &mut actions));

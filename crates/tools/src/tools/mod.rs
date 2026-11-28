@@ -4,6 +4,7 @@
 mod blend;
 mod boolean;
 mod box_grips;
+pub mod capture;
 mod copy_grid;
 mod copy_line;
 mod copying;
@@ -28,6 +29,7 @@ mod stretch;
 
 pub use blend::{BlendPreview, BlendTool};
 pub use boolean::BooleanTool;
+pub use capture::{CaptureFrame, CaptureRequest, CaptureTool};
 pub use copy_grid::CopyGridTool;
 pub use copy_line::CopyLineTool;
 pub use distribute::DistributeTool;
@@ -196,6 +198,11 @@ pub enum Command {
         /// The tool's marks as it sent this, kept drawn while the confirmation is open.
         shown: Box<Preview>,
     },
+    /// Asks the app for an image of the view's frame (« Capturer », docs/ui/capture.md).
+    Capture(CaptureRequest),
+    /// « Capturer »'s free frame as just pulled (half size, points): it comes back so, for the
+    /// document's session.
+    RememberCaptureFrame(DVec2),
 }
 
 /// A length a tool writes by what it measures (a side being drawn): the side `a`–`b` (world),
@@ -282,6 +289,20 @@ pub struct Preview {
     pub erasing_guides: Vec<GuidePath>,
     /// What the paint tool would paint, drawn in the colour it would take (docs/render/look.md).
     pub paint: Option<PaintPreview>,
+    /// What the view leaves out of the editing state (« Capturer »'s options): it shows what
+    /// the image will.
+    pub left_out: LeftOut,
+    /// The capture frame over the view (docs/ui/capture.md).
+    pub capture: Option<CaptureFrame>,
+}
+
+/// What of the editing state the view leaves out: the selection's marks and boxes (and the box
+/// of what is open), the guides, the axes and the grid (docs/ui/capture.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LeftOut {
+    pub selection: bool,
+    pub guides: bool,
+    pub axes: bool,
 }
 
 /// What the paint tool would paint, and with what (docs/render/look.md).
@@ -513,11 +534,13 @@ pub enum ToolKind {
     Reorient,
     /// Imprints a part in the parts it goes into (docs/decisions/0055-linked-bodies-through-imprints.md).
     Imprint,
+    /// Saves an image of a frame of the view (docs/ui/capture.md).
+    Capture,
 }
 
 impl ToolKind {
     /// Every tool.
-    pub const ALL: [ToolKind; 24] = [
+    pub const ALL: [ToolKind; 25] = [
         ToolKind::Select,
         ToolKind::Box,
         ToolKind::Cylinder,
@@ -542,6 +565,7 @@ impl ToolKind {
         ToolKind::Chamfer,
         ToolKind::Reorient,
         ToolKind::Imprint,
+        ToolKind::Capture,
     ];
 
     /// The tool named `id` ([`ToolKind::id`]).
@@ -576,6 +600,7 @@ impl ToolKind {
             ToolKind::Chamfer => "chamfer",
             ToolKind::Reorient => "reorient",
             ToolKind::Imprint => "imprint",
+            ToolKind::Capture => "capture",
         }
     }
 
@@ -606,6 +631,7 @@ impl ToolKind {
             ToolKind::Chamfer => t!("tool.chamfer.name"),
             ToolKind::Reorient => t!("tool.reorient.name"),
             ToolKind::Imprint => t!("tool.imprint.name"),
+            ToolKind::Capture => t!("tool.capture.name"),
         }
     }
 }
@@ -619,6 +645,9 @@ pub struct Cx<'a> {
     pub scene: &'a DisplayScene,
     pub camera: &'a Camera,
     pub size: DVec2,
+    /// The part of the view the floating panels leave visible (points, origin top left): what
+    /// zoom extents frames, the whole view without panels.
+    pub free_area: (DVec2, DVec2),
     /// Occurrence path of the context being edited (empty: the model).
     pub context: &'a [Id],
     /// The definition being edited.
@@ -666,6 +695,9 @@ pub struct Cx<'a> {
     pub last_height: Option<f64>,
     /// The radius of the last fillet set in a profile, if any.
     pub last_fillet: Option<f64>,
+    /// « Capturer »'s free frame, its half size (points) as last pulled, if ever, for the
+    /// document's session (docs/ui/capture.md).
+    pub capture_free: Option<DVec2>,
     /// The line Shift holds.
     pub shift_lock: Option<Lock>,
     /// Points tracked (hovered a while), world.
@@ -1370,6 +1402,11 @@ pub trait Tool {
     fn dropped(&self) -> bool {
         false
     }
+    /// Does the bar show its choices as drop-down lists rather than segmented (« Capturer »'s:
+    /// its values are many and long, docs/ui/capture.md)?
+    fn lists_choices(&self) -> bool {
+        false
+    }
     /// Its steps, for the steps bar (none: no bar).
     fn steps(&self) -> Option<Steps> {
         None
@@ -1642,6 +1679,7 @@ pub fn make(kind: ToolKind) -> Box<dyn Tool> {
         ToolKind::Stretch => Box::new(StretchTool::default()),
         ToolKind::Reorient => Box::new(ReorientTool::default()),
         ToolKind::Imprint => Box::new(imprint::ImprintTool::default()),
+        ToolKind::Capture => Box::new(CaptureTool::default()),
         ToolKind::CopyLine => Box::new(CopyLineTool::default()),
         ToolKind::CopyGrid => Box::new(CopyGridTool::default()),
         ToolKind::Distribute => Box::new(DistributeTool::default()),

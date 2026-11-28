@@ -651,6 +651,8 @@ impl SkraftApp {
         // Under a finger, the keyboard's keys the tool takes (docs/ui/touch.md#modifiers).
         let keys = self.probe.coarse && options::has_touch_keys(&doc.editor);
         let latched = self.viewport.latched;
+        // Over « Capturer »'s dimmed view, the cards stay opaque (docs/ui/capture.md).
+        let veiled = doc.editor.capture_frame().is_some();
         let (has_context, has_tool) = (options::has_context_options(&doc.editor), has_options || keys);
         if has_context || has_tool {
             let widths = ctx.data(|d| d.get_temp::<[f32; 2]>(widths_id)).unwrap_or_default();
@@ -670,15 +672,22 @@ impl SkraftApp {
                             ui.spacing_mut().item_spacing.x = margin;
                             let mut drawn = widths;
                             if has_context {
-                                let shown =
-                                    crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("context_hovered"), |ui| {
-                                        options::context_options(ui, &doc.editor, actions)
-                                    });
+                                let shown = crate::kit::style::hover_card_over(
+                                    ui,
+                                    option_card(ui.style()),
+                                    options_id.with("context_hovered"),
+                                    veiled,
+                                    |ui| options::context_options(ui, &doc.editor, actions),
+                                );
                                 drawn[0] = shown.response.rect.width();
                             }
                             if has_tool {
-                                let shown =
-                                    crate::kit::style::hover_card(ui, option_card(ui.style()), options_id.with("tool_hovered"), |ui| {
+                                let shown = crate::kit::style::hover_card_over(
+                                    ui,
+                                    option_card(ui.style()),
+                                    options_id.with("tool_hovered"),
+                                    veiled,
+                                    |ui| {
                                         // The keys first: what a finger reaches for during an operation.
                                         ui.horizontal(|ui| {
                                             if keys {
@@ -692,7 +701,8 @@ impl SkraftApp {
                                                 options::tool_options(ui, &doc.editor, actions);
                                             }
                                         })
-                                    });
+                                    },
+                                );
                                 drawn[1] = shown.response.rect.width();
                             }
                             if drawn != widths {
@@ -719,7 +729,7 @@ impl SkraftApp {
 
     /// What floats over the 3D view: the view bar, the tree drop-up, the steps bar, the quick
     /// tools' card; then what zoom extents frames, from `free_top` down.
-    fn view_overlays(&mut self, ctx: &egui::Context, room: Room, free_top: f32, views: &[CommandView], actions: &mut Vec<Action>) {
+    fn view_overlays(&mut self, ctx: &egui::Context, room: Room, mut free_top: f32, views: &[CommandView], actions: &mut Vec<Action>) {
         let Room { view, margin, below_ribbon, free: (free_left, free_right), clear } = room;
         let Some(doc) = self.docs.active_mut() else { return };
         // The view bar (docs/ui/view-bar.md): over the left or right edge, beside that side's
@@ -755,7 +765,8 @@ impl SkraftApp {
         self.steps_top =
             crate::workspaces::common::viewport::steps::bar(ctx, view.center().x, (free_left, free_right), view.bottom(), steps.as_ref());
         if doc.editor.tool_awaits_validation() {
-            crate::workspaces::common::viewport::steps::validation(ctx, view.center().x, free_top, actions);
+            // What is framed starts below it (« Capturer »'s frame, docs/ui/capture.md).
+            free_top = crate::workspaces::common::viewport::steps::validation(ctx, view.center().x, free_top, actions) + room.margin;
         } else if self.probe.coarse && doc.editor.tool_under_way() && !doc.editor.busy() {
             // Under a finger, no Esc key: ✗ steps the operation back (docs/ui/touch.md#modifiers).
             crate::workspaces::common::viewport::steps::step_back(ctx, view.center().x, free_top, actions);

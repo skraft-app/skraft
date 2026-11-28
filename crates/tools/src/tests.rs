@@ -8598,3 +8598,66 @@ fn a_copy_whose_link_is_broken_no_longer_shows_it_imprints() {
     e.apply(Operation::RemoveLinked { bodies: vec![(board_part, bodies[1])] }).unwrap().unwrap();
     assert!(!shapes(&e, dowel) && !shapes(&e, dowel2));
 }
+
+#[test]
+fn capture_enter_asks_for_the_frame_at_the_size_chosen() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Capture);
+    e.set_tool_option(tools::capture::RATIO, OptionValue::Choice("1_1".into()));
+    e.set_tool_option(tools::capture::SIZE, OptionValue::Choice("1280".into()));
+    e.input(ToolInput::Key { key: Key::Enter, mods: Modifiers::default() });
+    let r = e.take_capture().expect("a capture asked for");
+    let m = tools::capture::MARGIN;
+    assert_eq!((r.min, r.max), (DVec2::splat(m), DVec2::splat(1000.0 - m)));
+    assert_eq!(r.size, [1280, 1280]);
+    assert_eq!(r.background, tools::capture::Background::Theme);
+    assert!(e.take_capture().is_none(), "taken once");
+}
+
+#[test]
+fn capture_free_frame_follows_its_corner_about_the_centre() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Capture);
+    e.set_tool_option(tools::capture::RATIO, OptionValue::Choice("free".into()));
+    let corner = DVec2::splat(1000.0 - tools::capture::MARGIN);
+    e.input(ToolInput::Hover { px: corner });
+    assert!(e.capture_frame().unwrap().hovered.is_some());
+    e.input(ToolInput::DragStart { px: corner, mods: Modifiers::default() });
+    e.input(ToolInput::Drag { px: DVec2::new(800.0, 600.0) });
+    e.input(ToolInput::DragEnd { px: DVec2::new(800.0, 600.0), mods: Modifiers::default() });
+    let f = e.capture_frame().unwrap();
+    assert_eq!((f.min, f.max), (DVec2::new(200.0, 400.0), DVec2::new(800.0, 600.0)));
+    // Another tool and back: the frame as it was pulled, for the document's session.
+    e.set_tool(ToolKind::Select);
+    e.set_tool(ToolKind::Capture);
+    let f = e.capture_frame().unwrap();
+    assert_eq!((f.min, f.max), (DVec2::new(200.0, 400.0), DVec2::new(800.0, 600.0)));
+}
+
+#[test]
+fn capture_leaves_the_selection_out_of_the_view_unless_kept() {
+    let mut e = top_editor(Document::new());
+    let root = e.document().root();
+    let primitive = Primitive::Box { origin: DVec3::ZERO, size: DVec3::new(300.0, 200.0, 18.0) };
+    let occ = e
+        .apply(Operation::AddPrimitive { context: root, primitive, placement: glam::DAffine3::IDENTITY, material: None })
+        .unwrap()
+        .unwrap()
+        .created[0];
+    e.select(vec![occ]);
+    let marked = |e: &Editor| e.view().highlights.iter().any(|h| h.mark == Mark::Selected);
+    assert!(marked(&e));
+    e.set_tool(ToolKind::Capture);
+    assert!(!marked(&e) && e.view().left_out.selection && e.view().left_out.guides);
+    e.set_tool_option(tools::capture::KEEP_SELECTION, OptionValue::Toggle(true));
+    assert!(marked(&e) && !e.view().left_out.selection);
+}
+
+#[test]
+fn capture_waits_for_its_validation_and_esc_gives_it_up() {
+    let mut e = top_editor(Document::new());
+    e.set_tool(ToolKind::Capture);
+    assert!(e.tool_awaits_validation());
+    e.input(ToolInput::Key { key: Key::Escape, mods: Modifiers::default() });
+    assert_eq!(e.tool_kind(), ToolKind::Select);
+}

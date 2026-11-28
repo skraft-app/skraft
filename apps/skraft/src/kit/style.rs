@@ -157,10 +157,22 @@ pub fn translucent(mut frame: egui::Frame, hovered: bool) -> egui::Frame {
 /// keyboard's focus (as of the last frame, kept under `id`: the card is drawn before egui knows
 /// this frame's hover). What `add` paints may follow it: [`fill_alpha`].
 pub fn hover_card<R>(ui: &mut egui::Ui, frame: egui::Frame, id: egui::Id, add: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+    hover_card_over(ui, frame, id, false, add)
+}
+
+/// [`hover_card`], kept nearly opaque at rest too when `veiled`: over « Capturer »'s dimmed
+/// view, a translucent card would turn muddy (docs/ui/capture.md).
+pub fn hover_card_over<R>(
+    ui: &mut egui::Ui,
+    frame: egui::Frame,
+    id: egui::Id,
+    veiled: bool,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
     let hovered = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let alpha_id = fill_alpha_id();
-    ui.data_mut(|d| d.insert_temp(alpha_id, card_alpha(hovered)));
-    let shown = translucent(frame, hovered).show(ui, add);
+    ui.data_mut(|d| d.insert_temp(alpha_id, card_alpha(hovered || veiled)));
+    let shown = translucent(frame, hovered || veiled).show(ui, add);
     ui.data_mut(|d| d.remove::<f32>(alpha_id));
     let rect = shown.response.rect;
     let ctx = ui.ctx();

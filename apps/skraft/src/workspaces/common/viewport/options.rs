@@ -6,7 +6,7 @@ use skraft_tools::{Editor, Key, OptionValue, ToolKind, ToolOption};
 
 use crate::commands::Action;
 use crate::kit::style::Tip;
-use crate::kit::widgets::{Field, OPTION_HEIGHT, Segment, framed_field, option_button, segmented};
+use crate::kit::widgets::{ChoiceList, Field, OPTION_HEIGHT, Segment, framed_field, option_button, segmented};
 
 /// Whether the context card has anything to show (docs/ui/interface.md#context-card): the
 /// selection's scope of a tool that picks parts, or the open part's scope.
@@ -84,7 +84,7 @@ pub fn context_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Act
         ui.set_min_height(OPTION_HEIGHT);
         let mut first = true;
         for o in options.iter().filter(|o| is_context_option(o)) {
-            choice_option(ui, &mut first, o, actions);
+            choice_option(ui, &mut first, o, false, actions);
         }
         // The node open: its name and size, its edges picked again from here.
         if shows_open_node(editor)
@@ -138,7 +138,9 @@ fn touch_keys_of(kind: ToolKind) -> (bool, bool, bool) {
     match kind {
         ToolKind::Select => (true, false, false),
         ToolKind::Move | ToolKind::Rotate => (true, true, true),
-        ToolKind::Erase | ToolKind::Paint | ToolKind::Sample | ToolKind::Section | ToolKind::Boolean(_) => (false, false, false),
+        ToolKind::Erase | ToolKind::Paint | ToolKind::Sample | ToolKind::Section | ToolKind::Capture | ToolKind::Boolean(_) => {
+            (false, false, false)
+        }
         _ => (true, false, true),
     }
 }
@@ -232,29 +234,49 @@ pub fn tool_options(ui: &mut egui::Ui, editor: &Editor, actions: &mut Vec<Action
                 actions.push(Action::ToolLength(o.key, text));
             }
         }
+        let listed = editor.tool_lists_choices();
         for o in &options {
-            choice_option(ui, &mut first, o, actions);
+            choice_option(ui, &mut first, o, listed, actions);
         }
         let toggles: Vec<_> =
             options.iter().filter_map(|o| if let OptionValue::Toggle(on) = o.value { Some((o, on)) } else { None }).collect();
-        if toggles.is_empty() {
-            return;
-        }
-        option_group(ui, &mut first, &t!("option_bar.options"), &t!("option_bar.options_tip"));
-        // Side by side like the ribbon's buttons.
-        ui.spacing_mut().item_spacing.x = crate::window::ribbon::BUTTON_GAP;
-        for (o, on) in toggles {
-            if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon, o.swatch) {
-                actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
-            }
+        if !toggles.is_empty() {
+            option_group(ui, &mut first, &t!("option_bar.options"), &t!("option_bar.options_tip"));
+            // Side by side like the ribbon's buttons.
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.x = crate::window::ribbon::BUTTON_GAP;
+                for (o, on) in toggles {
+                    if option_button(ui, &format!("option:{}", o.key), on, &o.label, &o.tip, o.icon, o.swatch) {
+                        actions.push(Action::ToolOption(o.key, OptionValue::Toggle(!on)));
+                    }
+                }
+            });
         }
     });
 }
 
-/// A choice option: its name, then its values as a segmented control (nothing for another kind).
-fn choice_option(ui: &mut egui::Ui, first: &mut bool, o: &ToolOption, actions: &mut Vec<Action>) {
+/// A choice option: its name, then its values as a segmented control — a drop-down list when
+/// the tool lists its choices (`listed`) — (nothing for another kind).
+fn choice_option(ui: &mut egui::Ui, first: &mut bool, o: &ToolOption, listed: bool, actions: &mut Vec<Action>) {
     let OptionValue::Choice(current) = &o.value else { return };
     option_group(ui, first, &o.label, &o.tip);
+    if listed {
+        let shown = o.choices.iter().find(|c| c.value == current).map_or(String::new(), |c| c.label.clone());
+        let mut picked = None;
+        let response = ChoiceList::new(("option_bar", o.key), shown).show(ui, |list| {
+            for c in &o.choices {
+                if list.option(current == c.value, true, &c.label, &c.tip) && current != c.value {
+                    picked = Some(c.value);
+                }
+            }
+        });
+        crate::kit::handles::publish(|| format!("option:{}", o.key), response.rect);
+        response.tip(&o.tip);
+        if let Some(v) = picked {
+            actions.push(Action::ToolOption(o.key, OptionValue::Choice(v.to_owned())));
+        }
+        return;
+    }
     let segments: Vec<_> = o.choices.iter().map(|c| Segment::new(&c.label, &c.tip, c.icon, current == c.value)).collect();
     if let Some(c) =
         segmented(ui, egui::Id::unique(("option_bar", o.key)), &segments, |i| format!("option:{}:{}", o.key, o.choices[i].value))

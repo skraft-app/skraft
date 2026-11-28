@@ -1005,7 +1005,7 @@ mod tests {
         p.apply(Change::Tab("inspect"), w);
         p.apply(Change::TogglePin { key: kv.clone(), group: view, id: "view.iso" }, w);
         p.apply(Change::TogglePin { key: kv.clone(), group: view, id: "view.top" }, w);
-        assert_eq!(p.pinned(&kv, view), ["view.zoom_extents", "view.top", "view.iso"]);
+        assert_eq!(p.pinned(&kv, view), ["view.zoom_extents", "view.top", "view.iso", "tool.capture"]);
         p.apply(Change::ResetTab, w);
         assert!(p.pins.is_empty());
     }

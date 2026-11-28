@@ -362,7 +362,8 @@ Elsewhere:
   last listed; **`workspaces::common::cards::catalog`**: the cards listing definitions as
   tiles or rows ([Catalog cards](catalog.md)).
 - **`overlay.rs`**: what is drawn over the 3D view and the sheet, dashes, the selection
-  rectangle, grips, the markers of the points inferred ([Screen overlays](../render/drawer.md#screen-overlays)).
+  rectangle, the capture frame, grips, the markers of the points inferred ([Screen
+  overlays](../render/drawer.md#screen-overlays)).
 
 *Why:* each screen had grown its own copy, and the copies drifted apart (the code cleanliness
 review of 2026-11-23 found five icon buttons, three menu rows, two selection rectangles).
@@ -635,6 +636,11 @@ for a tool without a choice of its own.
 choices), `Tool::set_option` receives a change. **Why:** `tools` stays without an interface: a
 test changes an option like a click does.
 
+- **A choice is a segmented control**, its name before it; **a drop-down list** (`ChoiceList`)
+  for a tool that lists its choices (`Tool::lists_choices`). **Why:** « Capturer »'s ratios
+  and sizes side by side would take the bar's width.
+- **Over « Capturer »'s dimmed view the cards stay opaque** (`style::hover_card_over`): a
+  translucent card turns muddy there.
 - **Two kinds of options**: **settings** (the scope…), remembered per tool in the user
   preferences (`tool_options`), read by the tool from its `Cx`; and the **gesture's state**
   (copy, for Move and Rotate), which the tool holds itself and which is not remembered.

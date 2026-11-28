@@ -50,13 +50,17 @@ pub fn bar(ctx: &egui::Context, center: f32, (left, right): (f32, f32), bottom: 
     Some(area.response.rect.top())
 }
 
-/// Draws ✗ and ✓ below `top` (under the tool's options), centred on `center` (the view's).
-pub fn validation(ctx: &egui::Context, center: f32, top: f32, actions: &mut Vec<Action>) {
+/// Draws ✗ and ✓ below `top` (under the tool's options), centred on `center` (the view's); their
+/// bottom.
+pub fn validation(ctx: &egui::Context, center: f32, top: f32, actions: &mut Vec<Action>) -> f32 {
     egui::Area::new(egui::Id::unique("validation"))
         .pivot(Align2::CENTER_TOP)
         .fixed_pos(pos2(center, top))
         .order(egui::Order::Foreground)
-        .show(ctx, |ui| buttons(ui, true, actions));
+        .show(ctx, |ui| buttons(ui, true, actions))
+        .response
+        .rect
+        .bottom()
 }
 
 /// ✗ alone, where the validation goes: under a finger, Esc while a tool's operation is under way
