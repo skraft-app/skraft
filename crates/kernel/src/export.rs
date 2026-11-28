@@ -29,18 +29,37 @@ pub struct ExportBody {
     pub faces: Vec<(u32, Paint)>,
 }
 
-/// A colour as it goes out: what it is named after (a material, a finish over it) and its sRGB.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// A colour as it goes out: what it is named after (a material, a finish over it), its sRGB,
+/// and the texture it shows (a SketchUp export's: STEP has colours only).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Paint {
     pub name: String,
     pub rgb: [u8; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<PaintTexture>,
+}
+
+/// A paint's texture: its image among its export's, and its real size (mm: the image's width,
+/// then its height).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PaintTexture {
+    pub image: u32,
+    pub size: [f64; 2],
 }
 
 impl Paint {
     pub fn new(name: &str, rgb: [u8; 3]) -> Self {
-        Paint { name: name.to_owned(), rgb }
+        Paint { name: name.to_owned(), rgb, texture: None }
+    }
+
+    /// What tells two paints apart: their name, colour, image and size.
+    pub(crate) fn key(&self) -> PaintKey {
+        (self.name.clone(), self.rgb, self.texture.map(|t| (t.image, t.size.map(f64::to_bits))))
     }
 }
+
+/// [`Paint::key`]: a paint's name, colour, image and size (its bits).
+pub(crate) type PaintKey = (String, [u8; 3], Option<(u32, [u64; 2])>);
 
 /// The mirror a twin's records are written through, in the component's axes.
 pub const MIRROR: DAffine3 =

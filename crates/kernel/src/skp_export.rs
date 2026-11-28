@@ -18,6 +18,16 @@ pub struct SkpExport {
     pub root: usize,
     pub release: SkpRelease,
     pub facets: Facets,
+    /// The images the paints' textures show (PNG or JPEG), each once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<SkpImage>,
+}
+
+/// An image a texture shows: its bytes, a PNG or a JPEG.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SkpImage {
+    #[serde(with = "crate::job::serde_bytes_compat")]
+    pub bytes: Vec<u8>,
 }
 
 /// The SketchUp release a file is written for.
@@ -77,20 +87,25 @@ pub(crate) mod write {
         [x.x, y.x, z.x, x.y, y.y, z.y, x.z, y.z, z.z, o.x, o.y, o.z, 1.0]
     }
 
-    /// The SketchUp materials of an export: one per paint, by slot (from 1).
-    #[derive(Default)]
-    struct Materials {
-        slots: HashMap<Paint, u16>,
+    /// The SketchUp materials of an export: one per paint, by slot (from 1); a textured one
+    /// takes its image among `images`.
+    struct Materials<'a> {
+        images: &'a [super::SkpImage],
+        slots: HashMap<crate::export::PaintKey, u16>,
         list: Vec<Material>,
     }
 
-    impl Materials {
+    impl Materials<'_> {
         fn slot(&mut self, p: &Paint) -> u16 {
-            if let Some(&s) = self.slots.get(p) {
+            if let Some(&s) = self.slots.get(&p.key()) {
                 return s;
             }
             // SketchUp names a material once: a second colour of a name is numbered.
-            let taken = |n: &str| self.list.iter().any(|m| matches!(m, Material::Solid { name, .. } if name == n));
+            let taken = |n: &str| {
+                self.list.iter().any(|m| match m {
+                    Material::Solid { name, .. } | Material::Textured { name, .. } => name == n,
+                })
+            };
             let mut name = if p.name.is_empty() { format!("#{:02X}{:02X}{:02X}", p.rgb[0], p.rgb[1], p.rgb[2]) } else { p.name.clone() };
             let base = name.clone();
             let mut k = 2;
@@ -98,9 +113,31 @@ pub(crate) mod write {
                 name = format!("{base} #{k}");
                 k += 1;
             }
-            self.list.push(Material::Solid { name, rgba: [p.rgb[0], p.rgb[1], p.rgb[2], 255], opacity: 1.0, colorize_type: 0 });
+            let rgba = [p.rgb[0], p.rgb[1], p.rgb[2], 255];
+            let image = p.texture.and_then(|t| Some((t, self.images.get(t.image as usize)?)));
+            self.list.push(match image {
+                // At its real size, laid as SketchUp lays it (docs/io/export.md#sketchup): the
+                // material on the instance, no placement per face.
+                Some((t, image)) => {
+                    let ext = if image.bytes.starts_with(b"\x89PNG") { "png" } else { "jpg" };
+                    let file = name.replace(['/', '\\', ':'], "-");
+                    Material::Textured {
+                        name,
+                        texture: Some(format!("{file}.{ext}")),
+                        applied_size_in: Some((t.size[0] / MM_PER_INCH, t.size[1] / MM_PER_INCH)),
+                        jpeg_quality: None,
+                        image_bytes: Some(image.bytes.clone()),
+                        avg_rgba: Some(rgba),
+                        colorized: false,
+                        texture_avg_rgba: Some(rgba),
+                        colorize_type: 0,
+                        opacity: 1.0,
+                    }
+                }
+                None => Material::Solid { name, rgba, opacity: 1.0, colorize_type: 0 },
+            });
             let s = self.list.len() as u16;
-            self.slots.insert(p.clone(), s);
+            self.slots.insert(p.key(), s);
             s
         }
     }
@@ -110,7 +147,7 @@ pub(crate) mod write {
     pub(crate) fn export<'a>(export: &SkpExport, input: &dyn Fn(u32) -> Result<&'a Solid>) -> Result<(Vec<u8>, Vec<String>)> {
         let products = &export.products;
         let root = products.get(export.root).ok_or_else(|| err("no top product"))?;
-        let mut materials = Materials::default();
+        let mut materials = Materials { images: &export.images, slots: HashMap::new(), list: Vec::new() };
 
         // Each part's body meshed once, on every core.
         let bodies: Vec<(&ExportBody, &Solid)> =
@@ -554,6 +591,7 @@ mod tests {
                 root: 0,
                 release,
                 facets: Facets::Normal,
+                images: Vec::new(),
             };
             let bytes = written(export, vec![board.clone(), plate.clone()]);
             let model = skpwright::Model::parse(&bytes).unwrap();
@@ -570,6 +608,46 @@ mod tests {
             let expected = 100.0 * 100.0 * 10.0 - std::f64::consts::PI * 100.0 * 10.0;
             assert!((volumes[0] - 20000.0).abs() < 1e-3, "{release:?} {volumes:?}");
             assert!((volumes[1] - expected).abs() / expected < 5e-3, "{release:?} {volumes:?}");
+        }
+    }
+
+    /// A textured paint goes out as a textured material on the instance, its image embedded
+    /// once, at its real size, in both releases.
+    #[test]
+    fn a_texture_goes_out_with_its_material() {
+        let png = include_bytes!("../../../web/apple-touch-icon.png").to_vec();
+        let board = Arc::new(Solid::new_box(DVec3::ZERO, DVec3::new(100.0, 20.0, 10.0)).unwrap());
+        let oak = Paint { texture: Some(crate::PaintTexture { image: 0, size: [600.0, 300.0] }), ..Paint::new("Chêne", [180, 140, 90]) };
+        for release in [SkpRelease::R2017, SkpRelease::R2026] {
+            let export = SkpExport {
+                products: vec![
+                    ExportProduct {
+                        name: "Meuble".into(),
+                        bodies: vec![],
+                        children: vec![
+                            (1, DAffine3::IDENTITY, String::new()),
+                            (1, DAffine3::from_translation(DVec3::Y * 100.0), String::new()),
+                        ],
+                    },
+                    ExportProduct { name: "Planche".into(), bodies: vec![body(0, Some(oak.clone()))], children: vec![] },
+                ],
+                root: 0,
+                release,
+                facets: Facets::Normal,
+                images: vec![SkpImage { bytes: png.clone() }],
+            };
+            let model = skpwright::Model::parse(&written(export, vec![board.clone()])).unwrap();
+            let textured: Vec<_> = model.materials.iter().filter(|m| matches!(m, skpwright::Material::Textured { .. })).collect();
+            assert_eq!(textured.len(), 1, "{release:?}");
+            let skpwright::Material::Textured { name, image_bytes, applied_size_in, .. } = textured[0] else { unreachable!() };
+            assert_eq!(name, "Chêne");
+            assert_eq!(image_bytes.as_deref(), Some(png.as_slice()), "{release:?}");
+            let (w, h) = applied_size_in.unwrap();
+            assert!((w * 25.4 - 600.0).abs() < 1e-6 && (h * 25.4 - 300.0).abs() < 1e-6, "{release:?} {w} {h}");
+            // On both instances, none on the faces.
+            let top = model.geometry.iter().find(|r| r.def_index.is_none()).unwrap();
+            assert!(top.placed.iter().all(|p| p.material != 0));
+            assert!(model.geometry.iter().flat_map(|r| &r.mesh.faces).all(|f| f.front_material.is_none()));
         }
     }
 }

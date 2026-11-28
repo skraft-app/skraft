@@ -57,7 +57,7 @@ impl Document {
             (Some(n), None) | (None, Some(n)) => n.to_owned(),
             (None, None) => String::new(),
         };
-        Some(skraft_kernel::Paint { name, rgb })
+        Some(skraft_kernel::Paint { name, rgb, texture: None })
     }
 
     /// What `seen` looks like as one sRGB colour (docs/io/export.md): what is under's

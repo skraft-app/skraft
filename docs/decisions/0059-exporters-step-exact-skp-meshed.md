@@ -58,7 +58,9 @@ kept: SketchUp places them); each part's final shape meshed, a planar face one S
 with its holes, a curved face its facets, softened and smoothed between them. The box chooses
 the **release** — 2017 by default, opened by SketchUp Make 2017 and every later release, or
 2026 — and **how fine the facets** are (coarse, as displayed, fine). A part's colour goes on
-its instances, as OpenCutList reads it; a face painted on its own on the face.
+its instances, as OpenCutList reads it; a face painted on its own on the face. A texture goes
+out with its material, its image embedded at its real size, laid by SketchUp: no placement per
+face, the materials staying on the instances.
 
 ## Alternatives considered
 

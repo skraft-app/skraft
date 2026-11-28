@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::DAffine3;
-use skraft_kernel::{ExportBody, ExportProduct, Facets, Job, MIRROR, SkpExport, SkpRelease, Solid, StepExport, Task};
+use skraft_kernel::{
+    ExportBody, ExportProduct, Facets, Job, MIRROR, Paint, PaintTexture, SkpExport, SkpImage, SkpRelease, Solid, StepExport, Task,
+};
 
 use crate::document::{ComponentKind, Document, EntityPath, Id};
 
@@ -43,6 +45,9 @@ struct Gather<'a> {
     input_of: HashMap<*const Solid, u32>,
     /// Bodies written, to tell whether the file holds anything.
     bodies: usize,
+    /// The images textures show, each once (a SketchUp export's), and each one's index.
+    images: Vec<Arc<[u8]>>,
+    image_of: HashMap<String, u32>,
 }
 
 impl Gather<'_> {
@@ -60,11 +65,11 @@ impl Gather<'_> {
                 let shape = part.shape();
                 if !shape.record().faces.is_empty() {
                     let solid = self.input(shape);
-                    let color = doc.seen_paint(part.shown());
+                    let color = self.paint(part.shown());
                     let faces = part
                         .faces_shown()
                         .into_iter()
-                        .filter_map(|(f, seen)| doc.seen_paint(seen).filter(|c| Some(c) != color.as_ref()).map(|c| (f, c)))
+                        .filter_map(|(f, seen)| self.paint(seen).filter(|c| Some(c) != color.as_ref()).map(|c| (f, c)))
                         .collect();
                     product.bodies.push(ExportBody { name: c.name.clone(), solid, mirrored, color, faces });
                     self.bodies += 1;
@@ -91,6 +96,25 @@ impl Gather<'_> {
         let twin = self.rigid && placed.matrix3.determinant() < 0.0;
         let placement = if twin { placed * MIRROR } else { placed };
         Some((self.product(component, twin)?, placement))
+    }
+
+    /// What `seen` goes out as: its colour, and — in a SketchUp file (placements not rigid),
+    /// with no finish over it — the texture of what is under, its image taken once.
+    fn paint(&mut self, seen: crate::Seen) -> Option<Paint> {
+        let doc = self.doc;
+        let mut paint = doc.seen_paint(seen)?;
+        let texture = seen.under.filter(|_| !self.rigid && seen.over.is_none()).and_then(|m| doc.material(m).ok()?.texture.as_ref());
+        if let Some(t) = texture
+            && let Some(asset) = doc.asset(&t.image)
+        {
+            let next = self.images.len() as u32;
+            let image = *self.image_of.entry(t.image.clone()).or_insert(next);
+            if image == next {
+                self.images.push(asset.bytes.clone());
+            }
+            paint.texture = Some(PaintTexture { image, size: t.size });
+        }
+        Some(paint)
     }
 
     fn input(&mut self, solid: &Arc<Solid>) -> u32 {
@@ -130,6 +154,8 @@ impl Document {
             inputs: Vec::new(),
             input_of: HashMap::new(),
             bodies: 0,
+            images: Vec::new(),
+            image_of: HashMap::new(),
         };
         let paths = outermost(paths);
         let (root, name) = match paths.as_slice() {
@@ -174,7 +200,8 @@ impl Document {
                 }),
             },
             ExportFormat::Skp { release, facets } => {
-                Task::ExportSkp { export: Box::new(SkpExport { products: g.products, root, release, facets }) }
+                let images = g.images.iter().map(|b| SkpImage { bytes: b.to_vec() }).collect();
+                Task::ExportSkp { export: Box::new(SkpExport { products: g.products, root, release, facets, images }) }
             }
         };
         Some(ExportPlan { job: Job { inputs: g.inputs, tasks: vec![task] }, name, parts })

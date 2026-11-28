@@ -35,7 +35,7 @@ of occurrence paths, the same for both formats (`ExportProduct`, `crates/kernel/
   and no finish: no colour.
 - **Left out**: hidden occurrences and what is under them; guides, recipes and profiles,
   properties, the drawing. Not yet: material designations and a bought component's source
-  (STEP), OpenCutList's attributes (SketchUp).
+  (STEP), OpenCutList's attributes and textures placed as Skraft lays them (SketchUp).
 
 ## STEP
 
@@ -84,6 +84,11 @@ skpwright (`crates/kernel/src/skp_export.rs`), the same way.
 - **Paint**: a SketchUp material per colour (`Material::Solid`, named after it). A **part's
   colour on its instances**, as OpenCutList reads a part's material; a face with its own on
   the face.
+- **Textures**: a material with a texture and no finish over it goes out textured
+  (`Material::Textured`): its image embedded (`SkpExport::images`, each once), at its real
+  size, its mean colour beside it. **No placement per face**: on the instance, SketchUp lays
+  it its own way, so the grain and the texture's rotation may not follow Skraft's box
+  projection. A finish over a texture goes out as its composed colour.
 - **Release** (`SkpRelease`): **2017** (`Model::to_release(Release::R2017)`), opened by
   SketchUp Make 2017 and every later release, or **2026** (`Model::to_archive`), the current
   container, read from SketchUp 2021. What the release cannot hold comes back as notes: a
